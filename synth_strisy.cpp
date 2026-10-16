@@ -16,8 +16,18 @@
  * Striso Control. If not, see <http://www.gnu.org/licenses/>.
  */
 
-// Synth thread running the hand-optimized C++ engine (strisy.h) instead of the Faust generated
-// synth.cpp. Select with `make SYNTH_ENGINE=strisy` (default) or `make SYNTH_ENGINE=faust`.
+// Synth thread running a C++ voice engine instead of the Faust generated synth.cpp.
+// Select with `make SYNTH_ENGINE=strisy` (default) or `make SYNTH_ENGINE=faust`.
+//
+// The voice engine is chosen with `make VOICE=<name>`: strisy (default, strisy.h, the port of
+// synth.dsp) or voice_<name>.h. An engine header provides, in namespace <name>:
+//   typedef float real; BLOCK (= 32), MAX_VOICES (>= VOICECOUNT)
+//   struct Engine with members  strisy::GlobalControls g;  strisy::VoiceControls vc[MAX_VOICES];
+//                               int nvoices;
+//   void init(Engine&, int sample_rate, int nvoices);
+//   void process(Engine&, real* output);          // BLOCK mono samples, about +-4 full scale
+//   int active_voices(const Engine&);              // for the profile print
+// The Engine is placed in DTCM (zero-initialized, no constructors run): it must be plain data.
 
 extern "C" {
     #include "ch.h"
@@ -33,13 +43,19 @@ static volatile uint32_t prof_blocks;
 #define STRISY_PROF_MARK(k) do { uint32_t t_ = DWT->CYCCNT; prof[k] += t_ - prof_t; prof_t = t_; } while (0)
 
 #include "strisy.h"
+#ifdef SYNTH_VOICE_HEADER
+#include SYNTH_VOICE_HEADER
+namespace eng = SYNTH_VOICE_NS;
+#else
+namespace eng = strisy;
+#endif
 #include "chprintf.h"
 
 #define MAX_VAL (1<<23)
 #define VOLUME_FILTER 0.99f
 
 // Engine state and noise table live in DTCM: zero wait state, not shared with DMA.
-static strisy::Engine engine __attribute__((section(".ram5_clear")));
+static eng::Engine engine __attribute__((section(".ram5_clear")));
 
 synth_interface_t synth_interface;
 static float dump;
@@ -50,8 +66,8 @@ static int32_t *outbuf;
 static int32_t *inbuf;
 static float output0[CHANNEL_BUFFER_SIZE];
 
-static_assert(CHANNEL_BUFFER_SIZE == strisy::BLOCK, "engine block size must match the codec buffer");
-static_assert(VOICECOUNT <= strisy::MAX_VOICES, "too many voices for the engine");
+static_assert(CHANNEL_BUFFER_SIZE == eng::BLOCK, "engine block size must match the codec buffer");
+static_assert(VOICECOUNT <= eng::MAX_VOICES, "too many voices for the engine");
 
 // 4 KB stack in DTCM (upstream's Faust synth used 1024 bytes, almost all of it)
 static THD_WORKING_AREA(waSynthThread, 4096) __attribute__((section(".ram5_clear")));
@@ -65,7 +81,7 @@ static void synthThread(void *arg) {  // THE SYNTH THREAD
 
 	chEvtAddEvents(1);
 
-	strisy::init(engine, SAMPLINGFREQ, VOICECOUNT);
+	eng::init(engine, SAMPLINGFREQ, VOICECOUNT);
 
 	// controls the engine doesn't use, and voices beyond VOICECOUNT, write to a dummy
 	synth_interface.acc_abs = &engine.g.acc_abs;
@@ -89,7 +105,7 @@ static void synthThread(void *arg) {  // THE SYNTH THREAD
 		chEvtWaitOne(1);
 		rtcnt_t t_start = chSysGetRealtimeCounterX();
 
-		strisy::process(engine, output0);
+		eng::process(engine, output0);
 		prof_blocks++;
 
 		volume_filtered = VOLUME_FILTER * volume_filtered + (1 - VOLUME_FILTER) * volume;
@@ -153,8 +169,7 @@ void synth_profile_print(void *chp) {
 	blocks = prof_blocks; prof_blocks = 0;
 	chSysUnlock();
 	if (!blocks) return;
-	int active = 0;
-	for (int v = 0; v < engine.nvoices; v++) active += engine.vs[v].active;
+	int active = eng::active_voices(engine);
 	chprintf((BaseSequentialStream *)chp, "profile over %lu blocks, %d voices active now, cycles per block:\r\n", blocks, active);
 	for (int k = 0; k < 8; k++)
 		chprintf((BaseSequentialStream *)chp, "  %-12s %6lu\r\n", names[k], p[k] / blocks);

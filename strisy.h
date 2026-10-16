@@ -201,7 +201,7 @@ static inline void fill_noise_table(float* table) {
 	}
 }
 
-static void init(Engine& e, int sample_rate, int nvoices) {
+static inline void init(Engine& e, int sample_rate, int nvoices) {
 	real sr = (real)sample_rate;
 	e.pi_sr = 3.1415926535897931f / sr;
 	e.c_period = 0.061156102924877762f * sr;   // 0.5*SR/8.1757989 as in the Faust code
@@ -500,6 +500,12 @@ static inline void process_voice(Engine& e, int v) {
 		s.active = 0;
 	}
 #endif
+}
+
+static inline int active_voices(const Engine& e) {
+	int n = 0;
+	for (int v = 0; v < e.nvoices; v++) n += e.vs[v].active;
+	return n;
 }
 
 // whole block: output gets BLOCK samples

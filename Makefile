@@ -155,9 +155,12 @@ CPPSRC = $(ALLCPPSRC) \
 	synth_control.cpp \
 	$(SYNTH_SRC)
 
-# Relink when the engine changes: the objects alone don't tell make which synth was linked.
-ifneq ($(SYNTH_ENGINE), $(shell cat .synth_engine 2>&1))
-$(shell echo -n $(SYNTH_ENGINE) > .synth_engine)
+# Voice engine for SYNTH_ENGINE=strisy: strisy (strisy.h) or <name> for voice_<name>.h
+VOICE ?= strisy
+
+# Rebuild when the engine or voice changes: the objects alone don't tell make which was built.
+ifneq ($(SYNTH_ENGINE) $(VOICE), $(shell cat .synth_engine 2>&1))
+$(shell echo -n $(SYNTH_ENGINE) $(VOICE) > .synth_engine)
 endif
 
 # List ASM source files here.
@@ -192,6 +195,9 @@ endif
 
 # List all user C define here, like -D_DEBUG=1
 UDEFS = -DFWVERSION=\"$(FWVERSION)\"
+ifneq ($(VOICE),strisy)
+  UDEFS += -DSYNTH_VOICE_HEADER=\"voice_$(VOICE).h\" -DSYNTH_VOICE_NS=$(VOICE)
+endif
 
 # Define ASM defines here
 UADEFS =
@@ -307,3 +313,4 @@ else
 endif
 $(OBJDIR)/$(SYNTH_SRC:.cpp=.o): OPT = $(SYNTH_OPT) $(SYNTH_OPT_KEEP)
 $(BUILDDIR)/$(PROJECT).elf: .synth_engine
+$(OBJDIR)/$(SYNTH_SRC:.cpp=.o): .synth_engine
