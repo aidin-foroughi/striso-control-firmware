@@ -2,30 +2,34 @@
  * Bowed string voice engine: a digital waveguide string driven by a friction bow, with a small
  * modal body. Build with `make VOICE=bowed`.
  *
- * String: two velocity-wave delay loops meeting at the bow, one for the neck side (bow -> nut ->
- * bow, read with a 4-tap Lagrange fractional delay that carries the pitch and vibrato) and one for
- * the bridge side (bow -> bridge -> bow, linear interpolation, its length sets the bow position).
- * The nut reflects with -1, the bridge with -g*lowpass (one pole): the string losses. The loss
- * filter's phase delay at the fundamental is subtracted from the loop so the tuning is exact.
+ * String: two velocity-wave delay loops meeting at the bow, one for the neck side (bow -> finger
+ * -> bow, read with a 4-tap Lagrange fractional delay that carries the pitch and vibrato) and one
+ * for the bridge side (bow -> bridge -> bow, linear interpolation; its length is the bow
+ * position). Both ends reflect through a one-pole lowpass whose time constant is a fixed
+ * fraction of the period (corner rounding, like a finite bow width: the same timbre in every
+ * register); the bridge one also sets the decay, with a separate DC path so the bridge stays
+ * rigid at DC. The filters' phase delay at the fundamental is subtracted from the loop.
  *
- * Bow: explicit friction junction in the style of McIntyre/Schumacher/Woodhouse and Smith's
- * reflection-function bow. With v_h the string velocity at the bow without bow force and
- * D = v_bow - v_h, the bow adds f = R(|D|)*D to both outgoing waves:
- *   sticking  |D| <= ds:  R = 1 (the string moves with the bow)
- *   slipping  |D| >  ds:  f = ds * (c + a*t) / (c + t), t = |D| - ds, i.e. a hyperbolic friction
- *                         curve falling from static (ds) to dynamic friction (a*ds)
- * ds is the maximum static friction force (bow force), a = mu_d/mu_s, c the steepness.
- * R stays in [0, 1], so the junction is a contraction (it never adds energy beyond the bow's own
- * motion) for any bow force and speed: with the loss filter's gain below 1 the loop is stable.
- * The model is homogeneous: scaling bow speed, force and c together scales the motion, so the
- * timbre only depends on the force/speed ratio (Schelleng), the bow position and the losses.
+ * Bow: explicit friction junction (McIntyre/Schumacher/Woodhouse, Smith). With v_h the string
+ * velocity at the bow without bow force and D = v_bow - v_h, the bow adds the force f to both
+ * outgoing waves:
+ *   sticking: f = D (the string moves with the bow) while |D| <= ds (maximum static friction)
+ *   slipping: hyperbolic friction mu(u) = a + (1-a)*c/(c+u) of the slip speed u, solved exactly
+ *             (one square root) from |D| = u + ds*mu(u); f = sign(D) * (|D| - u)
+ * with hysteresis (a slip continues until its branch disappears). |f| <= |D| and sign(f) =
+ * sign(D), so the junction is a contraction for any bow force and speed: with the loss filters'
+ * gain below 1 the loop is stable. The model is homogeneous: scaling bow speed, force and c
+ * together scales the motion, so the timbre depends only on the force/speed ratio (Schelleng),
+ * the bow position and the losses; the speed sets the loudness.
+ * Pitch: the bow flattens the string a little (more with round corners and near the bridge). The
+ * slip onsets mark the periods, and a slow adaptive correction keeps them at the note's period.
  *
- * Body: parallel resonator bank (state-variable band-passes) at violin body modes, scaled down
- * in frequency for low notes (viola, cello, bass sized bodies), plus a direct path.
+ * Body: tone shelf (pressure, bow position) and a parallel bank of 5 state-variable band-passes
+ * at violin body modes, scaled down for low notes (viola, cello, bass sized bodies).
  *
- * Cost (per voice-sample): string+bow ~50 FP ops incl. 1 division, body ~55 FP ops.
- * Coefficients at block rate, bow parameters ramped per sample. Delay lines are static arrays in
- * normal RAM (12 KB per voice), the Engine (DTCM) is small.
+ * Cost per voice-sample: string+bow loop ~160 instructions (~75 FP incl. 1 vsqrt), body loop ~85
+ * (~60 FP); block-rate coefficients ~10 divisions. Silent voices are skipped. Delay lines: static
+ * arrays in normal RAM (12 KB per voice); Engine (DTCM) ~1.2 KB.
  */
 #ifndef VOICE_BOWED_H_
 #define VOICE_BOWED_H_
@@ -70,6 +74,7 @@ struct Params {
 	real rel0, rel_ped, rel_lift; // release decay: base, pedal, quick lift-off factor
 	real trem;                // shake -> bow speed modulation depth
 	real body_rot;            // rotation -> body mode shift (octaves)
+	real shelf_lo, shelf_hi;  // tone shelf gain at light / full pressure
 	real direct;              // body direct path
 	real out_gain;
 };
@@ -79,6 +84,7 @@ struct VoiceState {
 	int slip;                 // bow state: slipping (1) or sticking (0)
 	int cnt;                  // samples since the last slip onset (pitch tracking)
 	real corr;                // adaptive tuning correction, fraction of the period
+	real dcr;                 // DC reflection of the bridge
 	uint32_t w, seed;         // delay write position, noise generator
 	real note_prev, note_body;
 	real P;                   // smoothed pressure
@@ -87,7 +93,8 @@ struct VoiceState {
 	real by;                  // smoothed but_y
 	real vb, ds, cw, nz, dn;  // per-sample ramped values at the end of the previous block
 	real y, ydc, yn;          // loss filter states (bridge, its DC path, finger)
-	real hp;                  // DC blocker state
+	real hp, ts;              // DC blocker and tone shelf states
+	real shelf;               // tone shelf gain (ramped)
 	real bd[NB][2];           // body SVF states
 };
 
@@ -97,7 +104,7 @@ struct Engine {
 	strisy::GlobalControls g;
 	strisy::VoiceControls vc[MAX_VOICES];
 	int nvoices;
-	real sr, inv_sr, c_period, two_pi_sr, pi_sr, hp_k, dc_k;
+	real sr, inv_sr, c_period, two_pi_sr, pi_sr, hp_k, dc_k, ts_k;
 	real shake;               // smoothed accelerometer magnitude
 	Params p;
 	VoiceState vs[MAX_VOICES];
@@ -156,7 +163,7 @@ static inline void reset_voice(Engine& e, int v) {
 	for (int i = 0; i < BRIDGE_LEN; i++) bridge_buf[v][i] = 0.0f;
 	int active = s.active;
 	uint32_t seed = s.seed;
-	real note_prev = s.note_prev, note_body = s.note_body, dn = s.dn, corr = s.corr;
+	real note_prev = s.note_prev, note_body = s.note_body, dn = s.dn, corr = s.corr, dcr = s.dcr;
 	s = VoiceState();
 	s.active = active;
 	s.seed = seed;
@@ -164,6 +171,7 @@ static inline void reset_voice(Engine& e, int v) {
 	s.note_body = note_body;
 	s.dn = dn;
 	s.corr = corr;
+	s.dcr = dcr;
 }
 
 static inline void init(Engine& e, int sample_rate, int nvoices) {
@@ -174,6 +182,7 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 	e.pi_sr = 3.14159265f / e.sr;
 	e.hp_k = 6.2831853f * 25.0f / e.sr;  // DC blocker, 25 Hz
 	e.dc_k = 6.2831853f * 4.0f / e.sr;   // loss filter DC path, 4 Hz
+	e.ts_k = 6.2831853f * 1300.0f / e.sr;  // tone shelf corner
 	e.shake = 1.0f;
 	e.nvoices = nvoices < MAX_VOICES ? nvoices : MAX_VOICES;
 	e.g = {1.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 3.0f / 16};
@@ -189,6 +198,7 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 	p.rel0 = 0.12f; p.rel_ped = 3.0f; p.rel_lift = 6.0f;
 	p.trem = 1.3f;
 	p.body_rot = 0.7f;
+	p.shelf_lo = 0.3f; p.shelf_hi = 1.3f;
 	p.direct = 0.3f;
 	p.out_gain = 5.0f;
 	for (int v = 0; v < MAX_VOICES; v++) {
@@ -198,6 +208,7 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 		e.vs[v].note_prev = e.vs[v].note_body = 69.0f;
 		e.vs[v].dn = 100.0f;
 		e.vs[v].corr = 0.003f;
+		e.vs[v].dcr = 0.999f;
 		reset_voice(e, v);
 	}
 }
@@ -303,6 +314,10 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	// release threshold slowly, so the same jitter shakes the slip timing (the pitch) much more
 	const real nz = rmin(p.noise0 * rmin(200.0f / L, 1.0f) + p.noise_acc * acc + 0.3f * rmax(P - 0.9f, 0.0f), 0.9f);
 
+	// tone shelf above the corner rounding: a light bow (flautando) and the fingerboard are
+	// dark, a heavy bow, the bridge (ponticello) and a strike are bright and edgy
+	const real shelf = rmin((p.shelf_lo + (p.shelf_hi - p.shelf_lo) * Pn * fsqrt(Pn)) * bq * (1.0f + 0.5f * acc), 3.0f);
+
 	// body coefficients
 	BodyCoef bc[NB];
 	{
@@ -330,7 +345,10 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	const int cmin = (int)(0.8f * L), clo = (int)(0.93f * L), chi = (int)(1.08f * L) + 1;
 	real ydc = s.ydc, yn = s.yn;
 	const real polen1 = 1.0f - polen;
-	const real dcg = gl - 1.0f, dck = e.dc_k;
+	// DC reflection -0.999: (almost) rigid. Released, the leftover DC drains faster (for the
+	// gating); slewed over ~60 ms so bow bouncing doesn't click
+	s.dcr += 0.016f * ((pres > 0.0f ? 0.999f : 0.5f) - s.dcr);
+	const real dcg = gl - s.dcr, dck = e.dc_k;
 	real y = s.y, vbn = s.vb, dsn = s.ds, cwn = s.cw, nzn = s.nz, dn = s.dn;
 	const real fa = p.fric_a, fa1 = 1.0f - p.fric_a;
 	real peak = 0.0f;
@@ -378,10 +396,10 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 		bbuf[w & BRIDGE_MASK] = nref + f;
 		w++;
 		sb[n] = br_in;
-		peak = rmax(peak, fabsf(br_in));
+		peak = rmax(peak, fabsf(br_in - ydc));  // (the DC is not heard)
 	}
 	s.w = w; s.seed = seed; s.y = y; s.slip = slip; s.cnt = cnt < 1000000 ? cnt : 1000000; s.ydc = ydc; s.yn = yn;
-	if (tn > 0) {
+	if (tn > 0 && kap * (1.0f + p.acc_force * acc) < 1.3f) {  // not in raucous motion
 		const real kad = rmin(0.25f, L * e.inv_sr * 25.0f);  // per period: T / 40 ms
 		s.corr = rmin(rmax(s.corr + kad * ((real)tsum - (real)tn * L) / L, -0.02f), 0.04f);
 	}
@@ -393,14 +411,19 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 		const real gain = p.out_gain * beta;
 		const real dir = p.direct;
 		const real hk = e.hp_k;
-		real hp = s.hp;
+		real hp = s.hp, ts = s.ts, sh = s.shelf;
+		const real dsh = (shelf - sh) * r, tk = e.ts_k;
 		real q01 = s.bd[0][0], q02 = s.bd[0][1], q11 = s.bd[1][0], q12 = s.bd[1][1];
 		real q21 = s.bd[2][0], q22 = s.bd[2][1], q31 = s.bd[3][0], q32 = s.bd[3][1];
 		real q41 = s.bd[4][0], q42 = s.bd[4][1];
 		real opeak = 0.0f;
 		for (int n = 0; n < BLOCK; n++) {
-			const real xin = sb[n] - hp;
-			hp += hk * xin;
+			const real xdc = sb[n] - hp;
+			hp += hk * xdc;
+			// tone: high shelf above ~1.3 kHz
+			ts += tk * (xdc - ts);
+			sh += dsh;
+			const real xin = ts + sh * (xdc - ts);
 			real v1, v2, acc_o = dir * xin;
 			SVF_TICK(xin, q01, q02, bc[0], v1, v2); acc_o += bc[0].gk * v1;
 			SVF_TICK(xin, q11, q12, bc[1], v1, v2); acc_o += bc[1].gk * v1;
@@ -411,7 +434,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 			sb[n] = o;
 			opeak = rmax(opeak, fabsf(o));
 		}
-		s.hp = hp;
+		s.hp = hp; s.ts = ts; s.shelf = sh;
 		s.bd[0][0] = q01; s.bd[0][1] = q02; s.bd[1][0] = q11; s.bd[1][1] = q12;
 		s.bd[2][0] = q21; s.bd[2][1] = q22; s.bd[3][0] = q31; s.bd[3][1] = q32;
 		s.bd[4][0] = q41; s.bd[4][1] = q42;
@@ -419,13 +442,14 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	}
 
 	// --- safety: non-finite or runaway state resets the voice (cannot happen in normal operation)
-	if (bad(y, 1e3f) || bad(s.hp + s.bd[0][0] + s.bd[1][0] + s.bd[2][0] + s.bd[3][0] + s.bd[4][0], 1e4f) || bad(peak, 1e3f)) {
+	if (bad(y + s.ydc + s.yn, 1e3f) || bad(s.hp + s.ts + s.bd[0][0] + s.bd[1][0] + s.bd[2][0] + s.bd[3][0] + s.bd[4][0], 1e4f)
+		|| bad(peak, 1e3f)) {
 		reset_voice(e, v);
 		return;
 	}
 	for (int n = 0; n < BLOCK; n++) out[n] += sb[n];
 	// --- gating: idle once released and the whole loop has decayed
-	if (pres <= 0.0f && peak < 2e-6f) {
+	if (pres <= 0.0f && peak < 1e-5f) {  // -100 dB re full level
 		if (++s.quiet * BLOCK > (int)L + 2 * BLOCK) s.active = 0;
 	} else {
 		s.quiet = 0;
