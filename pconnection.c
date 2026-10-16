@@ -26,6 +26,7 @@
 // #include "exceptions.h"
 #include "bulk_usb.h"
 #include "midi.h"
+#include "synth.h"
 #include "midi_usb.h"
 #include "config.h"
 #include "version.h"
@@ -198,6 +199,23 @@ void PExReceiveByte(unsigned char c) {
       else if (c == 'I') { // thread info
         cmd_threads((BaseSequentialStream *)&BDU1);
       }
+#ifdef USE_INTERNAL_SYNTH
+      else if (c == 'P') { // synth engine profile per section since last read
+        synth_profile_print(&BDU1);
+      }
+      else if (c == 'L') { // synth DSP load since last read, in CPU cycles per block
+        chSysLock();
+        uint64_t sum = synth_load.sum;
+        uint32_t peak = synth_load.peak;
+        uint32_t blocks = synth_load.blocks;
+        synth_load.sum = 0;
+        synth_load.peak = 0;
+        synth_load.blocks = 0;
+        chSysUnlock();
+        chprintf((BaseSequentialStream *)&BDU1, "synth blocks %lu avg %lu peak %lu budget %lu cycles\r\n",
+                 blocks, blocks ? (uint32_t)(sum / blocks) : 0, peak, SYNTH_BLOCK_CYCLES);
+      }
+#endif
       else if (c == 'C') { // Calibration mode
         buttonSetCalibration();
       }

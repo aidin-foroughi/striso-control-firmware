@@ -43,11 +43,25 @@ typedef struct struct_synth_interface {
 	float* but_y[MAX_VOICECOUNT];
 } synth_interface_t;
 
+// CPU cycles available per audio block
+#define SYNTH_BLOCK_CYCLES ((uint32_t)((uint64_t)STM32_SYS_CK * CHANNEL_BUFFER_SIZE / SAMPLINGFREQ))
+
+// synth DSP load in CPU cycles, accumulated since last read (read with chSysLock held)
+typedef struct struct_synth_load {
+	uint64_t sum;
+	uint32_t peak;
+	uint32_t blocks;
+} synth_load_t;
+
 #ifdef USE_INTERNAL_SYNTH
 extern synth_interface_t synth_interface;
+extern volatile synth_load_t synth_load;
 
 void start_synth_thread(void);
 #endif
+
+// print and reset the synth engine profile to a BaseSequentialStream (no-op if unsupported)
+void synth_profile_print(void *chp);
 
 int synth_message(int size, int* msg);
 void synth_tick(void);

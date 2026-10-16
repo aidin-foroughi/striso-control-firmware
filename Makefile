@@ -141,9 +141,24 @@ CSRC = $(ALLCSRC) \
 
 # C++ sources that can be compiled in ARM or THUMB mode depending on the global
 # setting.
+# Synth engine: strisy (hand-optimized C++, strisy.h) or faust (generated from synth.dsp)
+SYNTH_ENGINE ?= strisy
+ifeq ($(SYNTH_ENGINE),faust)
+  SYNTH_SRC = synth.cpp
+else ifeq ($(SYNTH_ENGINE),strisy)
+  SYNTH_SRC = synth_strisy.cpp
+else
+  $(error SYNTH_ENGINE must be strisy or faust)
+endif
+
 CPPSRC = $(ALLCPPSRC) \
 	synth_control.cpp \
-	synth.cpp
+	$(SYNTH_SRC)
+
+# Relink when the engine changes: the objects alone don't tell make which synth was linked.
+ifneq ($(SYNTH_ENGINE), $(shell cat .synth_engine 2>&1))
+$(shell echo -n $(SYNTH_ENGINE) > .synth_engine)
+endif
 
 # List ASM source files here.
 ASMSRC = $(ALLASMSRC)
@@ -277,3 +292,18 @@ include $(RULESPATH)/rules.mk
 #
 # Common rules
 ##############################################################################
+
+# Optimization flags for the synth DSP only (override: make SYNTH_OPT="...").
+# Only the USE_OPT part of OPT is replaced; FPU and LTO flags added by rules.mk are kept.
+# -O3: the Faust synth measured 60% CPU vs 69% at the global -O1 on the board
+SYNTH_OPT ?= -O3 -ggdb -fomit-frame-pointer -falign-functions=16
+# SYNTH_LTO=no compiles the synth as a normal object: with LTO, code generation happens at link
+# time and not all per-file flags (e.g. scheduling) carry over.
+SYNTH_LTO ?= yes
+ifeq ($(SYNTH_LTO),yes)
+  SYNTH_OPT_KEEP := $(filter-out $(USE_OPT),$(OPT))
+else
+  SYNTH_OPT_KEEP := $(filter-out $(USE_OPT) -flto,$(OPT))
+endif
+$(OBJDIR)/$(SYNTH_SRC:.cpp=.o): OPT = $(SYNTH_OPT) $(SYNTH_OPT_KEEP)
+$(BUILDDIR)/$(PROJECT).elf: .synth_engine

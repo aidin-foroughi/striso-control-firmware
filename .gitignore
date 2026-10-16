@@ -4,6 +4,7 @@ build/
 releases/
 *.tmp
 .git_version
+.synth_engine
 
 faust.*/
 *.dsp.json

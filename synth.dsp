@@ -22,6 +22,35 @@ envdecay(c) = (max:_ * c) ~ _;
 
 dotpart(x) = x - int(x);
 
+// Same filter as fi.svf.lp (T=0) and fi.svf.bp (T=1), Andrew Simper's trapezoidal SVF, but
+// - tan() is a [7/6] Pade approximant, within 2 float ulps of tanf for cutoffs up to 16 kHz
+// - the per-sample divisions (1/Q, two of 1/(1+g(g+k)), and g) are folded into one
+// With g = gN/D and k = 1/Q, the update v1 = (ic1 + g(v0-ic2)) / (1+g(g+k)), v2 = ic2 + g*v1
+// becomes v1 = a*ic1 + ga*(v0-ic2), v2 = ic2 + ga*ic1 + g2a*(v0-ic2) with one reciprocal r.
+svf_fast(T, F, Q) = tick ~ (_,_) : !,!,out
+with {
+    x = F * ma.PI / ma.SR;
+    x2 = x * x;
+    gN = x * (135135 + x2 * (-17325 + x2 * (378 - x2)));
+    D = 135135 + x2 * (-62370 + x2 * (3150 - 28 * x2));
+    QD = Q * D;
+    r = 1 / (QD * D + gN * (gN * Q + D));
+    a = QD * D * r;
+    ga = gN * QD * r;
+    g2a = gN * gN * Q * r;
+    tick(ic1eq, ic2eq, v0) = 2*v1 - ic1eq, 2*v2 - ic2eq, v1, v2
+    with {
+        v1 = a * ic1eq + ga * (v0 - ic2eq);
+        v2 = ic2eq + ga * ic1eq + g2a * (v0 - ic2eq);
+    };
+    out = case {
+        (0) => !,_;
+        (1) => _,!;
+    } (T);
+};
+svf_lp(F, Q) = svf_fast(0, F, Q);
+svf_bp(F, Q) = svf_fast(1, F, Q);
+
 oscss(freq, even_harm) = even_harm*saw-(1-even_harm)*square
 with {
     square = os.lf_squarewave(freq)*0.5;
@@ -98,11 +127,11 @@ with {
     // K = K_f0(max(freq,minFreq)) + filtFF*(level*(1-max(-but_y,0))+max(vdacc-1,0))^2^2;
     // filt = LPF(K, filtQ+max(-but_y,0)*8) * (1-max(-but_y,0)/2)^2;
     f = min(max(freq,minFreq) * (1 + filtFF*(level*(1-max(-but_y,0))+max(vdacc-1,0))^2), 16000);
-    filt = fi.svf.lp(f, filtQ+max(-but_y,0)*8) * (1-max(-but_y,0)/2)^2;
+    filt = svf_lp(f, filtQ+max(-but_y,0)*8) * (1-max(-but_y,0)/2)^2;
 
     filt2lev = max(but_y,0) * but_y * pres;
     // filt2 = BPF(K_f0(filt2Freq*filt2lev+minFreq), filt2Q) * filt2level * filt2lev;
-    filt2 = fi.svf.bp(filt2Freq*filt2lev+minFreq, filt2Q) * filt2level * filt2lev;
+    filt2 = svf_bp(filt2Freq*filt2lev+minFreq, filt2Q) * filt2level * filt2lev;
 
     K1 = select2(rot_y>0, K_f0(900), K_f0(1700)) * (1+0.5*abs(rot_y));
     b1 = BPF(K1, bfQ1) * abs(rot_y);
@@ -172,7 +201,9 @@ with {
     loop = _ <: _,((_ > period) * period) :> -;
     phase = inc : (+ : loop) ~ _;
     s1 = whitetable(o + int(phase));
-    s2 = whitetable(o + ((int(phase)+1) % int(period)));
+    // (int(phase)+1) % period without the integer division, exact since int(phase)+1 < 2*period
+    ip1 = int(phase) + 1;
+    s2 = whitetable(o + ip1 - int(period) * (ip1 >= int(period)));
     d = dotpart(phase);
 };
 

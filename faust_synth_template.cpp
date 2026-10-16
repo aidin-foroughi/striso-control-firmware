@@ -25,6 +25,7 @@ synth_interface_t synth_interface;
 
 static float dump;
 float volume = 1.0f;
+volatile synth_load_t synth_load;
 
 static int32_t *outbuf;
 static int32_t *inbuf;
@@ -40,7 +41,8 @@ static float* output[2] = {output0, output1};
 
 FAUSTCLASS dsp;
 
-static THD_WORKING_AREA(waSynthThread, 1024);
+// 4 KB: the Faust compute() frame alone can approach 1 KB with register spills (upstream used 1024)
+static THD_WORKING_AREA(waSynthThread, 4096);
 static thread_t* pThreadDSP = 0;
 static void synthThread(void *arg) {  // THE SYNTH THREAD
 	(void)arg;
@@ -76,6 +78,7 @@ static void synthThread(void *arg) {  // THE SYNTH THREAD
 		// palClearLine(LINE_LED_ALT);
 		chEvtWaitOne(1);
 		// palSetLine(LINE_LED_ALT);
+		rtcnt_t t_start = chSysGetRealtimeCounterX();
 
 		dsp.compute(count, NULL, output);
 
@@ -92,6 +95,19 @@ static void synthThread(void *arg) {  // THE SYNTH THREAD
 			}
 			// make both audio channels the same
 			outbuf[2*n] = outbuf[2*n+1] = tmp * (1<<8);
+		}
+
+		rtcnt_t t_block = chSysGetRealtimeCounterX() - t_start;
+		chSysLock();
+		synth_load.sum += t_block;
+		if (t_block > synth_load.peak) synth_load.peak = t_block;
+		synth_load.blocks++;
+		chSysUnlock();
+
+		// Overload protection: the synth thread outranks buttons, USB console and LEDs,
+		// so a too heavy synth would starve them. Yield a tick to keep the board responsive.
+		if (t_block > SYNTH_BLOCK_CYCLES / 10 * 9) {
+			chThdSleep(1);
 		}
 
 		//if (--n <= 0) {
@@ -134,4 +150,8 @@ void computebufI(int32_t *inp, int32_t *outp) {
       // square wave 34952 * (1<<8) * 2 * ((i>PLAYBACK_BUFFER_SIZE/2)-0.5);
       // saw ware (i - PLAYBACK_BUFFER_SIZE / 2) * 100000; // testing noise 0;
     }
+}
+
+void synth_profile_print(void *chp) {
+	(void)chp;
 }

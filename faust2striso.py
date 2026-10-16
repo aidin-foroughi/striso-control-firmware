@@ -75,7 +75,8 @@ def main():
         f.write(faust_replace_fixed_sliders(open(faust_source).read()))
 
     # run faust compiler
-    faust_cpp = subprocess.check_output(['faust','-a',faust_template,tmp_file,'-lang','ocpp']).decode()
+    extra_args = os.environ.get('FAUST_ARGS', '').split()
+    faust_cpp = subprocess.check_output(['faust','-a',faust_template,tmp_file,'-lang','ocpp'] + extra_args).decode()
 
     # do some postprocessing for efficient embedded use
     faust_cpp, max_voice = faust_postprocess(faust_cpp)
