@@ -66,7 +66,13 @@ static const real NOTE_MAX = 122.0f;
 // Voice parameters (tuned on the host harness)
 
 static const real BETA_CLAR = 0.5f;      // apex/period ratio at full backward tilt (cylinder)
-static const real BETA_SAX = 0.23f;      // at full forward tilt (cone)
+#ifndef REED_BSAX
+#define REED_BSAX 0.28f
+#endif
+#ifndef REED_ZS
+#define REED_ZS 0.14f
+#endif
+static const real BETA_SAX = REED_BSAX;   // at full forward tilt (cone)
 static const real P_TH = 0.12f;          // pressure where gamma reaches G_TH (about where the reed speaks)
 static const real G_TH = 0.36f;
 static const real G_SLOPE = 0.46f;       // gamma per unit pressure above P_TH
@@ -82,7 +88,7 @@ static const real GS = 0.997f;           // short tube end reflection
 #define REED_FRK 6.0f
 #endif
 #ifndef REED_FC0
-#define REED_FC0 1400.0f
+#define REED_FC0 1100.0f
 #endif
 #ifndef REED_FC1
 #define REED_FC1 1800.0f
@@ -109,9 +115,9 @@ static inline real clampr(real x, real lo, real hi) { return strisy::rmin(strisy
 // measured tuning correction: samples of extra loop delay (reed dynamics, inharmonicity of the
 // lossy cone apex), for the clarinet (m = 0), middle and saxophone (m = 1) points of the morph, at notes
 // 20 + 7k (k = 0..13), interpolated linearly. Measured with tools/harness/out/reed_tune.h.
-static const real CORR_CLAR[14] = {1.16f, 1.26f, 1.32f, 1.33f, 1.33f, 1.32f, 1.26f, 1.10f, 0.92f, 0.57f, 0.38f, 0.36f, 0.41f, 0.38f};
-static const real CORR_SAX[14] = {-5.04f, -2.70f, -1.54f, -0.77f, -0.17f, 0.30f, 0.65f, 1.01f, 1.06f, 0.48f, 0.37f, 0.33f, 0.44f, 0.34f};
-static const real CORR_MID[14] = {0.36f, 0.69f, 0.56f, 0.46f, 0.48f, 0.45f, 0.70f, 0.91f, 0.99f, 0.65f, 0.44f, 0.36f, 0.41f, 0.41f};
+static const real CORR_CLAR[14] = {1.02f, 1.29f, 1.35f, 1.35f, 1.34f, 1.27f, 1.15f, 0.91f, 0.83f, 0.57f, 0.38f, 0.36f, 0.41f, 0.38f};
+static const real CORR_SAX[14] = {-4.92f, -2.94f, -1.73f, -0.89f, -0.22f, 0.29f, 0.66f, 0.96f, 1.01f, 0.61f, 0.43f, 0.33f, 0.29f, 0.48f};
+static const real CORR_MID[14] = {0.33f, 0.56f, 0.47f, 0.49f, 0.46f, 0.50f, 0.63f, 0.79f, 1.00f, 0.65f, 0.45f, 0.37f, 0.44f, 0.43f};
 static inline real tuning_corr(real note, real m) {
 	real k = clampr((note - 20.0f) * (1.0f / 7.0f), 0.0f, 12.999f);
 	int i = (int)k;
@@ -256,9 +262,11 @@ static inline void process_voice(Engine& e, int v) {
 	// ---- block-rate controls
 	const real sr = e.sr;
 	s.pres_s += 0.25f * (pres - s.pres_s);            // ~2.5 ms
+	if (s.pres_s < 1e-6f) s.pres_s = 0.0f;            // no denormals in the decays
 	const real ps = s.pres_s;
 	s.by_s += 0.03f * (clampr(c.but_y, -1.0f, 1.0f) - s.by_s);  // ~20 ms
 	s.tongue = strisy::rmax(s.tongue * 0.96f, vplev);  // ~25 ms decay
+	if (s.tongue < 1e-6f) s.tongue = 0.0f;
 	const real tg = s.tongue;
 
 	// morph 0 clarinet .. 1 sax. Above ~E5 the cone model overblows easily (real saxophones end
@@ -278,14 +286,13 @@ static inline void process_voice(Engine& e, int v) {
 	const real bb0 = K * K * bnorm;
 	const real ba1 = 2.0f * (K * K - 1.0f) * bnorm;
 	const real ba2 = (1.0f - 1.4142136f * K + K * K) * bnorm;
-	const real g = 0.985f;
 	// its phase delay at f0: numerator (1 + z^-1)^2 is 1 sample, plus the denominator's phase
 	const real sw = sin_poly(w0), cw = cos_poly(w0);
 	const real c2w = 2.0f * cw * cw - 1.0f, s2w = 2.0f * sw * cw;
 	const real tau = 1.0f + atan2_r(-(ba1 * sw + ba2 * s2w), 1.0f + ba1 * cw + ba2 * c2w) / w0;
 
 	// reed: mass-spring, centered finite differences (stable for omega*T < 2)
-	const real zeta = 0.30f + 0.14f * m;
+	const real zeta = 0.30f + REED_ZS * m;
 	real fr = (REED_FR - 600.0f * m);
 	fr = strisy::rmax(fr, REED_FRK * f0);
 	const real wr = strisy::rmin(fr * 6.2831853f / sr, 1.4f);
@@ -305,6 +312,12 @@ static inline void process_voice(Engine& e, int v) {
 	const real corr = tuning_corr(note, m);
 	real D1 = clampr(P - D2 - taus - tau - corr, 2.0f, (real)(MAIN_LEN - 5));
 	if (jump || wake) { s.d1 = D1; s.d2 = D2; }  // new note: no delay glide
+	// end reflections. At tiny amplitudes the Bernoulli reed is an open end (p = 0), so after
+	// release the tubes would ring on their own end losses for seconds: when the breath is gone,
+	// add a loss that makes them die out in ~0.1 s (T60), whatever the tube length
+	const real rel = clampr(1.0f - ps * 20.0f, 0.0f, 1.0f) * (9.97f / (0.1f * 48828.0f));
+	const real g = 0.985f * pow2(-rel * D1);
+	const real gs = GS * pow2(-rel * D2);
 	const real d1s = s.d1, d2s = s.d2;
 	const real dd1 = (D1 - d1s) * (1.0f / BLOCK), dd2 = (D2 - d2s) * (1.0f / BLOCK);
 
@@ -318,11 +331,12 @@ static inline void process_voice(Engine& e, int v) {
 	// growl: pushed hard, or shaking
 	const real gr_t = clampr((ps - 0.85f) * 3.0f, 0.0f, 1.0f) + e.shake;
 	s.growl += 0.05f * (strisy::rmin(gr_t, 1.2f) - s.growl);
+	if (s.growl < 1e-6f) s.growl = 0.0f;
 	const real gdep = 0.45f * s.growl;
 	const real gf = clampr(0.5f * f0 + 3.0f, 25.0f, 140.0f);
 	const uint32_t ginc = (uint32_t)(gf * (4294967296.0f / 48828.0f));
 	// output gain: more dynamic range than the physical amplitude alone
-	const real outg_t = 1.1f * (0.30f + 0.70f * clampr(ps, 0.0f, 1.2f));
+	const real outg_t = 1.2f * (0.30f + 0.70f * clampr(ps, 0.0f, 1.2f));
 	// presence band: k * bandpass, Q 0.9, around 2.2 (clarinet) .. 2.6 kHz (sax)
 	const strisy::SvfCoef prc = strisy::svf_from_g(strisy::tan0((2200.0f + 400.0f * m) * 3.1415927f / sr), 0.9f);
 	// soft = darker (more internal wave), loud = brighter (more presence)
@@ -381,7 +395,7 @@ static inline void process_voice(Engine& e, int v) {
 		const uint32_t c0 = widx - (uint32_t)j0;
 		const real s0 = sb[c0 & (SHORT_LEN - 1)], s1 = sb[(c0 - 1u) & (SHORT_LEN - 1)];
 		ls += cbs * (s0 + fr2 * (s1 - s0) - ls);
-		const real bm = -GS * ls;
+		const real bm = -gs * ls;
 		const real V = am + bm;
 
 		// reed displacement from the previous pressure difference
@@ -454,7 +468,7 @@ static inline void process(Engine& e, real* __restrict__ output) {
 		const real o = a > 4.0f ? 4.0f + (a - 4.0f) / (1.0f + 0.25f * (a - 4.0f)) : a;
 		output[n] = clampr(s1 < 0.0f ? -o : o, -8.0f, 8.0f);
 	}
-	if (!(fabsf(s1) < 1e6f)) { s1 = 0.0f; xp = 0.0f; }
+	if (!(fabsf(s1) < 1e6f) || fabsf(s1) < 1e-20f) { s1 = 0.0f; xp = 0.0f; }  // NaN guard, no denormals
 	e.dc1 = s1; e.dcx = xp;
 }
 
