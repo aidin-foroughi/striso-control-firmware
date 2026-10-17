@@ -13,10 +13,10 @@
  *
  *   bore: two waveguides meeting at the mouthpiece, like a string blown at a point
  *     main tube   (round trip D1) -> bell / tone holes: -g * 2-pole Butterworth lowpass; above its
- *                 cutoff (1.2-2.2 kHz, >= 2 f0) the bore has no resonances, so the reed can't squeak
+ *                 cutoff (0.9-2.3 kHz by tilt/breath, >= 2 f0) the bore has no resonances, so the reed can't squeak
  *     short tube  (round trip D2) -> open end: -gs * one-pole lowpass (the missing apex of a cone)
  *   D1 + D2 = one period. With D2 = D1 (beta = 1/2) the pair is exactly a cylinder: clarinet, odd
- *   harmonics. A short D2 (beta = 0.23) behaves like a truncated cone: saxophone, all harmonics.
+ *   harmonics. A short D2 (beta = 0.28) behaves like a truncated cone: saxophone, all harmonics.
  *   The apex lowpass (6 f0, faded in with the morph) evens out the cone's impedance peaks so the
  *   fundamental register is preferred.
  *
@@ -33,7 +33,8 @@
  * Controls:
  *   pres   breath. Below ~0.12 (clarinet) .. 0.2 (sax) the reed doesn't speak: breath noise and a
  *          whispery bore resonance. Above it the tone blooms and gets louder and brighter;
- *          pushed hard (> ~0.85) a growl sets in, and the sax side can overblow/honk.
+ *          pushed hard (> ~0.85) a growl (hummed roughness) sets in. The register stays on the
+ *          fundamental over the whole pressure/tilt range (tested on notes 36..91).
  *   vpres  tonguing: a fast strike gives a pressure kick and a short tongue/breath noise burst
  *   but_y  backward = clarinet (cylindrical, hollow, odd harmonics, tighter embouchure),
  *          forward = saxophone (conical, all harmonics, buzzier, more open embouchure).
