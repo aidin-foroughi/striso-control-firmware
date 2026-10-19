@@ -1860,7 +1860,7 @@ float config_but(int but, int type, float adjust) {
     case (20): return config_voice("va", 64, 20, 0, type, adjust);
     case (22): return config_voice("modal", 0, 24, 64, type, adjust);
     case (24): return config_voice("bowed", 64, 0, 0, type, adjust);
-    case (26): return config_voice("reed", 0, 64, 0, type, adjust);
+    case (26): return config_voice("wind", 0, 64, 0, type, adjust);
     case (28): return config_voice("ep", 40, 0, 64, type, adjust);
 #endif
     // row 5: 34 36 38 23 25 27 29 31 33
