@@ -41,6 +41,9 @@ Button message:
 #define ID_ACCEL 3    // motion sensor
 #define ID_SYS 4      // system, status, debug
 #define ID_MIDI 5     // midi monitor
+// Motion data for the USB stream only: the same wire id as ID_ACCEL (the protocol header keeps
+// the low 4 bits), but synth_control ignores it, so it causes no MIDI motion messages.
+#define ID_ACCEL_STREAM (ID_ACCEL | 0x10)
 
 // control numbers [0-127]
 #define IDC_PORTAMENTO 0      // length 1

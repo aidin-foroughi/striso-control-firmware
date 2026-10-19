@@ -261,6 +261,7 @@ static void ThreadAccel(void *arg) {
 
   /* Reader thread loop.*/
   int16_t motion[6];
+  int stream_count = 0;
   while (TRUE) {
     lsm6dslReadMotion(motion);
 
@@ -292,6 +293,21 @@ static void ThreadAccel(void *arg) {
         msg[8] = gz>>2;
         msgSend(9,msg);
       }
+      else if (config.send_usb_bulk && ++stream_count >= 4) {
+        // internal synth only, but the USB stream is on (e.g. the Striso Live app): send every
+        // 4th reading (~60 per second) as stream-only motion data, no MIDI side effects
+        stream_count = 0;
+        msg[0] = ID_ACCEL_STREAM;
+        msg[2] = (ax/4)>>2;
+        msg[3] = (ay/4)>>2;
+        msg[4] = (az/4)>>2;
+        msg[5] = ((int16_t)(acc_abs * 32768.0f/8.0f))>>2;
+        msg[6] = gx>>2;
+        msg[7] = gy>>2;
+        msg[8] = gz>>2;
+        msgSend(9,msg);
+        msg[0] = ID_ACCEL;
+      }
 
 #ifdef USE_INTERNAL_SYNTH
       float rot_x = ((float)gx)*(1.0f/32768.0f);
@@ -320,6 +336,34 @@ void MotionSensorStart(void) {
   // If not there is no motion sensor daughterboard
   palSetLineMode(LINE_MOTION_I2C_SCL, PAL_MODE_INPUT_PULLDOWN);
   palSetLineMode(LINE_MOTION_I2C_SDA, PAL_MODE_INPUT_PULLDOWN);
+
+  // I2C bus recovery: the sensor stays powered while the MCU resets (e.g. firmware updates). A
+  // reset in the middle of a read can leave the sensor holding SDA low; then the check below would
+  // see no daughterboard until a power cycle. With SCL high (pullups present) but SDA low, clock
+  // SCL up to 9 times until the sensor releases SDA, then send a STOP condition.
+  if (palReadLine(LINE_MOTION_I2C_SCL) && !palReadLine(LINE_MOTION_I2C_SDA)) {
+    palSetLine(LINE_MOTION_I2C_SCL);
+    palSetLineMode(LINE_MOTION_I2C_SCL, PAL_MODE_OUTPUT_OPENDRAIN);
+    palSetLineMode(LINE_MOTION_I2C_SDA, PAL_MODE_INPUT);
+    for (int i = 0; i < 9 && !palReadLine(LINE_MOTION_I2C_SDA); i++) {
+      palClearLine(LINE_MOTION_I2C_SCL);
+      chThdSleepMilliseconds(1);
+      palSetLine(LINE_MOTION_I2C_SCL);
+      chThdSleepMilliseconds(1);
+    }
+    // STOP: SDA low to high while SCL is high
+    palClearLine(LINE_MOTION_I2C_SCL);
+    palClearLine(LINE_MOTION_I2C_SDA);
+    palSetLineMode(LINE_MOTION_I2C_SDA, PAL_MODE_OUTPUT_OPENDRAIN);
+    chThdSleepMilliseconds(1);
+    palSetLine(LINE_MOTION_I2C_SCL);
+    chThdSleepMilliseconds(1);
+    palSetLine(LINE_MOTION_I2C_SDA);
+    chThdSleepMilliseconds(1);
+    palSetLineMode(LINE_MOTION_I2C_SCL, PAL_MODE_INPUT_PULLDOWN);
+    palSetLineMode(LINE_MOTION_I2C_SDA, PAL_MODE_INPUT_PULLDOWN);
+    chThdSleepMilliseconds(1);
+  }
 
   if (!palReadLine(LINE_MOTION_I2C_SCL) ||
       !palReadLine(LINE_MOTION_I2C_SDA)) {
