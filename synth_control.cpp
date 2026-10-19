@@ -16,6 +16,7 @@
  * Striso Control. If not, see <http://www.gnu.org/licenses/>.
  */
 #include <math.h>
+#include <string.h>
 
 #include "ch.h"
 #include "hal.h"
@@ -1690,6 +1691,48 @@ float config_but(int but, int type, float adjust) {
 }
 #else // !OLD_CONFIG_LAYOUT
 
+#ifdef USE_INTERNAL_SYNTH
+/*
+ * Synth voice selection with the settings row 4 ("future use" on the v2.2 settings card): each key
+ * picks a voice engine, shown by the indicator led colour. On an engine with presets (the VA) the
+ * key works like the other value keys: nudge it or circle it to step through the presets, the
+ * up/down leds show which one. The last preset of each engine is remembered while powered.
+ * Returns the unused part of adjust, like config_but.
+ */
+static float config_voice(const char* engine, int r, int g, int b, int type, float adjust) {
+    static int8_t remembered[32];  // preset per engine, indexed by the engine's first entry
+    int first = -1, count = 0;
+    for (int n = 0; n < synth_num_voices(); n++) {
+        const char* preset;
+        if (strcmp(synth_voice_name(n, &preset), engine) == 0) {
+            if (first < 0) first = n;
+            count++;
+        }
+    }
+    if (count == 0 || first >= 32) {
+        led_rgb3(64, 0, 0);  // engine not in this firmware
+        return 0;
+    }
+    int cur = synth_current_voice();
+    int idx = (cur >= first && cur < first + count) ? cur - first : remembered[first];
+    if (idx >= count) idx = 0;
+    int a = 0;
+    if (type > 0) {
+        a = (int)adjust;
+        if (type == 2) a = a / 2;
+        idx = clamp(idx + a, 0, count - 1);
+        if (type == 2) a = a * 2;
+    }
+    if (type == 0 || a != 0) {
+        synth_select_voice(first + idx);
+        remembered[first] = idx;
+    }
+    led_rgb3(r, g, b);
+    led_updown_dial(count > 1 ? idx + 1 : 0);
+    return type > 0 ? adjust - a : 0;
+}
+#endif
+
 /*
  * button functions in alt mode - with settings button pressed.
  *
@@ -1811,6 +1854,14 @@ float config_but(int but, int type, float adjust) {
         return rem * 8;
         }
     // row 4: 18 20 22 24 26 28 13 15
+#ifdef USE_INTERNAL_SYNTH
+    // row 4: 18 20 22 24 26 28 13 15 ("future use" on the v2.2 card): synth voice
+    case (18): return config_voice("strisy", 40, 40, 40, type, adjust);
+    case (20): return config_voice("va", 64, 20, 0, type, adjust);
+    case (22): return config_voice("modal", 0, 24, 64, type, adjust);
+    case (24): return config_voice("bowed", 64, 0, 0, type, adjust);
+    case (26): return config_voice("reed", 0, 64, 0, type, adjust);
+#endif
     // row 5: 34 36 38 23 25 27 29 31 33
     case (34): // set 12tet tuning, knob: tuning offset
         if (type == 0) {
