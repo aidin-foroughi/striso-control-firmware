@@ -53,7 +53,8 @@ static volatile uint32_t prof_blocks;
 #include "voice_bowed.h"
 #include "voice_reed.h"
 #include "voice_ep.h"
-#define VOICE_LIST(X, XP) X(strisy) XP(va) XP(modal) X(bowed) X(reed) XP(ep)
+#include "voice_brass.h"
+#define VOICE_LIST(X, XP) X(strisy) XP(va) XP(modal) X(bowed) X(reed) XP(ep) XP(brass)
 #elif defined(SYNTH_VOICE_HEADER)
 #include SYNTH_VOICE_HEADER
 #define VOICE_LIST(X, XP) X(SYNTH_VOICE_NS)
