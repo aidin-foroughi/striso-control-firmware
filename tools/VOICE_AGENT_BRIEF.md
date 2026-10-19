@@ -96,6 +96,31 @@ structs and helpers. Mark functions `static inline`.
 - Shell quirks: heredocs piped to `python` collapse `\\` to `\` - write scripts and source files
   with the Write tool, not heredocs. Mind CRLF: the Makefile is CRLF; use the Edit/Write tools.
 
+## Updates (2026-10-19), these override the text above where they differ
+
+- **Base branch is now `voices`** (commit fb10f92 or later): all engines in one firmware
+  (`make VOICE=all`), switchable at runtime. Build a single engine with `VOICE=<name>` as before.
+- **10 voices** (VOICECOUNT is 10 for the C++ engines). Your `MAX_VOICES` must be >= 10 and the
+  CPU budget is now for 10 voices: worst case at most ~50% CPU = 131k cycles per block, i.e.
+  ~13k cycles per voice per block (~400 cycles per voice-sample, aim for <= ~200 FP ops).
+- **Memory:** DTCM (Engine) has ~90 KB free in total, shared by all engines: keep your Engine
+  <= ~20 KB. Big buffers: normal static arrays in AXI SRAM (~300 KB free, shared) or
+  `__attribute__((section(".ram1_clear")))` in AHB SRAM1/2 (~130 KB free, shared). Say what you use.
+- **Live parameters** (for the interactive app): expose the sound-design values of your engine by
+  specializing `strisy::EngineParams<YourEngine>` (see strisy.h): `count`, `desc(i)` returning a
+  `ParamDesc {name, group, min, max, kind}` (kind 0 continuous, 1 integer, 2 on/off), `ptr(e, i)`
+  returning the live `float*` (so parameters must be stored as floats), and `changed(e, i)` to
+  recompute derived values. Writes arrive between blocks, at any time, while voices sound: they
+  must never cause NaN, blow-ups or pitch jumps of sounding notes. Names: short lowercase ids,
+  unique, groups for UI sections (e.g. "osc", "filter", "amp", "accent", "mod").
+  A preset change overwrites the parameters with the preset's values.
+- **Stereo:** after the voice engine the master effects (`fx.h`, mono in, stereo out) run;
+  voice engines stay mono.
+- **Release behaviour:** after a key release the firmware leaves the voice's last `vpres` in place;
+  ignore positive vpres while pres == 0 (test with tools/harness/perf_stale.h).
+- `tools/harness/compare.py --wav` now writes WAVs scaled x0.25 like the board.
+- The build's stack guard follows the call graph (tools/stackcheck.py).
+
 ## Your report (final message)
 
 1. What the voice is and how it works (a paragraph).
