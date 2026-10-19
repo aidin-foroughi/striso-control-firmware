@@ -115,14 +115,10 @@ static inline const char* preset_name(int i) {
 
 static const real F_LO0 = 16.0f, F_LO1 = 24.0f;        // partials fade in above 16..24 Hz
 static const real F_HI0 = 14000.0f, F_HI1 = 20000.0f;  // and out between 14 and 20 kHz
-static const real STRIKE_THR = 0.03f;   // vpres above this is a strike
-static const real STRIKE_SPAN = 0.7f;   // vpres - thr giving full strike strength
 static const real STRIKE_REARM = 0.02f; // strike strength below this ends a strike
 static const real STRIKE_LEVEL = 1.6f;  // amplitude of a full strike (times preset and partial levels)
-static const real MALLET_DAMP = 0.3f;   // fraction of the ringing a full strike stops
-static const real DAMP_SIGMA = 46.0f;   // damper decay rate (1/s, T60 0.15 s), times preset.damper
-static const real DAMP_PRES = 0.15f;    // damper fully lifted above this key pressure
-static const real BOW_NOISE = 0.05f;    // noise share of the rubbed excitation (texture)
+static const real DAMP_SIGMA = 46.0f;   // damper decay rate (1/s, T60 0.15 s), times the damper parameter
+static const real SIGMA_MIN = 0.1f;     // slowest natural decay (T60 69 s): poles stay inside the unit circle
 static const real BOW_GROW = 40.0f;     // max negative damping of the rub (1/s)
 static const real BOW_DAMP = 6.0f;      // max extra damping by the rub above target, per unit pressure
 static const real ENERGY_CAP = 9.0f;    // soft cap on a voice's mode energy (sum |z|^2)
@@ -136,6 +132,59 @@ static const real GATE_ENERGY = 1e-10f; // released voice below this goes idle
 #endif
 static const real LIMIT = MODAL_LIMIT;  // master limiter threshold
 static const real CLIP = MODAL_CLIP;    // final safety clamp
+
+// ---------------------------------------------------------------------------------------------
+// Live parameters (tools/app, strisy::EngineParams below). A preset sets all of them; writes can
+// arrive between any two blocks. None of them moves a partial frequency: mallet and tone values act
+// at the next strike, decay/damper values change decay rates (smoothed), tremolo and rub change
+// amplitudes only.
+
+struct Params {
+	float level;      // level: strike level (preset level matching)
+	float thresh;     // mallet: vpres where a strike starts
+	float span;       // mallet: vpres above thresh for a full strike (sensitivity)
+	float hard;       // mallet: hardness of the softest strike
+	float hardvel;    // mallet: hardness added by strike strength
+	float tilt;       // mallet: hardness change per unit tilt (at the strike)
+	float mute;       // mallet: fraction of the ringing a full strike stops
+	float upper;      // tone: level of all partials but the first, relative to the preset
+	float decay;      // decay: T60 scale
+	float keytrack;   // decay: T60 ~ f^-keytrack over the keyboard
+	float hfdamp;     // decay: extra damping of upper partials, per unit of frequency ratio
+	float damper;     // damper: strength on release (1 = vibraphone damper bar)
+	float lift;       // damper: key pressure above which the damper is fully lifted
+	float pedal;      // damper: how far the pedal lifts the damper (1 = fully)
+	float trem;       // trem: motor tremolo on/off (vibraphone)
+	float tremrate;   // trem: motor speed (Hz) without gyro
+	float tremdepth;  // trem: maximum amplitude modulation depth
+	float tremthr;    // trem: key pressure where the pressure tremolo starts
+	float rub;        // rub: rubbed level per unit pressure (wine glass; 0 = off)
+	float rubnoise;   // rub: noise share of the rubbed excitation
+};
+static const int NUM_PARAMS = (int)(sizeof(Params) / sizeof(float));
+
+static const strisy::ParamDesc param_desc[NUM_PARAMS] = {
+	{"level", "level", 0.1f, 3.0f, 0},
+	{"thresh", "mallet", 0.005f, 0.2f, 0},
+	{"span", "mallet", 0.2f, 1.5f, 0},
+	{"hard", "mallet", 0.2f, 1.2f, 0},
+	{"hardvel", "mallet", 0.0f, 1.0f, 0},
+	{"tilt", "mallet", 0.0f, 0.5f, 0},
+	{"mute", "mallet", 0.0f, 1.0f, 0},
+	{"upper", "tone", 0.0f, 2.0f, 0},
+	{"decay", "decay", 0.1f, 4.0f, 0},
+	{"keytrack", "decay", 0.0f, 1.5f, 0},
+	{"hfdamp", "decay", 0.0f, 1.0f, 0},
+	{"damper", "damper", 0.0f, 2.0f, 0},
+	{"lift", "damper", 0.02f, 0.5f, 0},
+	{"pedal", "damper", 0.0f, 1.0f, 0},
+	{"trem", "trem", 0.0f, 1.0f, 2},
+	{"tremrate", "trem", 1.0f, 10.0f, 0},
+	{"tremdepth", "trem", 0.0f, 1.0f, 0},
+	{"tremthr", "trem", 0.2f, 1.2f, 0},
+	{"rub", "rub", 0.0f, 1.0f, 0},
+	{"rubnoise", "rub", 0.0f, 0.3f, 0},
+};
 
 struct VoiceState {
 	real re[NSLOT], im[NSLOT];       // mode states (slots NMODES.. are always 0)
@@ -162,6 +211,8 @@ struct Engine {
 	int preset;
 	const Preset* pr;
 	real sr, inv_sr, w_hz;          // w_hz = 2 pi / sr
+	Params prm;                     // live parameters
+	real inv_span, inv_lift;        // derived from prm
 	real sig_ref[NMODES];           // decay rates (1/s) of the preset's partials at note 60
 	real gyro;                      // smoothed gyro tremolo depth
 	real trem_phase;
@@ -227,12 +278,49 @@ static inline void reset_voice(VoiceState& s) {
 
 // Select a preset; callable between blocks at any time. Sounding voices fade out over one block
 // (their partials would otherwise jump to the new instrument's ratios).
+// Recompute values derived from the parameters, after clamping every parameter into its range
+// (NaN becomes the minimum). Cheap; called after each live write and by set_preset.
+static inline void params_changed(Engine& e) {
+	float* q = &e.prm.level;
+	for (int i = 0; i < NUM_PARAMS; i++) {
+		const float lo = param_desc[i].min, hi = param_desc[i].max;
+		q[i] = q[i] >= lo ? (q[i] <= hi ? q[i] : hi) : lo;
+	}
+	e.inv_span = 1.0f / e.prm.span;
+	e.inv_lift = 1.0f / e.prm.lift;
+	const Preset& P = *e.pr;
+	for (int k = 0; k < NMODES; k++)
+		e.sig_ref[k] = k < P.n ? 6.9077553f * (1.0f + e.prm.hfdamp * (P.p[k].ratio - 1.0f)) / (P.p[k].t60 * e.prm.decay) : 0.0f;
+}
+
+// Select a preset (sets all parameters); callable between blocks at any time. Sounding voices fade
+// out over one block (their partials would otherwise jump to the new instrument's ratios).
 static inline void set_preset(Engine& e, int i) {
 	if (i < 0 || i >= NUM_PRESETS) i = 0;
 	e.preset = i;
 	e.pr = &presets[i];
-	for (int k = 0; k < NMODES; k++)
-		e.sig_ref[k] = k < e.pr->n ? 6.9077553f / e.pr->p[k].t60 : 0.0f;
+	const Preset& P = *e.pr;
+	e.prm.level = P.gain;
+	e.prm.thresh = 0.03f;
+	e.prm.span = 0.7f;
+	e.prm.hard = 0.6f;
+	e.prm.hardvel = 0.4f;
+	e.prm.tilt = 0.2f;
+	e.prm.mute = 0.3f;
+	e.prm.upper = 1.0f;
+	e.prm.decay = 1.0f;
+	e.prm.keytrack = P.alpha;
+	e.prm.hfdamp = 0.0f;
+	e.prm.damper = P.damper;
+	e.prm.lift = 0.15f;
+	e.prm.pedal = 1.0f;
+	e.prm.trem = P.tremolo > 0.0f ? 1.0f : 0.0f;
+	e.prm.tremrate = 5.0f;
+	e.prm.tremdepth = 0.6f;
+	e.prm.tremthr = 0.7f;
+	e.prm.rub = P.rub;
+	e.prm.rubnoise = 0.05f;
+	params_changed(e);
 	for (int v = 0; v < MAX_VOICES; v++)
 		if (e.vs[v].active) e.vs[v].fade = 1;
 }
@@ -310,7 +398,8 @@ static inline void process_voice(Engine& e, int v, real trem_lfo) {
 	const real pres = clampr(c.pres, 0.0f, 1.5f);
 	const bool held = pres > 0.0f;
 	// strikes only while a key is held: after release the firmware leaves the last vpres in place
-	const real starget = held ? clampr((c.vpres - STRIKE_THR) * (1.0f / STRIKE_SPAN), 0.0f, 1.0f) : 0.0f;
+	const Params& Q = e.prm;
+	const real starget = held ? clampr((c.vpres - Q.thresh) * e.inv_span, 0.0f, 1.0f) : 0.0f;
 
 	if (!s.active) {
 		if (!held && starget <= STRIKE_REARM) {
@@ -336,10 +425,10 @@ static inline void process_voice(Engine& e, int v, real trem_lfo) {
 
 	const real f0 = 440.0f * exp2_poly((c.note - 69.0f) * (1.0f / 12.0f));
 	// decay over the keyboard: T60 ~ (f0 / f_C4)^-alpha
-	const real pitch_decay = exp2_poly(P.alpha * (c.note - 60.0f) * (1.0f / 12.0f));
+	const real pitch_decay = exp2_poly(Q.keytrack * (c.note - 60.0f) * (1.0f / 12.0f));
 	// damper: engages as the key is lifted (fully at release), lifted by the sustain pedal
-	const real ped = 1.0f - clampr(e.g.pedal, 0.0f, 1.0f);
-	const real damp = DAMP_SIGMA * P.damper * ped * ped * clampr(1.0f - pres * (1.0f / DAMP_PRES), 0.0f, 1.0f);
+	const real ped = 1.0f - clampr(e.g.pedal, 0.0f, 1.0f) * Q.pedal;
+	const real damp = DAMP_SIGMA * Q.damper * ped * ped * clampr(1.0f - pres * e.inv_lift, 0.0f, 1.0f);
 
 	// --- strike ---------------------------------------------------------------------------------
 	// A strike is a fast pressure rise; its strength is delivered as it grows (a rise over several
@@ -351,16 +440,16 @@ static inline void process_voice(Engine& e, int v, real trem_lfo) {
 		s.pbase = pres;
 	} else if (starget > s.sdone + 0.005f) {
 		const real from_light = clampr((0.3f - s.pbase) * 4.0f, 0.0f, 1.0f);
-		dlev = from_light * (strike_level(starget) - strike_level(s.sdone)) * P.gain;
+		dlev = from_light * (strike_level(starget) - strike_level(s.sdone)) * Q.level;
 		s.sdone = starget;
 	}
-	const real keep = 1.0f - MALLET_DAMP * clampr(dlev * (1.0f / STRIKE_LEVEL), 0.0f, 1.0f);
+	const real keep = 1.0f - Q.mute * clampr(dlev * (1.0f / STRIKE_LEVEL), 0.0f, 1.0f);
 	// mallet hardness: strike strength, a little tilt (at the moment of the strike only)
-	const real hard = (0.6f + 0.4f * starget) * (1.0f + 0.2f * clampr(c.but_y, -1.0f, 1.0f));
+	const real hard = (Q.hard + Q.hardvel * starget) * (1.0f + Q.tilt * clampr(c.but_y, -1.0f, 1.0f));
 	const real lhard = hard > 1e-3f ? hard : 1e-3f;
 
 	// --- rub (wine glass) -------------------------------------------------------------------------
-	const real rublev = P.rub * rmax(pres - 0.05f, 0.0f);
+	const real rublev = Q.rub * rmax(pres - 0.05f, 0.0f);
 	const bool rubbing = held && rublev > 1e-4f;
 	const real bdamp = -BOW_DAMP * pres;
 
@@ -385,7 +474,7 @@ static inline void process_voice(Engine& e, int v, real trem_lfo) {
 			real hp = 1.0f, ex = pt.hexp;
 			while (ex >= 1.0f) { hp *= lhard; ex -= 1.0f; }
 			hp *= 1.0f + ex * (lhard - 1.0f);
-			const real amp = dlev * pt.amp * hp * fade;
+			const real amp = dlev * (k > 0 ? pt.amp * Q.upper : pt.amp) * hp * fade;
 			re = re * keep + amp;
 			im = im * keep;
 			s.re[k] = re; s.im[k] = im;
@@ -398,15 +487,15 @@ static inline void process_voice(Engine& e, int v, real trem_lfo) {
 		const real g = 1.5f - 0.5f * (cw * cw + sw * sw);   // unit magnitude
 		cw *= g; sw *= g;
 		// decay: natural (per partial, over the keyboard), damper (stronger for high partials), rub
-		real sigma = e.sig_ref[k] * pitch_decay + damp * (1.0f + f * (1.0f / 3000.0f));
+		real sigma = rmax(e.sig_ref[k] * pitch_decay, SIGMA_MIN) + damp * (1.0f + f * (1.0f / 3000.0f));
 		real b = 0.0f;
 		if (rubbing && pt.bow > 0.0f) {
 			const real T = rublev * pt.bow * fade;
 			const real mag2 = re * re + im * im;
 			const real beta = clampr(BOW_GROW * (1.0f - mag2 / (T * T)), bdamp, BOW_GROW);
-			// noise for an rms of BOW_NOISE*T from the noise alone (uniform noise, var 1/3)
+			// noise for an rms of rubnoise*T from the noise alone (uniform noise, var 1/3)
 			const real an = rmax(sigma * e.inv_sr, 1e-6f);
-			b = BOW_NOISE * 1.7320508f * T * 2.0f * (an * rsqrt_fast(an));
+			b = Q.rubnoise * 1.7320508f * T * 2.0f * (an * rsqrt_fast(an));
 			sigma -= beta;
 		}
 		// decay changes (damper, rub) are smoothed over a few blocks: a step in the decay rate is a
@@ -422,7 +511,7 @@ static inline void process_voice(Engine& e, int v, real trem_lfo) {
 		m++;
 	}
 	s.on_mask = mask;
-	for (int p = 0; (m & 3) != 0; p++, m++) {   // pad with dummy modes
+	for (int p = 0; m < NSLOT && (m & 3) != 0; p++, m++) {   // pad with dummy modes
 		s.lidx[m] = (uint8_t)(NMODES + p);
 		s.lc[m] = 0.0f; s.ls[m] = 0.0f; s.lb[m] = 0.0f;
 	}
@@ -442,8 +531,8 @@ static inline void process_voice(Engine& e, int v, real trem_lfo) {
 	}
 
 	// vibraphone motor tremolo: pressing harder than a normal hold, or the gyro (shared phase)
-	if (P.tremolo > 0.0f) {
-		const real dt = rmax(clampr((pres - 0.7f) * (1.0f / 0.3f), 0.0f, 1.0f), e.gyro);
+	if (Q.trem > 0.5f) {
+		const real dt = rmax(clampr((pres - Q.tremthr) * (1.0f / 0.3f), 0.0f, 1.0f), e.gyro);
 		s.trem += 0.1f * (dt - s.trem);
 		if (!(s.trem > 1e-4f)) s.trem = 0.0f;
 	} else {
@@ -468,7 +557,7 @@ static inline void process_voice(Engine& e, int v, real trem_lfo) {
 		for (int k = 0; k < NMODES; k++) { s.re[k] *= gsc; s.im[k] *= gsc; }
 	}
 	// tremolo gain (depth 0.6 at most; amplitude only, never pitch), interpolated over the block
-	const real g1 = 1.0f - 0.6f * s.trem * (0.5f + 0.5f * trem_lfo);
+	const real g1 = 1.0f - Q.tremdepth * s.trem * (0.5f + 0.5f * trem_lfo);
 	if (g1 != 1.0f || s.tgain != 1.0f) {
 		const real dg = (g1 - s.tgain) * (1.0f / BLOCK);
 		real g = s.tgain;
@@ -496,7 +585,7 @@ static inline void process(Engine& e, real* __restrict__ output) {
 	e.gyro += (gt > e.gyro ? 0.05f : 0.0015f) * (gt - e.gyro);
 	if (!(e.gyro > 1e-4f)) e.gyro = 0.0f;
 	// motor speed ~5 Hz (a little faster with more rotation); one shared phase like a real motor
-	e.trem_phase += (5.0f + 2.0f * e.gyro) * BLOCK * e.inv_sr;
+	e.trem_phase += (e.prm.tremrate + 2.0f * e.gyro) * BLOCK * e.inv_sr;
 	if (e.trem_phase >= 1.0f) e.trem_phase -= 1.0f;
 	const real lfo = sin_turn(e.trem_phase);
 
@@ -535,5 +624,15 @@ static inline void process(Engine& e, real* __restrict__ output) {
 }
 
 } // namespace modal
+
+// live parameters for the app (see strisy.h)
+namespace strisy {
+template <> struct EngineParams<modal::Engine> {
+	static const int count = modal::NUM_PARAMS;
+	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &modal::param_desc[i] : 0; }
+	static float* ptr(modal::Engine& e, int i) { return (i >= 0 && i < count) ? &e.prm.level + i : 0; }
+	static void changed(modal::Engine& e, int) { modal::params_changed(e); }
+};
+} // namespace strisy
 
 #endif // VOICE_MODAL_H_
