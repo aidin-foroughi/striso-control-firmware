@@ -6,7 +6,8 @@
 set -euo pipefail
 V="$1"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-WT="worktrees/fw-$V"
+WT="${WT:-worktrees/fw-$V}"   # override for voices living in another worktree (e.g. WT=worktrees/fw-reed for wind)
+[ -d "$WT" ] || { echo "!! no worktree $WT (set WT=...)"; exit 1; }
 cd "$ROOT"
 echo "== branch"
 git -C "$WT" log --oneline -5 synth-dev..HEAD
