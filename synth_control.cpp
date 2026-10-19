@@ -1862,6 +1862,7 @@ float config_but(int but, int type, float adjust) {
     case (24): return config_voice("bowed", 64, 0, 0, type, adjust);
     case (26): return config_voice("reed", 0, 64, 0, type, adjust);
     case (28): return config_voice("ep", 40, 0, 64, type, adjust);
+    case (13): return config_voice("brass", 64, 40, 0, type, adjust);
 #endif
     // row 5: 34 36 38 23 25 27 29 31 33
     case (34): // set 12tet tuning, knob: tuning offset
