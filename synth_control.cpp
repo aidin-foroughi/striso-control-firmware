@@ -1700,7 +1700,7 @@ float config_but(int but, int type, float adjust) {
  * Returns the unused part of adjust, like config_but.
  */
 static float config_voice(const char* engine, int r, int g, int b, int type, float adjust) {
-    static int8_t remembered[32];  // preset per engine, indexed by the engine's first entry
+    static int8_t remembered[64];  // preset per engine, indexed by the engine's first entry
     int first = -1, count = 0;
     for (int n = 0; n < synth_num_voices(); n++) {
         const char* preset;
@@ -1709,7 +1709,7 @@ static float config_voice(const char* engine, int r, int g, int b, int type, flo
             count++;
         }
     }
-    if (count == 0 || first >= 32) {
+    if (count == 0 || first >= 64) {
         led_rgb3(64, 0, 0);  // engine not in this firmware
         return 0;
     }
@@ -1861,6 +1861,7 @@ float config_but(int but, int type, float adjust) {
     case (22): return config_voice("modal", 0, 24, 64, type, adjust);
     case (24): return config_voice("bowed", 64, 0, 0, type, adjust);
     case (26): return config_voice("reed", 0, 64, 0, type, adjust);
+    case (28): return config_voice("ep", 40, 0, 64, type, adjust);
 #endif
     // row 5: 34 36 38 23 25 27 29 31 33
     case (34): // set 12tet tuning, knob: tuning offset

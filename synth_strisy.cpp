@@ -86,7 +86,7 @@ struct VoiceEntry {
 	const char* engine_name;
 	const char* preset_name;
 };
-static const int MAX_ENTRIES = 32;
+static const int MAX_ENTRIES = 64;
 static VoiceEntry entries[MAX_ENTRIES];
 static int num_entries;
 
