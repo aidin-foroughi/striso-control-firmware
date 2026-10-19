@@ -33,9 +33,10 @@
  * Controls:
  *   pres   breath. Below ~0.12 (clarinet) .. 0.2 (sax) the reed doesn't speak: breath noise and a
  *          whispery bore resonance. Above it the tone blooms and gets louder and brighter;
- *          pushed hard (> ~0.85) a growl (hummed roughness) sets in. The register stays on the
+ *          pushed hard (> ~1.05) a growl (hummed roughness) sets in. The register stays on the
  *          fundamental over the whole pressure/tilt range (tested on notes 36..91).
  *   vpres  tonguing: a fast strike gives a pressure kick and a short tongue/breath noise burst
+ *          (only while the key is pressed; a stale vpres on a released voice is ignored)
  *   but_y  backward = clarinet (cylindrical, hollow, odd harmonics, tighter embouchure),
  *          forward = saxophone (conical, all harmonics, buzzier, more open embouchure).
  *          High notes (above ~E5) are pulled towards the middle of the morph.
@@ -96,6 +97,15 @@ static const real GS = 0.997f;           // short tube end reflection
 #endif
 #ifndef REED_FCTRACK
 #define REED_FCTRACK 2.0f
+#endif
+#ifndef REED_GTH
+#define REED_GTH 1.05f
+#endif
+#ifndef REED_NG
+#define REED_NG 0.02f
+#endif
+#ifndef REED_NO
+#define REED_NO 0.04f
 #endif
 #ifndef REED_FCS
 #define REED_FCS 6.0f
@@ -186,7 +196,7 @@ struct VoiceState {
 	real ls;             // short tube lowpass state
 	real x1, x2;         // reed displacement x(n-1), x(n-2)
 	real pm1, gm1;       // p(n-1), gamma(n-1)
-	real n1, n2;         // noise filter states
+	real n1, n1b, n2;    // noise filter states
 	real gn;             // growl noise lowpass
 	real outg;           // output gain at the end of the last block
 };
@@ -245,11 +255,13 @@ static inline void process_voice(Engine& e, int v) {
 	if (!(pres == pres)) pres = 0.0f;
 	real vp = clampr(c.vpres - 0.02f, 0.0f, 1.0f);
 	if (!(vp == vp)) vp = 0.0f;
-	const real vplev = vp / (0.3f + vp);
+	// velocity only counts while the key is pressed: the firmware leaves the last vpres on a
+	// released voice, which must neither wake it nor keep it (and its tongue noise) alive
+	const real vplev = pres > 0.0f ? vp / (0.3f + vp) : 0.0f;
 
 	bool wake = false;
 	if (!s.active) {
-		if (pres <= 0.0f && vplev <= 0.0f) { s.note_prev = c.note; return; }
+		if (pres <= 0.0f) { s.note_prev = c.note; return; }
 		s.active = 1;
 		s.quiet = 0;
 		wake = true;
@@ -327,10 +339,14 @@ static inline void process_voice(Engine& e, int v) {
 	const real gam0 = s.gam;
 	const real dgam = (gam_t - gam0) * (1.0f / BLOCK);
 	// breath noise: relative noise on gamma (turbulence, more when soft) and audible breath
-	const real namt = 0.06f + 0.12f * (1.0f - clampr(ps, 0.0f, 1.0f)) + 0.6f * tg;
-	const real nout = 0.25f * ps / (ps + 0.04f) * (1.0f - 0.85f * clampr(ps, 0.0f, 1.0f)) + 0.15f * tg;
+	// (band-limited noise, 500 Hz .. 3 kHz). The audible breath rises with the square of the
+	// pressure up to about the speaking threshold, then fades as the reed takes over; the
+	// tongue adds a short burst at note onsets.
+	const real namt = REED_NG * (0.5f + (1.0f - clampr(ps, 0.0f, 1.0f))) + 0.15f * tg;
+	const real nr = clampr(ps * (1.0f / 0.15f), 0.0f, 1.0f);
+	const real nout = REED_NO * nr * nr * (1.0f - 0.85f * clampr((ps - 0.1f) * 4.0f, 0.0f, 1.0f)) + 0.06f * tg;
 	// growl: pushed hard, or shaking
-	const real gr_t = clampr((ps - 0.85f) * 3.0f, 0.0f, 1.0f) + e.shake;
+	const real gr_t = clampr((ps - REED_GTH) * 3.0f, 0.0f, 1.0f) + e.shake;
 	s.growl += 0.05f * (strisy::rmin(gr_t, 1.2f) - s.growl);
 	if (s.growl < 1e-6f) s.growl = 0.0f;
 	const real gdep = 0.45f * s.growl;
@@ -354,23 +370,24 @@ static inline void process_voice(Engine& e, int v) {
 	uint32_t widx = s.widx, rng = s.rng, gph = s.gph;
 	real pr1 = s.pr1, pr2 = s.pr2;
 	real lp = s.lp, lp2 = s.lp2, ls = s.ls, x1 = s.x1, x2 = s.x2, pm1 = s.pm1, gm1 = s.gm1;
-	real n1 = s.n1, n2 = s.n2, gn = s.gn;
+	real n1 = s.n1, n1b = s.n1b, n2 = s.n2, gn = s.gn;
 	real d1 = d1s, d2 = d2s, gam = gam0, og = outg0;
 	real peak = 0.0f;
 	for (int n = 0; n < BLOCK; n++) {
 		d1 += dd1; d2 += dd2; gam += dgam; og += doutg;
-		// noise: white -> band 400 Hz .. 4 kHz
+		// noise: white -> band 500 Hz .. 3 kHz
 		rng = rng * 1664525u + 1013904223u;
 		const real wn = (real)(int32_t)rng * (1.0f / 2147483648.0f);
-		n1 += 0.4f * (wn - n1);
-		n2 += 0.05f * (n1 - n2);
-		const real nz = n1 - n2;
-		// growl modulator: parabolic sine plus slow noise
+		n1 += 0.32f * (wn - n1);     // 2 x one-pole lowpass at ~3 kHz
+		n1b += 0.32f * (n1 - n1b);
+		n2 += 0.064f * (n1b - n2);   // minus a lowpass at ~500 Hz
+		const real nz = n1b - n2;
+		// growl modulator: parabolic sine (the hum) plus a little slow noise
 		gph += ginc;
 		const real gs_ = (real)(int32_t)gph * (1.0f / 2147483648.0f);
 		const real gsin = 4.0f * gs_ * (1.0f - fabsf(gs_));
 		gn += 0.01f * (wn - gn);
-		const real gmod = gsin + 6.0f * gn;
+		const real gmod = gsin + 2.0f * gn;
 		const real gamn = gam * (1.0f + namt * nz + gdep * gmod);
 
 		// main tube: Lagrange-3 read at delay d1 (taps i0+1 .. i0+4 samples back)
@@ -427,7 +444,7 @@ static inline void process_voice(Engine& e, int v) {
 	s.widx = widx; s.rng = rng; s.gph = gph;
 	s.pr1 = pr1; s.pr2 = pr2;
 	s.lp = lp; s.lp2 = lp2; s.ls = ls; s.x1 = x1; s.x2 = x2; s.pm1 = pm1; s.gm1 = gm1;
-	s.n1 = n1; s.n2 = n2; s.gn = gn;
+	s.n1 = n1; s.n1b = n1b; s.n2 = n2; s.gn = gn;
 	s.d1 = D1; s.d2 = D2; s.gam = gam_t; s.outg = outg_t;
 
 	// safety: reset a voice whose state went non-finite or absurd (also catches NaN)
@@ -437,7 +454,7 @@ static inline void process_voice(Engine& e, int v) {
 		return;
 	}
 	// go idle once released and quiet for longer than a period
-	if (pres <= 0.0f && vplev <= 0.0f && peak < 2e-5f && tg < 1e-3f) {
+	if (pres <= 0.0f && peak < 2e-5f) {
 		if (++s.quiet > (int)(P * (1.0f / BLOCK)) + 3) s.active = 0;
 	} else {
 		s.quiet = 0;
@@ -469,7 +486,7 @@ static inline void process(Engine& e, real* __restrict__ output) {
 		const real o = a > 4.0f ? 4.0f + (a - 4.0f) / (1.0f + 0.25f * (a - 4.0f)) : a;
 		output[n] = clampr(s1 < 0.0f ? -o : o, -8.0f, 8.0f);
 	}
-	if (!(fabsf(s1) < 1e6f) || fabsf(s1) < 1e-20f) { s1 = 0.0f; xp = 0.0f; }  // NaN guard, no denormals
+	if (!(fabsf(s1) < 1e6f) || fabsf(s1) + fabsf(xp) < 1e-9f) { s1 = 0.0f; xp = 0.0f; }  // NaN guard; exact 0 when silent
 	e.dc1 = s1; e.dcx = xp;
 }
 
