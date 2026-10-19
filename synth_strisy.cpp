@@ -59,6 +59,7 @@ static volatile uint32_t prof_blocks;
 #else
 #define VOICE_LIST(X, XP) X(strisy)
 #endif
+#include "fx.h"
 #include "chprintf.h"
 
 #define MAX_VAL (1<<23)
@@ -152,6 +153,80 @@ static int engine_active_voices(int k) {
 	return 0;
 }
 
+// master effects (mono in, stereo out), after the voice engine
+static fx::Engine fx_engine __attribute__((section(".ram5_clear")));
+
+// ---------------------------------------------------------------------------------------------
+// Live parameters: writes from the USB console are queued and applied at the start of an audio
+// block in the synth thread, so they never change a value in the middle of the DSP.
+// Target 0 is the current voice's engine, target 1 the master effects.
+
+template <class E> static int param_count(E&) { return strisy::EngineParams<E>::count; }
+
+static int engine_param_count(int k) {
+	switch (k) {
+#define CASE_PCOUNT(ns) CASE_PCOUNT_(ns)
+#define CASE_PCOUNT_(ns) case VOICE_##ns: return param_count(engine_##ns);
+	VOICE_LIST(CASE_PCOUNT, CASE_PCOUNT)
+	}
+	return 0;
+}
+
+static const strisy::ParamDesc* engine_param_desc(int k, int i) {
+	switch (k) {
+#define CASE_PDESC(ns) CASE_PDESC_(ns)
+#define CASE_PDESC_(ns) case VOICE_##ns: return strisy::EngineParams<ns::Engine>::desc(i);
+	VOICE_LIST(CASE_PDESC, CASE_PDESC)
+	}
+	return 0;
+}
+
+static float* engine_param_ptr(int k, int i) {
+	switch (k) {
+#define CASE_PPTR(ns) CASE_PPTR_(ns)
+#define CASE_PPTR_(ns) case VOICE_##ns: return strisy::EngineParams<ns::Engine>::ptr(engine_##ns, i);
+	VOICE_LIST(CASE_PPTR, CASE_PPTR)
+	}
+	return 0;
+}
+
+static void engine_param_changed(int k, int i) {
+	switch (k) {
+#define CASE_PCHG(ns) CASE_PCHG_(ns)
+#define CASE_PCHG_(ns) case VOICE_##ns: strisy::EngineParams<ns::Engine>::changed(engine_##ns, i); break;
+	VOICE_LIST(CASE_PCHG, CASE_PCHG)
+	}
+}
+
+struct ParamWrite { uint8_t target, index; float value; };
+static const int PARAM_QUEUE = 64;
+static ParamWrite param_queue[PARAM_QUEUE];
+static volatile uint32_t param_head, param_tail;  // single producer (USB), single consumer (synth)
+
+// apply queued writes; called from the synth thread at the start of a block
+static void apply_params(int engine) {
+	while (param_tail != param_head) {
+		const ParamWrite w = param_queue[param_tail % PARAM_QUEUE];
+		const strisy::ParamDesc* d;
+		float* p;
+		if (w.target == 0) {
+			d = engine_param_desc(engine, w.index);
+			p = engine_param_ptr(engine, w.index);
+		} else {
+			d = strisy::EngineParams<fx::Engine>::desc(w.index);
+			p = strisy::EngineParams<fx::Engine>::ptr(fx_engine, w.index);
+		}
+		if (d && p && w.value == w.value) {
+			float v = w.value < d->min ? d->min : (w.value > d->max ? d->max : w.value);
+			if (d->kind != 0) v = (float)(int)(v + (v >= 0 ? 0.5f : -0.5f));
+			*p = v;
+			if (w.target == 0) engine_param_changed(engine, w.index);
+			else strisy::EngineParams<fx::Engine>::changed(fx_engine, w.index);
+		}
+		param_tail = param_tail + 1;
+	}
+}
+
 synth_interface_t synth_interface;
 static float dump;
 float volume = 1.0f;
@@ -160,6 +235,7 @@ volatile synth_load_t synth_load;
 static int32_t *outbuf;
 static int32_t *inbuf;
 static float output0[CHANNEL_BUFFER_SIZE];
+static float out_l[CHANNEL_BUFFER_SIZE], out_r[CHANNEL_BUFFER_SIZE];
 
 // 4 KB stack in DTCM (upstream's Faust synth used 1024 bytes, almost all of it)
 static THD_WORKING_AREA(waSynthThread, 4096) __attribute__((section(".ram5_clear")));
@@ -172,6 +248,8 @@ static void synthThread(void *arg) {  // THE SYNTH THREAD
 	float volume_filtered = 0.0f;
 
 	chEvtAddEvents(1);
+
+	fx::init(fx_engine, SAMPLINGFREQ);
 
 	// defaults as the Faust sliders: accelerometer at rest, pedal 3/16, note 69
 	controls_g = {1.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 3.0f / 16};
@@ -206,21 +284,24 @@ static void synthThread(void *arg) {  // THE SYNTH THREAD
 			if (entries[req].preset >= 0) engine_set_preset(entries[req].engine, entries[req].preset);
 			voice_current = req;
 		}
+		apply_params(entries[voice_current].engine);
 		engine_process(entries[voice_current].engine, output0);
+		fx::process(fx_engine, output0, out_l, out_r);
 		prof_blocks++;
 
 		volume_filtered = VOLUME_FILTER * volume_filtered + (1 - VOLUME_FILTER) * volume;
 
-		// convert float to int with scale, clamp and round
+		// convert float to int with scale, clamp and round; left and right interleaved
 		for (int n = 0; n < CHANNEL_BUFFER_SIZE; n++) {
-			tmp = (int32_t)(output0[n] * volume_filtered * MAX_VAL);
-			if (tmp <= -MAX_VAL) {
-				tmp = -(MAX_VAL-1);
-			} else if (tmp >= MAX_VAL) {
-				tmp = MAX_VAL-1;
+			for (int ch = 0; ch < 2; ch++) {
+				tmp = (int32_t)((ch ? out_r[n] : out_l[n]) * volume_filtered * MAX_VAL);
+				if (tmp <= -MAX_VAL) {
+					tmp = -(MAX_VAL-1);
+				} else if (tmp >= MAX_VAL) {
+					tmp = MAX_VAL-1;
+				}
+				outbuf[2*n+ch] = tmp * (1<<8);
 			}
-			// make both audio channels the same
-			outbuf[2*n] = outbuf[2*n+1] = tmp * (1<<8);
 		}
 
 		rtcnt_t t_block = chSysGetRealtimeCounterX() - t_start;
@@ -301,4 +382,45 @@ void synth_profile_print(void *chp) {
 	for (int k = 0; k < 8; k++)
 		chprintf((BaseSequentialStream *)chp, "  %-12s %6lu\r\n", names[k], p[k] / blocks);
 	chprintf((BaseSequentialStream *)chp, "  %-12s %6lu of %lu\r\n", "total", total / blocks, (uint32_t)SYNTH_BLOCK_CYCLES);
+}
+
+static uint32_t float_bits(float f) {
+	union { float f; uint32_t u; } v;
+	v.f = f;
+	return v.u;
+}
+
+void synth_params_print(void *chp, int target) {
+	BaseSequentialStream* out = (BaseSequentialStream *)chp;
+	if (target == 0) {
+		const VoiceEntry& en = entries[voice_request];
+		const int k = en.engine;
+		const int count = engine_param_count(k);
+		chprintf(out, "params 0 %s%s%s %d\r\n", en.engine_name, en.preset_name ? ":" : "", en.preset_name ? en.preset_name : "", count);
+		for (int i = 0; i < count; i++) {
+			const strisy::ParamDesc* d = engine_param_desc(k, i);
+			const float* p = engine_param_ptr(k, i);
+			chprintf(out, "%d %s %s %08lx %08lx %08lx %d\r\n", i, d->name, d->group,
+			         float_bits(d->min), float_bits(d->max), float_bits(p ? *p : 0.0f), d->kind);
+		}
+	} else {
+		const int count = strisy::EngineParams<fx::Engine>::count;
+		chprintf(out, "params 1 fx %d\r\n", count);
+		for (int i = 0; i < count; i++) {
+			const strisy::ParamDesc* d = strisy::EngineParams<fx::Engine>::desc(i);
+			const float* p = strisy::EngineParams<fx::Engine>::ptr(fx_engine, i);
+			chprintf(out, "%d %s %s %08lx %08lx %08lx %d\r\n", i, d->name, d->group,
+			         float_bits(d->min), float_bits(d->max), float_bits(p ? *p : 0.0f), d->kind);
+		}
+	}
+}
+
+int synth_param_set(int target, int index, float value) {
+	if (target < 0 || target > 1 || index < 0) return 0;
+	const int count = target == 0 ? engine_param_count(entries[voice_request].engine) : strisy::EngineParams<fx::Engine>::count;
+	if (index >= count) return 0;
+	if (param_head - param_tail >= (uint32_t)PARAM_QUEUE) return 0;
+	param_queue[param_head % PARAM_QUEUE] = {(uint8_t)target, (uint8_t)index, value};
+	param_head = param_head + 1;
+	return 1;
 }

@@ -44,15 +44,16 @@ namespace bowed {
 
 typedef float real;
 static const int BLOCK = strisy::BLOCK;
-static const int MAX_VOICES = 6;
+static const int MAX_VOICES = 10;
 static const int NECK_LEN = 2048;    // >= longest string loop (note 18: 2060 samples, clamped)
 static const int BRIDGE_LEN = 1024;  // >= max bow distance from bridge (beta <= 0.4)
 static const uint32_t NECK_MASK = NECK_LEN - 1, BRIDGE_MASK = BRIDGE_LEN - 1;
 static const int NB = 5;             // body modes
 
 // delay lines: normal (cached) RAM, not in the DTCM Engine
-static float neck_buf[MAX_VOICES][NECK_LEN] __attribute__((aligned(32)));
-static float bridge_buf[MAX_VOICES][BRIDGE_LEN] __attribute__((aligned(32)));
+// in AHB SRAM1/2 (ram1, 256 KB, otherwise unused): 120 KB for 10 voices
+static float neck_buf[MAX_VOICES][NECK_LEN] __attribute__((aligned(32), section(".ram1_clear")));
+static float bridge_buf[MAX_VOICES][BRIDGE_LEN] __attribute__((aligned(32), section(".ram1_clear")));
 
 // test hook: per sample bow speed, string velocity at the bow, friction reflection R
 #ifndef BOWED_TRACE

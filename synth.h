@@ -26,6 +26,12 @@
 #include "codec.h"
 
 #define VOICECOUNT 6
+// the C++ engines (synth_strisy.cpp) run more voices than the Faust synth; spaced "#  define" so
+// faust2striso.py, which rewrites the line above, leaves this one alone
+#ifdef SYNTH_ENGINE_STRISY
+#  undef VOICECOUNT
+#  define VOICECOUNT 10
+#endif
 
 typedef struct struct_synth_interface {
 	float* acc_abs;
@@ -70,6 +76,13 @@ const char* synth_voice_name(int n, const char** preset);
 int synth_current_voice(void);
 // switch to voice n at the next audio block; returns 0 if n is out of range
 int synth_select_voice(int n);
+
+// Live parameters. target 0: the current voice's engine, target 1: the master effects.
+// Print the list as lines "index name group min max value kind", min/max/value as the 8 hex digits
+// of the float's bits (exact, no float printf), preceded by "params <target> <name> <count>".
+void synth_params_print(void *chp, int target);
+// queue a parameter write, applied at the next audio block; returns 0 if out of range or queue full
+int synth_param_set(int target, int index, float value);
 
 int synth_message(int size, int* msg);
 void synth_tick(void);

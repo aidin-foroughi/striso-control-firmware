@@ -55,7 +55,7 @@ namespace reed {
 
 typedef float real;
 static const int BLOCK = strisy::BLOCK;
-static const int MAX_VOICES = 6;
+static const int MAX_VOICES = 10;
 
 // delay lines: main tube up to (1 - BETA_SAX) * period, short tube up to period / 2.
 // The lowest note (MIDI 20, 26 Hz) has a period of 1881 samples.

@@ -195,6 +195,9 @@ endif
 
 # List all user C define here, like -D_DEBUG=1
 UDEFS = -DFWVERSION=\"$(FWVERSION)\"
+ifeq ($(SYNTH_ENGINE),strisy)
+  UDEFS += -DSYNTH_ENGINE_STRISY
+endif
 ifeq ($(VOICE),all)
   UDEFS += -DSYNTH_VOICE_ALL
 else ifneq ($(VOICE),strisy)

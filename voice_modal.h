@@ -39,7 +39,7 @@ namespace modal {
 
 typedef float real;
 static const int BLOCK = strisy::BLOCK;
-static const int MAX_VOICES = 8;
+static const int MAX_VOICES = 10;
 static const int NMODES = 12;
 static const int NSLOT = NMODES + 4;   // + 4 dummy (always zero) slots to pad the mode list
 

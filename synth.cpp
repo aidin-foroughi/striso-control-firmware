@@ -24,6 +24,7 @@ extern "C" {
     #include "ch.h"
     #include "hal.h"
     #include "synth.h"
+    #include "chprintf.h"
 }
 
 #define max(x,y) (x>y?x:y)
@@ -1091,4 +1092,13 @@ int synth_current_voice(void) {
 
 int synth_select_voice(int n) {
 	return n == 0;
+}
+
+void synth_params_print(void *chp, int target) {
+	chprintf((BaseSequentialStream *)chp, "params %d faust 0\r\n", target);
+}
+
+int synth_param_set(int target, int index, float value) {
+	(void)target; (void)index; (void)value;
+	return 0;
 }

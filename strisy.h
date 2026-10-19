@@ -135,6 +135,24 @@ static const real accDecay = 0.10f;
 // Gating threshold on the voice level envelope (output is level * filters, so about -120 dB)
 static const real GATE_LEVEL = 1e-6f;
 
+// Live-editable parameters (tools/app). An engine with parameters specializes
+// strisy::EngineParams<its Engine>; the default here means "no parameters".
+// ptr() returns the live value, changed() is called (in the synth thread) after it was written,
+// so the engine can recompute derived values. Values are clamped to [min, max] before writing.
+struct ParamDesc {
+	const char* name;   // short id, e.g. "cutoff"
+	const char* group;  // UI group, e.g. "filter"
+	float min, max;
+	uint8_t kind;       // 0: continuous, 1: integer steps, 2: on/off
+};
+
+template <class E> struct EngineParams {
+	static const int count = 0;
+	static const ParamDesc* desc(int) { return 0; }
+	static float* ptr(E&, int) { return 0; }
+	static void changed(E&, int) {}
+};
+
 // Per voice controls, written asynchronously by synth_control (same meaning as the Faust sliders)
 struct VoiceControls {
 	real note, pres, vpres, but_x, but_y;

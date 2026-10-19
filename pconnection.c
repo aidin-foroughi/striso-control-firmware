@@ -122,6 +122,24 @@ void PExReceiveByte(unsigned char c) {
   // ws2812_write_led(0, 0,67,0);
   static char header = 0;
   static int state = 0;
+  // binary payload of the 'Q' command (set parameter): target, index, float32 little endian
+  static unsigned char payload[6];
+  static int payload_len = 0, payload_need = 0;
+
+  if (payload_need > 0) {
+    payload[payload_len++] = c;
+    if (payload_len == payload_need) {
+      payload_need = 0;
+      union { uint32_t u; float f; } v;
+      v.u = (uint32_t)payload[2] | ((uint32_t)payload[3] << 8) | ((uint32_t)payload[4] << 16) | ((uint32_t)payload[5] << 24);
+#ifdef USE_INTERNAL_SYNTH
+      if (!synth_param_set(payload[0], payload[1], v.f)) {
+        chprintf((BaseSequentialStream *)&BDU1, "Q err %d %d\r\n", payload[0], payload[1]);
+      }
+#endif
+    }
+    return;
+  }
 
   if (!header) {
     switch (state) {
@@ -202,6 +220,16 @@ void PExReceiveByte(unsigned char c) {
 #ifdef USE_INTERNAL_SYNTH
       else if (c == 'P') { // synth engine profile per section since last read
         synth_profile_print(&BDU1);
+      }
+      else if (c == 'p') { // list the current voice's live parameters
+        synth_params_print(&BDU1, 0);
+      }
+      else if (c == 'f') { // list the master effects' live parameters
+        synth_params_print(&BDU1, 1);
+      }
+      else if (c == 'Q') { // set parameter: 6 payload bytes follow (target, index, float32 LE)
+        payload_len = 0;
+        payload_need = 6;
       }
       else if (c == 'v') { // list voices, '*' marks the current one
         for (int n = 0; n < synth_num_voices(); n++) {
