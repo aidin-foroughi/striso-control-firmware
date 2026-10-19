@@ -203,6 +203,23 @@ void PExReceiveByte(unsigned char c) {
       else if (c == 'P') { // synth engine profile per section since last read
         synth_profile_print(&BDU1);
       }
+      else if (c == 'v') { // list voices, '*' marks the current one
+        for (int n = 0; n < synth_num_voices(); n++) {
+          const char* preset;
+          const char* name = synth_voice_name(n, &preset);
+          chprintf((BaseSequentialStream *)&BDU1, "%c %d %s%s%s\r\n", n == synth_current_voice() ? '*' : ' ',
+                   n, name, preset ? ":" : "", preset ? preset : "");
+        }
+      }
+      else if (c >= 0x80) { // select voice c - 0x80
+        if (synth_select_voice(c - 0x80)) {
+          const char* preset;
+          const char* name = synth_voice_name(c - 0x80, &preset);
+          chprintf((BaseSequentialStream *)&BDU1, "voice %d %s%s%s\r\n", c - 0x80, name, preset ? ":" : "", preset ? preset : "");
+        } else {
+          chprintf((BaseSequentialStream *)&BDU1, "no voice %d\r\n", c - 0x80);
+        }
+      }
       else if (c == 'L') { // synth DSP load since last read, in CPU cycles per block
         chSysLock();
         uint64_t sum = synth_load.sum;

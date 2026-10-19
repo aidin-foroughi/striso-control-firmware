@@ -155,3 +155,20 @@ void computebufI(int32_t *inp, int32_t *outp) {
 void synth_profile_print(void *chp) {
 	(void)chp;
 }
+
+int synth_num_voices(void) {
+	return 1;
+}
+
+const char* synth_voice_name(int n, const char** preset) {
+	if (preset) *preset = 0;
+	return n == 0 ? "faust" : 0;
+}
+
+int synth_current_voice(void) {
+	return 0;
+}
+
+int synth_select_voice(int n) {
+	return n == 0;
+}

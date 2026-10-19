@@ -63,6 +63,14 @@ void start_synth_thread(void);
 // print and reset the synth engine profile to a BaseSequentialStream (no-op if unsupported)
 void synth_profile_print(void *chp);
 
+// Selectable voices: engines, or presets of an engine (synth_strisy.cpp; the Faust synth has one).
+int synth_num_voices(void);
+// engine name of voice n (NULL past the end); *preset gets the preset name or NULL
+const char* synth_voice_name(int n, const char** preset);
+int synth_current_voice(void);
+// switch to voice n at the next audio block; returns 0 if n is out of range
+int synth_select_voice(int n);
+
 int synth_message(int size, int* msg);
 void synth_tick(void);
 void midi_config(void);

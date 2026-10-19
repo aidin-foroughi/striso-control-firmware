@@ -16,11 +16,13 @@
  * Striso Control. If not, see <http://www.gnu.org/licenses/>.
  */
 
-// Synth thread running a C++ voice engine instead of the Faust generated synth.cpp.
+// Synth thread running C++ voice engines instead of the Faust generated synth.cpp.
 // Select with `make SYNTH_ENGINE=strisy` (default) or `make SYNTH_ENGINE=faust`.
 //
 // The voice engine is chosen with `make VOICE=<name>`: strisy (default, strisy.h, the port of
-// synth.dsp) or voice_<name>.h. An engine header provides, in namespace <name>:
+// synth.dsp), voice_<name>.h, or `all` for every engine in one firmware, switched at runtime
+// with synth_select_voice() (USB console commands '0'..'9', 'v' lists them).
+// An engine header provides, in namespace <name>:
 //   typedef float real; BLOCK (= 32), MAX_VOICES (>= VOICECOUNT)
 //   struct Engine with members  strisy::GlobalControls g;  strisy::VoiceControls vc[MAX_VOICES];
 //                               int nvoices;
@@ -43,19 +45,112 @@ static volatile uint32_t prof_blocks;
 #define STRISY_PROF_MARK(k) do { uint32_t t_ = DWT->CYCCNT; prof[k] += t_ - prof_t; prof_t = t_; } while (0)
 
 #include "strisy.h"
-#ifdef SYNTH_VOICE_HEADER
+// VOICE_LIST(X, XP): X(ns) for an engine, XP(ns) for an engine with presets (NUM_PRESETS,
+// preset_name(i), set_preset(Engine&, i)), which become one selectable entry each.
+#if defined(SYNTH_VOICE_ALL)
+#include "voice_va.h"
+#include "voice_modal.h"
+#include "voice_bowed.h"
+#include "voice_reed.h"
+#define VOICE_LIST(X, XP) X(strisy) XP(va) XP(modal) X(bowed) X(reed)
+#elif defined(SYNTH_VOICE_HEADER)
 #include SYNTH_VOICE_HEADER
-namespace eng = SYNTH_VOICE_NS;
+#define VOICE_LIST(X, XP) X(SYNTH_VOICE_NS)
 #else
-namespace eng = strisy;
+#define VOICE_LIST(X, XP) X(strisy)
 #endif
 #include "chprintf.h"
 
 #define MAX_VAL (1<<23)
 #define VOLUME_FILTER 0.99f
 
-// Engine state and noise table live in DTCM: zero wait state, not shared with DMA.
-static eng::Engine engine __attribute__((section(".ram5_clear")));
+// Every engine's state lives in DTCM: zero wait state, not shared with DMA. The two level macros
+// make sure a macro argument (SYNTH_VOICE_NS) is expanded before it is pasted.
+#define DECLARE_ENGINE(ns) DECLARE_ENGINE_(ns)
+#define DECLARE_ENGINE_(ns) \
+	static ns::Engine engine_##ns __attribute__((section(".ram5_clear"))); \
+	static_assert(CHANNEL_BUFFER_SIZE == ns::BLOCK, "engine block size must match the codec buffer"); \
+	static_assert(VOICECOUNT <= ns::MAX_VOICES, "too many voices for the engine");
+VOICE_LIST(DECLARE_ENGINE, DECLARE_ENGINE)
+
+#define VOICE_ENUM(ns) VOICE_ENUM_(ns)
+#define VOICE_ENUM_(ns) VOICE_##ns,
+enum { VOICE_LIST(VOICE_ENUM, VOICE_ENUM) NUM_ENGINES };
+
+// selectable entries: an engine, or one preset of an engine
+struct VoiceEntry {
+	uint8_t engine;
+	int8_t preset;            // -1: engine without presets
+	const char* engine_name;
+	const char* preset_name;
+};
+static const int MAX_ENTRIES = 32;
+static VoiceEntry entries[MAX_ENTRIES];
+static int num_entries;
+
+static void build_entries(void) {
+	num_entries = 0;
+#define ADD_ENTRY(ns) ADD_ENTRY_(ns)
+#define ADD_ENTRY_(ns) if (num_entries < MAX_ENTRIES) entries[num_entries++] = {VOICE_##ns, -1, #ns, 0};
+#define ADD_PRESETS(ns) ADD_PRESETS_(ns)
+#define ADD_PRESETS_(ns) for (int i = 0; i < ns::NUM_PRESETS && num_entries < MAX_ENTRIES; i++) \
+		entries[num_entries++] = {VOICE_##ns, (int8_t)i, #ns, ns::preset_name(i)};
+	VOICE_LIST(ADD_ENTRY, ADD_PRESETS)
+}
+
+// voice at power on: the first entry of this engine
+#if defined(SYNTH_VOICE_ALL)
+static const int DEFAULT_ENGINE = VOICE_va;
+#else
+static const int DEFAULT_ENGINE = 0;
+#endif
+
+// The keys write into one shared set of controls; the active engine gets a copy every block.
+static strisy::VoiceControls controls_vc[VOICECOUNT];
+static strisy::GlobalControls controls_g;
+static volatile int voice_request = 0;   // entry to switch to, set by synth_select_voice()
+static int voice_current = -1;           // entry running in the synth thread
+
+template <class E> static inline void copy_controls(E& e) {
+	e.g = controls_g;
+	for (int v = 0; v < VOICECOUNT; v++) e.vc[v] = controls_vc[v];
+}
+
+static void engine_init(int k) {
+	switch (k) {
+#define CASE_INIT(ns) CASE_INIT_(ns)
+#define CASE_INIT_(ns) case VOICE_##ns: ns::init(engine_##ns, SAMPLINGFREQ, VOICECOUNT); break;
+	VOICE_LIST(CASE_INIT, CASE_INIT)
+	}
+}
+
+static void engine_set_preset(int k, int p) {
+	(void)p;
+	switch (k) {
+#define CASE_NO_PRESET(ns)
+#define CASE_PRESET(ns) CASE_PRESET_(ns)
+#define CASE_PRESET_(ns) case VOICE_##ns: ns::set_preset(engine_##ns, p); break;
+	VOICE_LIST(CASE_NO_PRESET, CASE_PRESET)
+	default: break;
+	}
+}
+
+static void engine_process(int k, float* out) {
+	switch (k) {
+#define CASE_PROCESS(ns) CASE_PROCESS_(ns)
+#define CASE_PROCESS_(ns) case VOICE_##ns: copy_controls(engine_##ns); ns::process(engine_##ns, out); break;
+	VOICE_LIST(CASE_PROCESS, CASE_PROCESS)
+	}
+}
+
+static int engine_active_voices(int k) {
+	switch (k) {
+#define CASE_ACTIVE(ns) CASE_ACTIVE_(ns)
+#define CASE_ACTIVE_(ns) case VOICE_##ns: return ns::active_voices(engine_##ns);
+	VOICE_LIST(CASE_ACTIVE, CASE_ACTIVE)
+	}
+	return 0;
+}
 
 synth_interface_t synth_interface;
 static float dump;
@@ -65,9 +160,6 @@ volatile synth_load_t synth_load;
 static int32_t *outbuf;
 static int32_t *inbuf;
 static float output0[CHANNEL_BUFFER_SIZE];
-
-static_assert(CHANNEL_BUFFER_SIZE == eng::BLOCK, "engine block size must match the codec buffer");
-static_assert(VOICECOUNT <= eng::MAX_VOICES, "too many voices for the engine");
 
 // 4 KB stack in DTCM (upstream's Faust synth used 1024 bytes, almost all of it)
 static THD_WORKING_AREA(waSynthThread, 4096) __attribute__((section(".ram5_clear")));
@@ -81,31 +173,40 @@ static void synthThread(void *arg) {  // THE SYNTH THREAD
 
 	chEvtAddEvents(1);
 
-	eng::init(engine, SAMPLINGFREQ, VOICECOUNT);
+	// defaults as the Faust sliders: accelerometer at rest, pedal 3/16, note 69
+	controls_g = {1.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 3.0f / 16};
+	for (int v = 0; v < VOICECOUNT; v++) controls_vc[v] = {69.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 
-	// controls the engine doesn't use, and voices beyond VOICECOUNT, write to a dummy
-	synth_interface.acc_abs = &engine.g.acc_abs;
-	synth_interface.acc_x = &engine.g.acc_x;
-	synth_interface.acc_y = &engine.g.acc_y;
-	synth_interface.acc_z = &engine.g.acc_z;
-	synth_interface.rot_x = &engine.g.rot_x;
-	synth_interface.rot_y = &engine.g.rot_y;
-	synth_interface.rot_z = &engine.g.rot_z;
-	synth_interface.pedal = &engine.g.pedal;
+	// voices beyond VOICECOUNT write to a dummy
+	synth_interface.acc_abs = &controls_g.acc_abs;
+	synth_interface.acc_x = &controls_g.acc_x;
+	synth_interface.acc_y = &controls_g.acc_y;
+	synth_interface.acc_z = &controls_g.acc_z;
+	synth_interface.rot_x = &controls_g.rot_x;
+	synth_interface.rot_y = &controls_g.rot_y;
+	synth_interface.rot_z = &controls_g.rot_z;
+	synth_interface.pedal = &controls_g.pedal;
 	for (int v = 0; v < MAX_VOICECOUNT; v++) {
 		bool used = v < VOICECOUNT;
-		synth_interface.note[v] = used ? &engine.vc[v].note : &dump;
-		synth_interface.pres[v] = used ? &engine.vc[v].pres : &dump;
-		synth_interface.vpres[v] = used ? &engine.vc[v].vpres : &dump;
-		synth_interface.but_x[v] = used ? &engine.vc[v].but_x : &dump;
-		synth_interface.but_y[v] = used ? &engine.vc[v].but_y : &dump;
+		synth_interface.note[v] = used ? &controls_vc[v].note : &dump;
+		synth_interface.pres[v] = used ? &controls_vc[v].pres : &dump;
+		synth_interface.vpres[v] = used ? &controls_vc[v].vpres : &dump;
+		synth_interface.but_x[v] = used ? &controls_vc[v].but_x : &dump;
+		synth_interface.but_y[v] = used ? &controls_vc[v].but_y : &dump;
 	}
 
 	while (true) {
 		chEvtWaitOne(1);
 		rtcnt_t t_start = chSysGetRealtimeCounterX();
 
-		eng::process(engine, output0);
+		// switch voices between blocks; the new one starts from a clean state
+		int req = voice_request;
+		if (req != voice_current) {
+			engine_init(entries[req].engine);
+			if (entries[req].preset >= 0) engine_set_preset(entries[req].engine, entries[req].preset);
+			voice_current = req;
+		}
+		engine_process(entries[voice_current].engine, output0);
 		prof_blocks++;
 
 		volume_filtered = VOLUME_FILTER * volume_filtered + (1 - VOLUME_FILTER) * volume;
@@ -143,6 +244,10 @@ static void synthThread(void *arg) {  // THE SYNTH THREAD
 }
 
 void start_synth_thread(void) {
+	build_entries();
+	for (int n = 0; n < num_entries; n++) {
+		if (entries[n].engine == DEFAULT_ENGINE) { voice_request = n; break; }
+	}
 	pThreadDSP = chThdCreateStatic(waSynthThread, sizeof(waSynthThread), NORMALPRIO+2, synthThread, NULL);
 }
 
@@ -161,6 +266,26 @@ void computebufI(int32_t *inp, int32_t *outp) {
 		}
 }
 
+int synth_num_voices(void) {
+	return num_entries;
+}
+
+const char* synth_voice_name(int n, const char** preset) {
+	if (n < 0 || n >= num_entries) return 0;
+	if (preset) *preset = entries[n].preset_name;
+	return entries[n].engine_name;
+}
+
+int synth_current_voice(void) {
+	return voice_request;
+}
+
+int synth_select_voice(int n) {
+	if (n < 0 || n >= num_entries) return 0;
+	voice_request = n;
+	return 1;
+}
+
 void synth_profile_print(void *chp) {
 	static const char* names[8] = {"global", "voice setup", "1a control", "2b lp+bp", "2a osc", "2c body", "master", "1b coefs"};
 	uint32_t p[8], blocks, total = 0;
@@ -169,8 +294,10 @@ void synth_profile_print(void *chp) {
 	blocks = prof_blocks; prof_blocks = 0;
 	chSysUnlock();
 	if (!blocks) return;
-	int active = eng::active_voices(engine);
-	chprintf((BaseSequentialStream *)chp, "profile over %lu blocks, %d voices active now, cycles per block:\r\n", blocks, active);
+	const VoiceEntry& en = entries[voice_current];
+	int active = engine_active_voices(en.engine);
+	chprintf((BaseSequentialStream *)chp, "profile over %lu blocks, voice %s%s%s, %d voices active now, cycles per block:\r\n",
+	         blocks, en.engine_name, en.preset_name ? ":" : "", en.preset_name ? en.preset_name : "", active);
 	for (int k = 0; k < 8; k++)
 		chprintf((BaseSequentialStream *)chp, "  %-12s %6lu\r\n", names[k], p[k] / blocks);
 	chprintf((BaseSequentialStream *)chp, "  %-12s %6lu of %lu\r\n", "total", total / blocks, (uint32_t)SYNTH_BLOCK_CYCLES);

@@ -195,7 +195,9 @@ endif
 
 # List all user C define here, like -D_DEBUG=1
 UDEFS = -DFWVERSION=\"$(FWVERSION)\"
-ifneq ($(VOICE),strisy)
+ifeq ($(VOICE),all)
+  UDEFS += -DSYNTH_VOICE_ALL
+else ifneq ($(VOICE),strisy)
   UDEFS += -DSYNTH_VOICE_HEADER=\"voice_$(VOICE).h\" -DSYNTH_VOICE_NS=$(VOICE)
 endif
 
