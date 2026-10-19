@@ -121,6 +121,19 @@ structs and helpers. Mark functions `static inline`.
 - `tools/harness/compare.py --wav` now writes WAVs scaled x0.25 like the board.
 - The build's stack guard follows the call graph (tools/stackcheck.py).
 
+## Updates (2026-10-19, later)
+
+- Base is `voices` at c609602 or later: master effects (fx.h, about 10% CPU at defaults) and the
+  electric piano (ep) are in. Remaining CPU budget for a voice engine: **at most ~45% at 10 voices**
+  worst case (118k cycles per block, ~11.8k per voice per block).
+- **Memory now:** ram1 (AHB SRAM1/2) is nearly full (~55 KB free): don't use it. Use normal static
+  arrays in AXI SRAM: ~260 KB free in total, shared. The old `reed` voice (160 KB of delay lines)
+  will be removed from the all-voices firmware when the new woodwinds engine lands.
+- The host renderer takes `-DNV=10` (number of voices): test with 10.
+- Presets are the way to offer different instruments (the user preferred realistic separate
+  instruments as presets over continuous morphs). Level-match presets (median active RMS +-3 dB).
+- The user plays and judges by ear; they value realism and subtlety.
+
 ## Your report (final message)
 
 1. What the voice is and how it works (a paragraph).
