@@ -6,6 +6,8 @@ Usage (from tools/):  .venv/Scripts/python striso.py <command>
   load [seconds]     measure synth DSP CPU load (synth-dev firmware)
   profile [seconds]  per-section synth cycle profile (strisy engine)
   voice [name|n]     list voices, or switch to one (VOICE=all firmware): e.g. voice bowed, voice pad
+  params [fx]        list the current voice's (or the effects') live parameters
+  set [fx] <name|i> <value>   set a live parameter
   cmd <X>            send console command 'Stc<X>' and print the reply
   bootloader         reboot into the UF2 bootloader drive
   backup             reboot into bootloader (if needed) and back up the drive contents
@@ -100,6 +102,31 @@ def select_voice(which):
     if len(match) != 1:
         raise SystemExit(f"'{which}' matches {[v[1] for v in match] or 'nothing'}; voices: {[v[1] for v in vs]}")
     return console(bytes([0x80 + match[0][0]])).strip()
+
+
+def params(target=0):
+    """(header, [(index, name, group, min, max, value, kind)]) of target 0 (voice) or 1 (fx)."""
+    import struct as st
+    f = lambda h: st.unpack("<f", st.pack("<I", int(h, 16)))[0]
+    lines = console("p" if target == 0 else "f", wait=0.5).splitlines()
+    head = next((l for l in lines if l.startswith("params ")), "")
+    out = []
+    for l in lines:
+        c = l.split()
+        if len(c) == 7 and c[0].isdigit():
+            out.append((int(c[0]), c[1], c[2], f(c[3]), f(c[4]), f(c[5]), int(c[6])))
+    return head, out
+
+
+def set_param(target, which, value):
+    """Set parameter (index or name) of target 0 (voice) or 1 (fx)."""
+    import struct as st
+    _, ps = params(target)
+    match = [p for p in ps if str(p[0]) == which or p[1] == which]
+    if len(match) != 1:
+        raise SystemExit(f"no parameter '{which}'; available: {[p[1] for p in ps]}")
+    reply = console(b"Q" + bytes([target, match[0][0]]) + st.pack("<f", float(value)), wait=0.1)
+    return reply.strip() or f"{match[0][1]} = {value}"
 
 
 def find_drive():
@@ -239,6 +266,15 @@ def main(argv):
         else:
             for i, name, cur in voices():
                 print(f"{'*' if cur else ' '} {i:2d} {name}")
+    elif cmd == "params":
+        head, ps = params(1 if len(argv) > 1 and argv[1] == "fx" else 0)
+        print(head)
+        for i, name, group, lo, hi, val, kind in ps:
+            print(f"  {i:3d} {group:>10s}/{name:<14s} {val:10.4g}   [{lo:g} .. {hi:g}]{'  int' if kind == 1 else '  on/off' if kind == 2 else ''}")
+    elif cmd == "set":
+        tgt = 1 if argv[1] == "fx" else 0
+        rest = argv[2:] if tgt else argv[1:]
+        print(set_param(tgt, rest[0], rest[1]))
     elif cmd == "profile":
         console("P")
         time.sleep(float(argv[1]) if len(argv) > 1 else 2.0)
