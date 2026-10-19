@@ -90,6 +90,9 @@ struct Params {
 	real vib_depth, vib_hz; // vibrato from shaking (semitones at full shake)
 };
 
+static const int NPARAMS = sizeof(Params) / sizeof(real);
+static_assert(sizeof(Params) == NPARAMS * sizeof(real), "Params must hold only floats");
+
 // preset 0: the original voice
 static inline Params classic_params() {
 	Params p;
@@ -243,7 +246,8 @@ struct Engine {
 	strisy::VoiceControls vc[MAX_VOICES];
 	int nvoices;
 	int preset;
-	Params p;
+	Params p;                   // parameters as set (presets, live edits)
+	Params ps;                  // smoothed copy used by the DSP (de-zippers live edits, ~13 ms)
 	real pi_sr, ph_scale, ctrl_dt, block_dt;
 	real vib_inc, pwm_inc;
 	strisy::SvfCoef lv_c, ty_c;
@@ -262,7 +266,7 @@ static inline real sat(real x) {
 	return x * (1.0f - 0.148148148f * x * x);
 }
 
-static inline real note_freq(real note) { return 8.1757989f * strisy::fastpow2(note * (1.0f / 12)); }
+static inline real note_freq(real note) { return 8.1757989f * strisy::fastpow2(rmax(note, 0.0f) * (1.0f / 12)); }
 
 // parabolic sine of a phase in [0, 1)
 static inline real psin(real ph) {
@@ -284,13 +288,19 @@ static inline void reset_voice(VoiceState& s) {
 
 // Select a preset; callable between blocks at any time (after init). Sounding voices continue with
 // the new parameters: every state stays bounded for any preset, so no reset is needed.
+// values derived from the parameters (rates are not smoothed: they cannot click)
+static inline void update_derived(Engine& e) {
+	e.vib_inc = e.p.vib_hz * e.block_dt;
+	e.pwm_inc = e.p.pwm_hz * e.block_dt;
+	e.lv_c = strisy::svf_from_g(strisy::tan0(e.pi_sr * CTRL * e.p.lv_hz), 0.5f);   // critically damped
+}
+
 static inline void set_preset(Engine& e, int i) {
 	if (i < 0 || i >= NUM_PRESETS) i = 0;
 	e.preset = i;
 	e.p = preset_params(i);
-	e.vib_inc = e.p.vib_hz * e.block_dt;
-	e.pwm_inc = e.p.pwm_hz * e.block_dt;
-	e.lv_c = strisy::svf_from_g(strisy::tan0(e.pi_sr * CTRL * e.p.lv_hz), 0.5f);   // critically damped
+	e.ps = e.p;
+	update_derived(e);
 }
 
 static inline void init(Engine& e, int sample_rate, int nvoices) {
@@ -333,9 +343,14 @@ static inline void process_global(Engine& e) {
 	e.gyro += 0.01f * (r - e.gyro);
 }
 
+#ifdef VA_TEST_HOOK
+static int va_guard_resets = 0;      // host test: voices reset by the guard
+static void va_test_hook(Engine& e);
+#endif
+
 static inline void process_voice(Engine& e, int v) {
 	VoiceState& s = e.vs[v];
-	const Params& P = e.p;
+	const Params& P = e.ps;
 	const strisy::VoiceControls c = e.vc[v];
 	const real pres = rmin(rmax(c.pres, 0.0f), 1.5f);
 	// after a release the firmware leaves the last vpres in place: a positive leftover (sensor noise)
@@ -433,7 +448,7 @@ static inline void process_voice(Engine& e, int v) {
 	const real hB = -2.0f * lB, hC = -2.0f * lC, hP = -2.0f * lPul;
 
 	// filter resonance and input gain (partial bass compensation)
-	const real kres = 4.0f * (P.res_base + P.res_yn * yn - P.res_yp * yp);
+	const real kres = rmin(rmax(4.0f * (P.res_base + P.res_yn * yn - P.res_yp * yp), 0.0f), 3.95f);
 	const real din = 1.0f + P.bass_comp * kres;
 
 	// envelope rates
@@ -461,7 +476,7 @@ static inline void process_voice(Engine& e, int v) {
 			amp = rmax(rmax(ls, 0.0f), amp * fac);
 			const real bl = rmin(amp, 1.5f);
 			const real b = bl * (1.5f - 0.5f * bl);
-			const real cut = rmin(cut0 + cut_env * b + acc_cut * acc, 128.0f);
+			const real cut = rmin(cut0 + cut_env * b + acc_cut * acc, 128.0f);   // (note_freq clamps at 0)
 			const real f = rmin(note_freq(cut), 16000.0f);
 			// G = g/(1+g), g = tan(x) as the [7/6] Pade of strisy::svf_pade, one division
 			const real x = pi_sr * f, x2 = x * x;
@@ -579,6 +594,9 @@ static inline void process_voice(Engine& e, int v) {
 	// guard: non-finite or absurd state -> reset this voice and drop its block
 	const real st = fabsf(s.s1) + fabsf(s.s2) + fabsf(s.s3) + fabsf(s.s4) + fabsf(s.prev) + fabsf(s.amp) + fabsf(s.lv1) + fabsf(s.lv2);
 	if (!(fabsf(sum) < 1e4f) || !(st < 1e3f)) {
+#ifdef VA_TEST_HOOK
+		va_guard_resets++;
+#endif
 		reset_voice(s);
 		s.active = 0;
 		return;
@@ -597,11 +615,25 @@ static inline int active_voices(const Engine& e) {
 	return n;
 }
 
+
 static inline void process(Engine& e, real* __restrict__ output) {
 #ifdef VA_TEST_SWITCH
 	// host test: step to the next preset every VA_TEST_SWITCH blocks, while voices are sounding
 	{ static int nb = 0; if (++nb % VA_TEST_SWITCH == 0) set_preset(e, (e.preset + 1) % NUM_PRESETS); }
 #endif
+#ifdef VA_TEST_HOOK
+	va_test_hook(e);   // host test (tools/harness/perf_va.h): live parameter writes, extra voices
+#endif
+	// smooth the parameters towards the set values (live edits glide in ~13 ms instead of stepping;
+	// without edits ps == p exactly)
+	{
+		const real* __restrict__ pt = reinterpret_cast<const real*>(&e.p);
+		real* __restrict__ ps = reinterpret_cast<real*>(&e.ps);
+		for (int i = 0; i < NPARAMS; i++) {
+			const real d = pt[i] - ps[i];
+			ps[i] = fabsf(d) < 1e-5f ? pt[i] : ps[i] + 0.05f * d;
+		}
+	}
 	process_global(e);
 	for (int n = 0; n < BLOCK; n++) e.mix[n] = 0.0f;
 	for (int v = 0; v < e.nvoices; v++) process_voice(e, v);
@@ -617,6 +649,90 @@ static inline void process(Engine& e, real* __restrict__ output) {
 	e.dc = (fabsf(dc) < 1e3f) ? dc : 0.0f;
 }
 
+// ---------------------------------------------------------------------------------------------
+// Live parameters (tools/app): every Params field, with ranges that are safe at both ends.
+// Writes go to e.p; the DSP follows through the smoothed copy e.ps, so edits never step or click.
+
+struct ParamEntry {
+	strisy::ParamDesc d;
+	real Params::* m;
+};
+
+static const ParamEntry param_table[] = {
+	// level: pressure to loudness
+	{{"gain", "level", 0.5f, 5.0f, 0}, &Params::gain},
+	{{"pres_lin", "level", 0.0f, 1.0f, 0}, &Params::pc_a},          // level = pres*(pres_lin + pres_sq*pres)
+	{{"pres_sq", "level", 0.0f, 1.5f, 0}, &Params::pc_b},
+	{{"pres_hz", "level", 1.0f, 200.0f, 0}, &Params::lv_hz},         // pressure smoothing: low = slow swell
+	{{"hold_decay", "level", 0.005f, 1.0f, 0}, &Params::held_tc},    // fastest fall while held (s)
+	// release
+	{{"release", "release", 0.02f, 4.0f, 0}, &Params::rel_min},      // tail time constant (s)
+	{{"rel_pedal", "release", 0.0f, 6.0f, 0}, &Params::rel_ped},     // + rel_pedal * pedal^2
+	{{"rel_speed", "release", 0.0f, 8.0f, 0}, &Params::rel_vneg},    // fast lift shortens the tail
+	// accent (strike)
+	{{"acc_level", "accent", 0.0f, 2.5f, 0}, &Params::acc_amp},
+	{{"acc_decay", "accent", 0.005f, 0.4f, 0}, &Params::acc_t0},     // s at the top note
+	{{"acc_key", "accent", 0.0f, 0.06f, 0}, &Params::acc_key},       // longer decay low: 2^((132-note)*acc_key)
+	{{"acc_cutoff", "accent", 0.0f, 48.0f, 0}, &Params::acc_cut},    // semitones
+	{{"acc_drive", "accent", 0.0f, 2.0f, 0}, &Params::acc_drive},
+	{{"acc_sync", "accent", 0.0f, 24.0f, 0}, &Params::acc_sync},     // semitones (with forward tilt)
+	{{"acc_pitch", "accent", -1.0f, 1.0f, 0}, &Params::acc_pitch},   // semitones, decays with the accent
+	// filter
+	{{"cut_base", "filter", -20.0f, 80.0f, 0}, &Params::cut_base},   // closed cutoff, note number
+	{{"cut_key", "filter", 0.0f, 1.2f, 0}, &Params::cut_key},        // keytracking
+	{{"cut_env", "filter", 0.0f, 80.0f, 0}, &Params::cut_env},       // opening by pressure (semitones)
+	{{"cut_back", "filter", -24.0f, 24.0f, 0}, &Params::cut_yn},     // lowered by back tilt
+	{{"cut_fwd", "filter", -24.0f, 24.0f, 0}, &Params::cut_yp},      // raised by forward tilt
+	{{"res", "filter", 0.0f, 0.98f, 0}, &Params::res_base},          // 0.98 ~ self-oscillation
+	{{"res_back", "filter", -0.5f, 0.98f, 0}, &Params::res_yn},
+	{{"res_fwd", "filter", -0.5f, 0.98f, 0}, &Params::res_yp},       // subtracted with forward tilt
+	{{"bass_comp", "filter", 0.0f, 1.0f, 0}, &Params::bass_comp},
+	{{"drive", "filter", 0.1f, 3.0f, 0}, &Params::dr_base},
+	{{"drive_env", "filter", 0.0f, 3.0f, 0}, &Params::dr_env},
+	// oscillators (back/fwd: how much tilting back/forward reduces or adds)
+	{{"saw", "osc", 0.0f, 1.0f, 0}, &Params::saw},
+	{{"saw_back", "osc", 0.0f, 1.0f, 0}, &Params::saw_yn},
+	{{"saw_fwd", "osc", 0.0f, 1.0f, 0}, &Params::saw_yp},
+	{{"saw2", "osc", 0.0f, 1.0f, 0}, &Params::c_lvl},
+	{{"saw2_back", "osc", 0.0f, 1.0f, 0}, &Params::c_yn},
+	{{"saw2_fwd", "osc", 0.0f, 1.0f, 0}, &Params::c_yp},
+	{{"saw2_detune", "osc", -0.5f, 0.5f, 0}, &Params::c_det},         // semitones
+	{{"pulse", "osc", 0.0f, 1.0f, 0}, &Params::pul0},
+	{{"pulse_back", "osc", 0.0f, 1.0f, 0}, &Params::pul_yn},
+	{{"pwm", "osc", 0.0f, 0.4f, 0}, &Params::pwm_depth},
+	{{"pwm_hz", "osc", 0.05f, 8.0f, 0}, &Params::pwm_hz},
+	{{"sub", "osc", 0.0f, 1.0f, 0}, &Params::sub},
+	{{"sub_base", "osc", 0.0f, 1.0f, 0}, &Params::sub0},
+	{{"sub_back", "osc", 0.0f, 1.0f, 0}, &Params::sub_yn},
+	{{"sub_fwd", "osc", 0.0f, 1.0f, 0}, &Params::sub_yp},
+	{{"b_sync", "osc", 0.0f, 1.0f, 2}, &Params::b_sync},              // B synced to A, or free detuned saw
+	{{"b_level", "osc", 0.0f, 1.0f, 0}, &Params::b_lvl0},
+	{{"b_fwd", "osc", 0.0f, 1.0f, 0}, &Params::b_yp},
+	{{"b_detune", "osc", -0.5f, 0.5f, 0}, &Params::b_det},            // semitones down (free mode)
+	{{"sync", "osc", 0.0f, 24.0f, 0}, &Params::sync0},                // sync ratio, semitones (x fwd tilt)
+	{{"sync_fwd", "osc", 0.0f, 24.0f, 0}, &Params::sync_yp},
+	{{"sync_env", "osc", 0.0f, 24.0f, 0}, &Params::sync_env},         // sync sweep by pressure
+	{{"tilt_home", "osc", -1.0f, 1.0f, 0}, &Params::y_off},           // rest position on the tilt morph
+	// modulation
+	{{"drift", "mod", 0.0f, 0.3f, 0}, &Params::drift_a},              // semitones
+	{{"saw2_drift", "mod", 0.0f, 0.3f, 0}, &Params::c_drift},
+	{{"cut_drift", "mod", 0.0f, 2.0f, 0}, &Params::cut_drift},
+	{{"gyro_chorus", "mod", 0.0f, 1.0f, 0}, &Params::gyro_det},       // detune from rotation
+	{{"vibrato", "mod", 0.0f, 1.5f, 0}, &Params::vib_depth},          // shake vibrato, semitones
+	{{"vib_hz", "mod", 1.0f, 9.0f, 0}, &Params::vib_hz},
+};
+static const int NUM_LIVE_PARAMS = sizeof(param_table) / sizeof(param_table[0]);
+static_assert(NUM_LIVE_PARAMS == NPARAMS, "every Params field is exposed once");
+
 } // namespace va
+
+namespace strisy {
+template <> struct EngineParams<va::Engine> {
+	static const int count = va::NUM_LIVE_PARAMS;
+	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &va::param_table[i].d : 0; }
+	static float* ptr(va::Engine& e, int i) { return (i >= 0 && i < count) ? &(e.p.*(va::param_table[i].m)) : 0; }
+	static void changed(va::Engine& e, int) { va::update_derived(e); }
+};
+} // namespace strisy
 
 #endif // VOICE_VA_H_
