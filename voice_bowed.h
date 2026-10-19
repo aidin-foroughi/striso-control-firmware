@@ -16,7 +16,9 @@
  *   sticking: f = D (the string moves with the bow) while |D| <= ds (maximum static friction)
  *   slipping: hyperbolic friction mu(u) = a + (1-a)*c/(c+u) of the slip speed u, solved exactly
  *             (one square root) from |D| = u + ds*mu(u); f = sign(D) * (|D| - u)
- * with hysteresis (a slip continues until its branch disappears). |f| <= |D| and sign(f) =
+ * with hysteresis (a slip continues until its branch disappears). Slip onsets and captures are
+ * blended at sub-sample precision (first order anti-aliasing of the friction jump); without it
+ * they snap to the sample grid, which adds a rough, raspy layer of subharmonic sidebands. |f| <= |D| and sign(f) =
  * sign(D), so the junction is a contraction for any bow force and speed: with the loss filters'
  * gain below 1 the loop is stable. The model is homogeneous: scaling bow speed, force and c
  * together scales the motion, so the timbre depends only on the force/speed ratio (Schelleng),
@@ -27,8 +29,8 @@
  * Body: tone shelf (pressure, bow position) and a parallel bank of 5 state-variable band-passes
  * at violin body modes, scaled down for low notes (viola, cello, bass sized bodies).
  *
- * Cost per voice-sample: string+bow loop ~160 instructions (~75 FP incl. 1 vsqrt), body loop ~85
- * (~60 FP); block-rate coefficients ~10 divisions. Silent voices are skipped. Delay lines: static
+ * Cost per voice-sample: string+bow loop ~190 instructions (~70 FP incl. 1 vsqrt; 1 division
+ * only at slip onsets), body loop ~80 (~50 FP); block-rate coefficients ~10 divisions. Silent voices are skipped. Delay lines: static
  * arrays in normal RAM (12 KB per voice); Engine (DTCM) ~1.2 KB.
  */
 #ifndef VOICE_BOWED_H_
@@ -64,17 +66,21 @@ using strisy::rmin;
 struct Params {
 	real kappa_lo, kappa_hi;  // bow force/speed ratio times beta, at light and full pressure
 	real kappa_over;          // extra force when pressing beyond 1
+	real kappa_min;           // lowest kappa (fingerboard side)
 	real fric_a, fric_c, fric_cd; // dynamic/static friction ratio, curve width (rel. to speed, force)
-	real noise0, noise_acc;   // bow noise (relative jitter of the friction force)
+	real noise0, noise_acc, noise_over; // bow noise (jitter of the friction force): base, accent, P > 1
 	real acc_force, acc_speed;// accent (pressure velocity) boost of force and speed
+	real acc_decay;           // accent decay per block
 	real beta0, beta_y, beta_p;  // bow position: centre, octaves per but_y, octaves per pressure
 	real eps_lo, eps_hi;      // loss filter time constant / period at light / full pressure
 	real nut_round;           // finger lowpass time constant relative to the bridge one
+	real onset_aa;            // sub-sample slip onset blending (0 off, 1 on)
 	real t60_40;              // string decay time (s) at note 40, halves every 2 octaves
 	real rel0, rel_ped, rel_lift; // release decay: base, pedal, quick lift-off factor
 	real trem;                // shake -> bow speed modulation depth
 	real body_rot;            // rotation -> body mode shift (octaves)
 	real shelf_lo, shelf_hi;  // tone shelf gain at light / full pressure
+	real shelf_acc;           // accent brightening
 	real direct;              // body direct path
 	real out_gain;
 };
@@ -93,6 +99,7 @@ struct VoiceState {
 	real by;                  // smoothed but_y
 	real vb, ds, cw, nz, dn;  // per-sample ramped values at the end of the previous block
 	real y, ydc, yn;          // loss filter states (bridge, its DC path, finger)
+	real xprev;               // |D| of the previous sample
 	real hp, ts;              // DC blocker and tone shelf states
 	real shelf;               // tone shelf gain (ramped)
 	real bd[NB][2];           // body SVF states
@@ -187,18 +194,19 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 	e.nvoices = nvoices < MAX_VOICES ? nvoices : MAX_VOICES;
 	e.g = {1.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 3.0f / 16};
 	Params& p = e.p;
-	p.kappa_lo = 0.65f; p.kappa_hi = 1.15f; p.kappa_over = 1.0f;
+	p.kappa_lo = 0.75f; p.kappa_hi = 0.95f; p.kappa_over = 0.5f; p.kappa_min = 0.0f;
 	p.fric_a = 0.35f; p.fric_c = 0.3f; p.fric_cd = 0.7f;
-	p.noise0 = 0.03f; p.noise_acc = 0.5f;
-	p.acc_force = 2.0f; p.acc_speed = 0.2f;
-	p.beta0 = 0.11f; p.beta_y = 1.3f; p.beta_p = 0.5f;
+	p.noise0 = 0.01f; p.noise_acc = 0.15f; p.noise_over = 0.1f;
+	p.acc_force = 1.0f; p.acc_speed = 0.15f; p.acc_decay = 0.95f;  // ~13 ms
+	p.beta0 = 0.11f; p.beta_y = 1.0f; p.beta_p = 0.5f;
 	p.eps_lo = 0.012f; p.eps_hi = 0.005f;
 	p.nut_round = 1.0f;
+	p.onset_aa = 1.0f;
 	p.t60_40 = 4.0f;
 	p.rel0 = 0.12f; p.rel_ped = 3.0f; p.rel_lift = 6.0f;
 	p.trem = 1.3f;
 	p.body_rot = 0.7f;
-	p.shelf_lo = 0.3f; p.shelf_hi = 1.3f;
+	p.shelf_lo = 0.3f; p.shelf_hi = 1.2f; p.shelf_acc = 0.25f;
 	p.direct = 0.3f;
 	p.out_gain = 5.0f;
 	for (int v = 0; v < MAX_VOICES; v++) {
@@ -236,8 +244,10 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	if (pres <= 0.0f && s.P < 1e-4f) s.P = 0.0f;
 	const real P = s.P;
 	const real Pn = rmin(P, 1.0f);
-	const real vp = rmin(rmax(c.vpres, -1.5f), 1.5f);
-	s.acc = rmax(s.acc * 0.984f, vp - 0.04f);               // ~40 ms accent decay
+	// pressure velocity only counts while the key is held: after a release the firmware leaves the
+	// last value in place (a stale positive value must not keep accents or noise alive)
+	const real vp = pres > 0.0f ? rmin(rmax(c.vpres, -1.5f), 1.5f) : rmin(rmax(c.vpres, -1.5f), 0.0f);
+	s.acc = rmax(s.acc * p.acc_decay, vp - 0.04f);          // accent envelope
 	const real lift_now = rmax(-vp - 0.04f, 0.0f);
 	s.lift = pres > 0.0f ? rmax(s.lift * 0.95f, lift_now) : rmax(s.lift, lift_now);
 	s.by += 0.15f * (rmin(rmax(c.but_y, -1.0f), 1.0f) - s.by);
@@ -250,8 +260,8 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	const real w0 = e.two_pi_sr * f0;                         // <= 0.86 rad
 	// bow position: tilt forward = towards the bridge (sul ponticello), back = sul tasto;
 	// a light bow drifts towards the fingerboard (flautando), a heavy one towards the bridge
-	const real eb = rmin(rmax(-p.beta_y * s.by + p.beta_p * (0.5f - Pn), -1.0f), 1.8f);
-	// 0.055 .. 0.38, at least 2 samples from the bridge (the highest notes)
+	const real eb = rmin(rmax(-p.beta_y * s.by + p.beta_p * (0.5f - Pn), -0.75f), 0.9f);
+	// 0.065 .. 0.2, at least 2 samples from the bridge (the highest notes)
 	// (and on the longest strings not too close to it: the motion gets irregular there)
 	const real beta = rmax(p.beta0 * exp2_fast(eb), rmax(2.2f / L, 0.03f + 6e-5f * L));
 	// string losses: a heavier bow gives sharper corners (brighter)
@@ -294,8 +304,9 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	// maximum (bright, focused), pressing beyond 1 or striking (accent) goes over it (scratch).
 	// (towards the fingerboard the upper limit drops a little too)
 	const real bq = fsqrt(p.beta0 / beta);
-	const real kfl = rmin(p.kappa_lo * bq, 1.05f);
-	const real khi = p.kappa_hi * rmin(bq * fsqrt(fsqrt(bq)), 1.0f);  // (beta0/beta)^0.375
+	// (with a floor: too light a bow towards the fingerboard jumps to the octave)
+	const real khi = p.kappa_hi * rmin(bq * fsqrt(fsqrt(bq)), 1.0f);  // (beta0/beta)^1.375
+	const real kfl = rmin(rmax(p.kappa_lo * bq, p.kappa_min), khi - 0.1f);
 	const real kap = kfl + (khi - kfl) * Pn * fsqrt(Pn) + p.kappa_over * rmax(P - 1.0f, 0.0f);
 	const real rho = kap / beta * (1.0f + p.acc_force * acc);
 	const real ds = rho * amp;
@@ -312,11 +323,11 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	const real cw = p.fric_c * rmax(L * (1.0f / 250.0f), 1.0f) * amp + p.fric_cd * soft2 * ds + 1e-7f;
 	// bow noise: jitter of the static friction. On long strings the stick phase approaches the
 	// release threshold slowly, so the same jitter shakes the slip timing (the pitch) much more
-	const real nz = rmin(p.noise0 * rmin(200.0f / L, 1.0f) + p.noise_acc * acc + 0.3f * rmax(P - 0.9f, 0.0f), 0.9f);
+	const real nz = rmin(p.noise0 * rmin(200.0f / L, 1.0f) + p.noise_acc * acc + p.noise_over * rmax(P - 1.0f, 0.0f), 0.9f);
 
 	// tone shelf above the corner rounding: a light bow (flautando) and the fingerboard are
 	// dark, a heavy bow, the bridge (ponticello) and a strike are bright and edgy
-	const real shelf = rmin((p.shelf_lo + (p.shelf_hi - p.shelf_lo) * Pn * fsqrt(Pn)) * bq * (1.0f + 0.5f * acc), 3.0f);
+	const real shelf = rmin((p.shelf_lo + (p.shelf_hi - p.shelf_lo) * Pn * fsqrt(Pn)) * fsqrt(bq) * (1.0f + p.shelf_acc * acc), 3.0f);
 
 	// body coefficients
 	BodyCoef bc[NB];
@@ -351,7 +362,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	const real dcg = gl - s.dcr, dck = e.dc_k;
 	real y = s.y, vbn = s.vb, dsn = s.ds, cwn = s.cw, nzn = s.nz, dn = s.dn;
 	const real fa = p.fric_a, fa1 = 1.0f - p.fric_a;
-	real peak = 0.0f;
+	real peak = 0.0f, xprev = s.xprev;
 	for (int n = 0; n < BLOCK; n++) {
 		vbn += dvb; dsn += dds; cwn += dcw; nzn += dnz; dn += ddn;
 		// neck side: 3rd order Lagrange at delay dn (taps at i-1 .. i+2, d = fr + 1)
@@ -389,8 +400,18 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 				cnt = 0;
 			}
 		}
+		// the slip starts somewhere between two samples: at the onset sample the force is blended
+		// between stick and slip by the fraction of the interval spent beyond the threshold
+		// (first order anti-aliasing of the jump, so the onsets don't snap to the sample grid)
+		const real fslip = delta > 0.0f ? x - u : u - x;
+		// (and at the capture, where the slip branch ends, half of the remaining slip on average)
+		real alpha = 1.0f;
+		if (slip_new & !slip)  // (rare: the division only runs at an onset)
+			alpha = rmin((x - dse) / rmax(x - xprev, 1e-12f), 1.0f) * p.onset_aa + (1.0f - p.onset_aa);
+		const real ucap = (slip & !slip_new) ? 0.5f * p.onset_aa * rmax(0.5f * B, 0.0f) : 0.0f;
 		slip = slip_new;
-		const real f = slip ? (delta > 0.0f ? x - u : u - x) : delta;
+		xprev = x;
+		const real f = slip ? delta + alpha * (fslip - delta) : (delta > 0.0f ? delta - ucap : delta + ucap);
 		BOWED_TRACE(v, vbn, bref + nref + f, slip ? 0.0f : 1.0f);
 		nbuf[w & NECK_MASK] = bref + f;
 		bbuf[w & BRIDGE_MASK] = nref + f;
@@ -398,7 +419,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 		sb[n] = br_in;
 		peak = rmax(peak, fabsf(br_in - ydc));  // (the DC is not heard)
 	}
-	s.w = w; s.seed = seed; s.y = y; s.slip = slip; s.cnt = cnt < 1000000 ? cnt : 1000000; s.ydc = ydc; s.yn = yn;
+	s.w = w; s.seed = seed; s.y = y; s.slip = slip; s.cnt = cnt < 1000000 ? cnt : 1000000; s.ydc = ydc; s.yn = yn; s.xprev = xprev;
 	if (tn > 0 && kap * (1.0f + p.acc_force * acc) < 1.3f) {  // not in raucous motion
 		const real kad = rmin(0.25f, L * e.inv_sr * 25.0f);  // per period: T / 40 ms
 		s.corr = rmin(rmax(s.corr + kad * ((real)tsum - (real)tn * L) / L, -0.02f), 0.04f);
