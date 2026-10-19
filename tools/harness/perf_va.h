@@ -221,4 +221,110 @@ static void block_controls(int b, Ctl* v, int nv, float* g) {
 	}
 }
 
+#ifdef VA_TEST_HOOK
+// -DVA_TEST_HOOK [-DVA_LIVE_EVERY=n] [-DVA_LIVE_SEED=s] [-DVA_LIVE_PRESETS]: live parameter test.
+// Called by va::process() every block: runs 10 voices (6..9 are played here, 0..5 by the
+// performance), writes a random in-range value to a random live parameter every n blocks (the way
+// the app does: *ptr = value, then changed()), and with VA_LIVE_PRESETS also switches presets
+// now and then. On the first call it checks the parameter table: unique names, distinct pointers,
+// every preset value inside its range.
+#include <stdio.h>
+#include <string.h>
+#ifndef VA_LIVE_EVERY
+#define VA_LIVE_EVERY 1
+#endif
+#ifndef VA_LIVE_SEED
+#define VA_LIVE_SEED 1
+#endif
+namespace va {
+static void va_test_hook(Engine& e) {
+	typedef strisy::EngineParams<Engine> EP;
+	static uint32_t r = 2654435761u * (uint32_t)VA_LIVE_SEED + 7u;
+	static int b = 0;
+	static float pold[4];
+	auto rnd = [&]() { r = r * 1664525u + 1013904223u; return (float)(r >> 8) * (1.0f / 16777216.0f); };
+	if (b == 0) {
+		e.nvoices = 10;
+		int bad = 0;
+		for (int i = 0; i < EP::count; i++) {
+			const strisy::ParamDesc* d = EP::desc(i);
+			for (int j = 0; j < i; j++)
+				if (!strcmp(d->name, EP::desc(j)->name) || EP::ptr(e, i) == EP::ptr(e, j)) { fprintf(stderr, "!! duplicate param %s\n", d->name); bad++; }
+			for (int k = 0; k < NUM_PRESETS; k++) {
+				Params q = preset_params(k);
+				float x = q.*(param_table[i].m);
+				if (!(x >= d->min && x <= d->max)) { fprintf(stderr, "!! preset %s: %s = %g outside [%g, %g]\n", preset_name(k), d->name, x, d->min, d->max); bad++; }
+			}
+		}
+		fprintf(stderr, "live params: %d, table check %s\n", EP::count, bad ? "FAILED" : "ok");
+	}
+	// voices 6..9: overlapping phrases with swells, strikes, tilt and note changes
+	// (-DVA_LIVE_SOLO: not played, only the performance's voices sound)
+	const double t = (double)b * BLOCK / SAMPLERATE;
+#ifdef VA_LIVE_SOLO
+	if (b == 0) e.nvoices = 6;
+	for (int k = 0; k < 0; k++) {
+#else
+	for (int k = 0; k < 4; k++) {
+#endif
+		const int v = 6 + k;
+		const double per = 0.55 + 0.17 * k;
+		const int n = (int)(t / per);
+		const double u = t - n * per;
+		static const int nn[9] = {45, 52, 57, 60, 64, 67, 72, 76, 84};
+		const float pres = (float)(u < per - 0.08 ? (u < 0.01 ? u / 0.01 : 1.0) * (0.5 + 0.4 * sin(2 * M_PI * 1.3 * t + k)) : 0.0);
+		strisy::VoiceControls& c = e.vc[v];
+		c.note = (float)nn[(n * 5 + k * 2) % 9] + 0.2f * (float)sin(2 * M_PI * 5 * t);
+		c.vpres = pmax(-1.0f, pmin(1.0f, (pres - pold[k]) * (SAMPLERATE / BLOCK) * 0.0125f));
+		c.pres = pres;
+		c.but_x = 0;
+		c.but_y = (float)sin(2 * M_PI * 0.4 * t + k);
+		pold[k] = pres;
+	}
+	// live writes
+#ifdef VA_LIVE_SWEEP
+	// -DVA_LIVE_SWEEP: slider drags, one parameter at a time (0.3 s each, a write every 4 blocks):
+	// from its preset value down to min, up to max, back to the preset value
+	{
+		static float orig = 0;
+		const int seg = (int)(0.3 * SAMPLERATE / BLOCK);
+		const int i = (b / seg) % EP::count, j = b % seg;
+		const strisy::ParamDesc* d = EP::desc(i);
+		float* p = EP::ptr(e, i);
+		if (j == 0) orig = *p;
+		if (j % 4 == 0) {
+			const float u = (float)j / seg;
+			float x = u < 0.25f ? orig + (d->min - orig) * u * 4 : u < 0.75f ? d->min + (d->max - d->min) * (u - 0.25f) * 2
+			          : d->max + (orig - d->max) * (u - 0.75f) * 4;
+			if (j + 4 >= seg) x = orig;
+			if (d->kind == 2) x = u < 0.5f ? 1.0f - orig : orig;
+#ifdef VA_LIVE_LOG
+			if (j == 0) fprintf(stderr, "W %d %s %g\n", b, d->name, orig);
+#endif
+			*p = x;
+			EP::changed(e, i);
+		}
+	}
+#endif
+	if (VA_LIVE_EVERY > 0 && b % (VA_LIVE_EVERY > 0 ? VA_LIVE_EVERY : 1) == 0) {
+		const int i = (int)(rnd() * EP::count);
+		const strisy::ParamDesc* d = EP::desc(i);
+		const float a = rnd();
+		float x = d->kind == 2 ? (a < 0.5f ? 0.0f : 1.0f) : a < 0.1f ? d->min : a < 0.2f ? d->max : d->min + (d->max - d->min) * rnd();
+		if (d->kind == 1) x = (float)(int)(x + 0.5f);
+#ifdef VA_LIVE_LOG
+		fprintf(stderr, "W %d %s %g\n", b, d->name, x);
+#endif
+		*EP::ptr(e, i) = x;
+		EP::changed(e, i);
+	}
+#ifdef VA_LIVE_PRESETS
+	if (rnd() < 0.002f) set_preset(e, (int)(rnd() * NUM_PRESETS));
+#endif
+	if (b == (int)(17.5 * SAMPLERATE / BLOCK) - 1) fprintf(stderr, "guard resets: %d, active voices at end: %d\n", va_guard_resets, active_voices(e));
+	b++;
+}
+} // namespace va
+#endif
+
 #endif

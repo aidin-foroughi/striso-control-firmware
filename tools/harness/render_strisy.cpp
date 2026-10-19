@@ -22,7 +22,10 @@ int main(int argc, char** argv) {
 	if (argc < 2) { fprintf(stderr, "usage: render_strisy out.f32 [seconds]\n"); return 1; }
 	double seconds = argc > 2 ? atof(argv[2]) : 17.5;
 	static eng::Engine e;
-	const int nv = 6;
+#ifndef NV
+#define NV 6
+#endif
+	const int nv = NV;  // voices: -DNV=10 for the firmware's count
 	eng::init(e, SAMPLERATE, nv);
 	int nblocks = (int)(seconds * SAMPLERATE / BLOCK);
 	std::vector<float> out((size_t)nblocks * BLOCK);
