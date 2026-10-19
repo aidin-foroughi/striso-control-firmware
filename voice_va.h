@@ -338,7 +338,9 @@ static inline void process_voice(Engine& e, int v) {
 	const Params& P = e.p;
 	const strisy::VoiceControls c = e.vc[v];
 	const real pres = rmin(rmax(c.pres, 0.0f), 1.5f);
-	const real vpres = rmin(rmax(c.vpres, -1.0f), 1.0f);
+	// after a release the firmware leaves the last vpres in place: a positive leftover (sensor noise)
+	// must not strike or hold a released voice; negative values still set the release speed
+	const real vpres = rmin(rmax(c.vpres, -1.0f), pres > 0.0f ? 1.0f : 0.0f);
 	const real vp1 = rmax(vpres - 0.02f, 0.0f);
 	const real vplev = vp1 / (0.4f + vp1);
 	const real note = rmin(rmax(c.note, 0.0f), 132.0f);
