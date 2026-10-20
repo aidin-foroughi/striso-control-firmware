@@ -84,6 +84,13 @@ void synth_params_print(void *chp, int target);
 // queue a parameter write, applied at the next audio block; returns 0 if out of range or queue full
 int synth_param_set(int target, int index, float value);
 
+// Global touch parameters (synth_control.cpp, parameter target 2): pressure, velocity, tilt and
+// bend sensitivity and the note-on threshold. Applied immediately, not saved on the board.
+int synth_touch_count(void);
+const char* synth_touch_info(int i, float* lo, float* hi);
+float synth_touch_get(int i);
+int synth_touch_set(int i, float v);
+
 int synth_message(int size, int* msg);
 void synth_tick(void);
 void midi_config(void);

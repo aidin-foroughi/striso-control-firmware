@@ -2256,6 +2256,48 @@ void midi_config(void) {
 #endif
 }
 
+// Live global touch parameters (Striso Live, parameter target 2). Like the settings keys, changes
+// apply immediately and aren't saved on the board; the PC tools save them as preset 1 values
+// (fP1presS, fP1veloS, fP1tiltS, fP1bendS, fP1thres) with iGpreset = 1.
+static const char* const touch_names[5] = {"pressure", "velocity", "tilt", "bend", "threshold"};
+static const float touch_min[5] = {0.1f, 0.1f, -4.0f, 0.0f, 0.0f};
+static const float touch_max[5] = {4.0f, 4.0f, 4.0f, 8.0f, 0.5f};
+
+int synth_touch_count(void) {
+    return 5;
+}
+
+const char* synth_touch_info(int i, float* lo, float* hi) {
+    if (i < 0 || i >= 5) return 0;
+    *lo = touch_min[i];
+    *hi = touch_max[i];
+    return touch_names[i];
+}
+
+float synth_touch_get(int i) {
+    switch (i) {
+    case 0: return dis.pres_sensitivity;
+    case 1: return dis.velo_sensitivity;
+    case 2: return dis.y_sensitivity;
+    case 3: return dis.bend_sensitivity * 0.5f;   // as in the config (bendS is stored halved)
+    case 4: return (float)config.zero_offset * (1.0f / (1 << 24));
+    }
+    return 0.0f;
+}
+
+int synth_touch_set(int i, float v) {
+    if (i < 0 || i >= 5 || !(v == v)) return 0;
+    v = clamp(v, touch_min[i], touch_max[i]);
+    switch (i) {
+    case 0: dis.pres_sensitivity = v; break;
+    case 1: dis.velo_sensitivity = v; break;
+    case 2: dis.y_sensitivity = v; break;
+    case 3: dis.bend_sensitivity = v * 2.0f; break;
+    case 4: config.zero_offset = (int32_t)(v * (1 << 24)); break;
+    }
+    return 1;
+}
+
 void synth_control_init(void) {
     // Load general settings. Use default settings when portamento key is pressed on boot
     if (palReadLine(LINE_BUTTON_PORT)) {

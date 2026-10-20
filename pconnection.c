@@ -27,6 +27,8 @@
 #include "bulk_usb.h"
 #include "midi.h"
 #include "synth.h"
+#include "button_read.h"
+#include "config_store.h"
 #include "midi_usb.h"
 #include "config.h"
 #include "version.h"
@@ -118,6 +120,34 @@ int strlenmax(const unsigned char* s, int len) {
     return (s - s0) - 1;
 }
 
+static uint32_t float_bits(float f) {
+  union { float f; uint32_t u; } v;
+  v.f = f;
+  return v.u;
+}
+
+// same line format as synth_params_print: "index name group min max value kind", floats as hex bits
+static void print_touch_params(BaseSequentialStream *out) {
+  chprintf(out, "params 2 touch %d\r\n", synth_touch_count());
+  for (int i = 0; i < synth_touch_count(); i++) {
+    float lo, hi;
+    const char* name = synth_touch_info(i, &lo, &hi);
+    chprintf(out, "%d %s touch %08lx %08lx %08lx 0\r\n", i, name, float_bits(lo), float_bits(hi),
+             float_bits(synth_touch_get(i)));
+  }
+}
+
+static void print_key_params(BaseSequentialStream *out) {
+  chprintf(out, "params 3 keys %d\r\n", buttonKeyCount());
+  for (int n = 0; n < buttonKeyCount(); n++) {
+    char name[4];
+    put_button_name(n, name);
+    name[3] = 0;
+    chprintf(out, "%d %s keys %08lx %08lx %08lx 0\r\n", n, name, float_bits(0.1f), float_bits(10.0f),
+             float_bits(buttonGetKeyFactor(n)));
+  }
+}
+
 void PExReceiveByte(unsigned char c) {
   // ws2812_write_led(0, 0,67,0);
   static char header = 0;
@@ -132,11 +162,20 @@ void PExReceiveByte(unsigned char c) {
       payload_need = 0;
       union { uint32_t u; float f; } v;
       v.u = (uint32_t)payload[2] | ((uint32_t)payload[3] << 8) | ((uint32_t)payload[4] << 16) | ((uint32_t)payload[5] << 24);
+      int ok = 0;
+      if (payload[0] == 2) {
+        ok = synth_touch_set(payload[1], v.f);
+      } else if (payload[0] == 3) {
+        ok = buttonSetKeyFactor(payload[1], v.f);
+      }
 #ifdef USE_INTERNAL_SYNTH
-      if (!synth_param_set(payload[0], payload[1], v.f)) {
-        chprintf((BaseSequentialStream *)&BDU1, "Q err %d %d\r\n", payload[0], payload[1]);
+      else {
+        ok = synth_param_set(payload[0], payload[1], v.f);
       }
 #endif
+      if (!ok) {
+        chprintf((BaseSequentialStream *)&BDU1, "Q err %d %d\r\n", payload[0], payload[1]);
+      }
     }
     return;
   }
@@ -226,6 +265,12 @@ void PExReceiveByte(unsigned char c) {
       }
       else if (c == 'f') { // list the master effects' live parameters
         synth_params_print(&BDU1, 1);
+      }
+      else if (c == 'g') { // list the global touch parameters (target 2)
+        print_touch_params((BaseSequentialStream *)&BDU1);
+      }
+      else if (c == 'k') { // list the per-key sensitivity factors (target 3)
+        print_key_params((BaseSequentialStream *)&BDU1);
       }
       else if (c == 'Q') { // set parameter: 6 payload bytes follow (target, index, float32 LE)
         payload_len = 0;

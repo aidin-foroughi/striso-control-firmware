@@ -1116,6 +1116,28 @@ void ButtonBoardTest(void) {
   }
 }
 
+// Live per-key sensitivity (Striso Live, parameter target 3): a factor on top of the factory
+// calibration, c_force = factory c_force * factor. Initialised from the config (fCfac<key>) at boot;
+// changes made live apply immediately and are saved to the config by the PC tools.
+static int32_t c_force_factory[N_BUTTONS];
+static float key_factor[61];
+
+int buttonKeyCount(void) {
+  return 61;
+}
+
+float buttonGetKeyFactor(int n) {
+  return (n >= 0 && n < 61) ? key_factor[n] : 0.0f;
+}
+
+int buttonSetKeyFactor(int n, float f) {
+  if (n < 0 || n >= 61 || !(f >= 0.1f && f <= 10.0f)) return 0;
+  int but = button_number_map[n];
+  key_factor[n] = f;
+  buttons[but].c_force = (int32_t)(c_force_factory[but] * f + 0.5f);
+  return 1;
+}
+
 void buttonSetCalibration(void) {
   uint16_t base_calib_force = devspec_id->base_calib_force;
   // use default when not device flash not yet initialized
@@ -1186,6 +1208,10 @@ void ButtonReadStart(void) {
 
   uint32_t* const UID = (uint32_t*)UID_BASE;
 
+  for (int n = 0; n < 61; n++) {
+    key_factor[n] = 1.0f;
+  }
+
   if (calib_dis_force->UID[0] == UID[0] &&
       calib_dis_force->UID[1] == UID[1] &&
       calib_dis_force->UID[2] == UID[2]) {
@@ -1203,6 +1229,10 @@ void ButtonReadStart(void) {
 #endif
     }
 
+    for (int n = 0; n < N_BUTTONS; n++) {
+      c_force_factory[n] = buttons[n].c_force;
+    }
+
     CC_ALIGN(8) char key[8] = "fCoffC_";
     float f;
     for (int n = 0; n < 61; n++) {
@@ -1214,6 +1244,7 @@ void ButtonReadStart(void) {
       f = getConfigFloat(key);
       if (f != 1.0f && f >= 0.0f && f <= 10.0f) {
         buttons[but].c_force = (int32_t)(buttons[but].c_force * f + 0.5f);
+        key_factor[n] = f;
       }
       key[2] = 'o';
       key[3] = 'f';
@@ -1224,6 +1255,9 @@ void ButtonReadStart(void) {
       }
     }
   } else {
+    for (int n = 0; n < N_BUTTONS; n++) {
+      c_force_factory[n] = buttons[n].c_force;
+    }
     led_rgb(0xff0000);
     chThdSleepMilliseconds(200);
   }

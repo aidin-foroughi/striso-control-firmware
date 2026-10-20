@@ -22,5 +22,9 @@
 
 void ButtonReadStart(void);
 void buttonSetCalibration(void);
+// live per-key sensitivity factor, n = key number 0..60 (config_store.c button_number_map order)
+int buttonKeyCount(void);
+float buttonGetKeyFactor(int n);
+int buttonSetKeyFactor(int n, float f);
 
 #endif
