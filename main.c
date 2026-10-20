@@ -126,6 +126,14 @@ static void ThreadSend(void *arg) {
     if (size >= 2 && size <= 9) {
       synth_message(size, msg);
 
+      // key values are signed 14 bit on the wire: saturate instead of wrapping, so a hard press
+      // (pres >= 1.0) doesn't read as a release. The synth above got the full value.
+      if (msg[0] == ID_DIS || msg[0] == ID_BAS) {
+        for (int c = 2; c < size; c++) {
+          msg[c] = msg[c] > 8191 ? 8191 : msg[c] < -8192 ? -8192 : msg[c];
+        }
+      }
+
       cmsg[0] = 0x80 | ((uint8_t)msg[0])<<3 | ((uint8_t)(size-2));
       cmsg[1] = 0x7f & (uint8_t)msg[1];
       pack(&msg[2], &cmsg[2], size - 2);
