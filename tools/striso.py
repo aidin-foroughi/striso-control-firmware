@@ -6,8 +6,11 @@ Usage (from tools/):  .venv/Scripts/python striso.py <command>
   load [seconds]     measure synth DSP CPU load (synth-dev firmware)
   profile [seconds]  per-section synth cycle profile (strisy engine)
   voice [name|n]     list voices, or switch to one (VOICE=all firmware): e.g. voice bowed, voice pad
-  params [fx]        list the current voice's (or the effects') live parameters
-  set [fx] <name|i> <value>   set a live parameter
+  params [fx|touch|keys]   list live parameters: current voice (default), effects, global touch
+                     sensitivity, per-key sensitivity factors
+  set [fx|touch|keys] <name|i> <value>   set a live parameter (e.g. set touch pressure 1.5)
+  save-touch         save the live touch settings and per-key factors to the board's user settings
+                     (preset 1 + iGpreset 1, fCfac<key>); backs up the old settings, reboots, verifies
   cmd <X>            send console command 'Stc<X>' and print the reply
   bootloader         reboot into the UF2 bootloader drive
   backup             reboot into bootloader (if needed) and back up the drive contents
@@ -108,7 +111,7 @@ def params(target=0):
     """(header, [(index, name, group, min, max, value, kind)]) of target 0 (voice) or 1 (fx)."""
     import struct as st
     f = lambda h: st.unpack("<f", st.pack("<I", int(h, 16)))[0]
-    lines = console("p" if target == 0 else "f", wait=0.5).splitlines()
+    lines = console({0: "p", 1: "f", 2: "g", 3: "k"}[target], wait=0.5).splitlines()
     head = next((l for l in lines if l.startswith("params ")), "")
     out = []
     for l in lines:
@@ -250,6 +253,109 @@ def flash(uf2_path, do_backup=True):
                 raise SystemExit(RECOVERY.format(msg=f"SYNTH THREAD STACK NEARLY FULL ({unused} bytes left): flash the official release."))
 
 
+# ---------------------------------------------------------------------------------------------
+# User settings (config) in flash at 0x08020000: 16-byte records, 8-char key + 8-char value, both
+# space padded, between "MConfig "/"v1.0    " and "MCfgEnd ". Same format as Striso's config
+# editor (config_editor/config.htm), written as CONFIG.UF2 through the bootloader drive.
+
+TARGETS = {"voice": 0, "fx": 1, "touch": 2, "keys": 3}
+CONFIG_START, CONFIG_END = 0x08020000, 0x08040000
+
+
+def config_parse(uf2_data):
+    """[(key, value)] from a config UF2 (e.g. the drive's CONFIG.UF2 readback)."""
+    mem = {}
+    for i in range(len(uf2_data) // 512):
+        b = uf2_data[i * 512:(i + 1) * 512]
+        addr, size = struct.unpack("<2I", b[12:20])
+        if CONFIG_START <= addr < CONFIG_END:
+            mem[addr] = b[32:32 + size]
+    data = b"".join(mem[a] for a in sorted(mem))
+    recs = []
+    for o in range(0, len(data) - 15, 16):
+        k, v = data[o:o + 8], data[o + 8:o + 16]
+        if not (32 <= k[0] < 127) or k == b"MCfgEnd ":
+            break
+        if k != b"MConfig ":
+            recs.append((k.decode("ascii", "replace"), v.decode("ascii", "replace")))
+    return recs
+
+
+def config_uf2(recs):
+    """config UF2 with the header, records and end marker; refuses anything outside the config area"""
+    def field(s):
+        b = s.encode("ascii")
+        if len(b) > 8:
+            raise SystemExit(f"config field too long: {s!r}")
+        return b.ljust(8, b" ")
+    body = field("MConfig ") + field("v1.0")
+    for k, v in recs:
+        body += field(k) + field(v)
+    body += field("MCfgEnd ") + field("")
+    nblocks = (len(body) + 255) // 256
+    body = body.ljust(nblocks * 256, b"\xff")
+    out = b""
+    for n in range(nblocks):
+        addr = CONFIG_START + 256 * n
+        if not (CONFIG_START <= addr and addr + 256 <= CONFIG_END):
+            raise SystemExit("REFUSED: config would leave the config area")
+        out += struct.pack("<8I", 0x0A324655, 0x9E5D5157, 0x2000, addr, 256, n, nblocks, 0xA21E1295)
+        out += body[n * 256:(n + 1) * 256] + b"\x00" * (512 - 32 - 256 - 4) + struct.pack("<I", 0x0AB16F30)
+    return out
+
+
+def config_update(updates, remove=()):
+    """Merge updates {key: value} into the board's config (keys in remove are dropped), keep the rest.
+    Backs up the current config first; the board reboots afterwards."""
+    drive = enter_bootloader()
+    current = (drive / "CONFIG.UF2").read_bytes()
+    BACKUP_DIR.mkdir(exist_ok=True)
+    bk = BACKUP_DIR / f"config_{datetime.now():%Y-%m-%d_%H%M%S}.uf2"
+    bk.write_bytes(current)
+    recs = [(k, v) for k, v in config_parse(current) if k not in updates and k not in remove]
+    recs += list(updates.items())
+    data = config_uf2(recs)
+    print(f"config: {len(recs)} entries ({len(updates)} set, previous config backed up to {bk.name})")
+    with open(drive / "NEWCFG.UF2", "wb") as f:
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+    wait_for(lambda: find_drive() is None and find_device() is not None, 60, "board to reboot")
+    wait_for(version, 15, "version reply")
+
+
+def fmt8(v):
+    s = f"{v:.4f}".rstrip("0").rstrip(".") if v == v else "1"
+    return s[:8]
+
+
+def save_touch():
+    """Save the board's live touch settings (target 2) and per-key factors (target 3) to its config."""
+    _, touch = params(2)
+    _, keys = params(3)
+    if len(touch) != 5 or len(keys) != 61:
+        raise SystemExit("this firmware has no live touch/key settings")
+    names = {"pressure": "presS", "velocity": "veloS", "tilt": "tiltS", "bend": "bendS", "threshold": "thres"}
+    updates = {"iGpreset": "1"}
+    for _, name, _, _, _, val, _ in touch:
+        updates["fP1" + names[name]] = fmt8(val)
+    remove = []
+    for _, name, _, _, _, val, _ in keys:
+        key = "fCfac" + name
+        if abs(val - 1.0) > 1e-4:
+            updates[key] = fmt8(val)
+        else:
+            remove.append(key)
+    config_update(updates, remove)
+    # verify: the values the board loaded at boot match what was saved
+    _, touch2 = params(2)
+    _, keys2 = params(3)
+    bad = [(a[1], a[5], b[5]) for a, b in zip(touch + keys, touch2 + keys2) if abs(a[5] - b[5]) > 2e-3 * max(1, abs(a[5]))]
+    if bad:
+        raise SystemExit(f"!! saved values differ after reboot: {bad[:8]}")
+    print("touch and key settings saved and verified after reboot")
+
+
 def main(argv):
     if not argv:
         raise SystemExit(__doc__)
@@ -267,14 +373,16 @@ def main(argv):
             for i, name, cur in voices():
                 print(f"{'*' if cur else ' '} {i:2d} {name}")
     elif cmd == "params":
-        head, ps = params(1 if len(argv) > 1 and argv[1] == "fx" else 0)
+        head, ps = params(TARGETS.get(argv[1], 0) if len(argv) > 1 else 0)
         print(head)
         for i, name, group, lo, hi, val, kind in ps:
             print(f"  {i:3d} {group:>10s}/{name:<14s} {val:10.4g}   [{lo:g} .. {hi:g}]{'  int' if kind == 1 else '  on/off' if kind == 2 else ''}")
     elif cmd == "set":
-        tgt = 1 if argv[1] == "fx" else 0
-        rest = argv[2:] if tgt else argv[1:]
+        tgt = TARGETS.get(argv[1], 0)
+        rest = argv[2:] if argv[1] in TARGETS else argv[1:]
         print(set_param(tgt, rest[0], rest[1]))
+    elif cmd == "save-touch":
+        save_touch()
     elif cmd == "profile":
         console("P")
         time.sleep(float(argv[1]) if len(argv) > 1 else 2.0)
