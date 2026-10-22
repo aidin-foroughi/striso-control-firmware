@@ -28,6 +28,13 @@
  * Pitch: the bow flattens the string a little (more with round corners and near the bridge). The
  * slip onsets mark the periods, and a slow adaptive correction keeps them at the note's period.
  *
+ * Onset (v6): a bowed note starts already in Helmholtz motion. At the key press both delay lines
+ * are loaded with the steady sawtooth waves for the note's pitch and bow position (the stick
+ * phase begins), and the bow force is eased for the first two periods so the first corner
+ * releases on time: a clean, pitched start within a fraction of a period, no transient from rest.
+ * Loudness is an output gain that follows the pressure as fast as the key; the string itself
+ * runs at a nominal bow speed (the model is homogeneous), so dynamics never disturb its motion.
+ *
  * Pizzicato (preset / "pizz" parameter): no bow; a strike (or a new note) plucks the string with
  * a half-sine velocity pulse at the bow position, the held string rings, a release damps it.
  *
@@ -135,8 +142,8 @@ static inline Params violin_params() {
 	p.pos = 0.11f; p.pos_tilt = 1.0f; p.pos_press = 0.5f;
 	p.damp = 4.0f; p.bright = 1.0f; p.tone_lo = 0.3f; p.tone_hi = 1.2f;
 	p.body_size = 1.0f; p.body_track = 0.0f; p.body_amt = 1.0f; p.body_q = 1.0f; p.hill = 0.75f; p.direct = 0.3f;
-	p.acc_force = 1.0f; p.acc_time = 0.013f; p.acc_noise = 0.04f; p.acc_bright = 0.25f;
-	p.rel = 0.12f; p.rel_ped = 3.0f; p.rel_lift = 6.0f;
+	p.acc_force = 0.0f; p.acc_time = 0.02f; p.acc_noise = 0.04f; p.acc_bright = 0.4f;
+	p.rel = 0.1f; p.rel_ped = 3.0f; p.rel_lift = 0.0f;
 	p.vib = 0.0f; p.vib_hz = 5.5f; p.vib_delay = 0.35f;
 	p.trem = 1.3f; p.body_rot = 0.7f;
 	p.ens = 0.0f; p.ens_detune = 7.0f; p.ens_spread = 18.0f;
@@ -175,7 +182,7 @@ static inline Params preset_params(int i) {
 		p.gain = 1.5f;
 		p.body_track = 1.0f; p.ens = 0.8f; p.ens_detune = 7.0f; p.ens_spread = 18.0f;
 		p.vib = 12.0f; p.vib_hz = 5.2f; p.vib_delay = 0.4f;
-		p.acc_force = 0.7f; p.tone_hi = 1.1f;
+		p.tone_hi = 1.1f;
 		break;
 	case 5:  // sul ponticello: bow at the bridge, glassy upper partials
 		p.gain = 0.76f;
@@ -187,7 +194,7 @@ static inline Params preset_params(int i) {
 		p.pos = 0.15f; p.pos_tilt = 0.25f; p.pos_press = 0.2f;
 		p.force_lo = 0.65f; p.force_hi = 0.85f;
 		p.tone_lo = 0.2f; p.tone_hi = 0.55f; p.bright = 0.7f; p.hill = 0.4f;
-		p.rosin = 0.02f; p.acc_force = 0.5f;
+		p.rosin = 0.02f;
 		break;
 	case 7:  // con sordino: mute on the bridge, veiled and soft-edged
 		p.gain = 1.95f;
@@ -215,10 +222,9 @@ static const real FRIC_A = 0.35f;     // dynamic / static friction
 static const real FRIC_C = 0.3f;      // friction curve width (x bow speed)
 static const real FRIC_CD = 0.7f;     // smooth friction for short strings (x force)
 static const real EPS_LO = 0.012f, EPS_HI = 0.005f;  // corner rounding / period, light / full bow
-static const real ATT_PER = 8.0f;     // bow speed rise time: string periods ...
-static const real ATT_MIN = 0.02f;    // ... at least (s)
 static const real ONSET_T = 0.08f;    // firm bow at a note start for this long (s)
-static const real ONSET_K = 1.1f;     // ... at this fraction of the full-pressure force ratio
+static const real ONSET_KK = 0.0f;    // (v5's firm start: not needed with a seeded string)
+static const real ONSET_EASE = 0.45f; // seeded start: force eased over the first two periods
 static const real ONSET_TASTO = 2.5f; // ... fading out towards the fingerboard (x (bq - 1))
 
 struct VoiceState {
@@ -226,13 +232,14 @@ struct VoiceState {
 	int slip;                 // bow state: slipping (1) or sticking (0)
 	int cnt;                  // samples since the last slip onset (pitch tracking)
 	int pzn;                  // pluck pulse samples left
+	int seeded;               // this note started from a seeded string
 	real corr;                // adaptive tuning correction, fraction of the period
 	real dcr;                 // DC reflection of the bridge
 	uint32_t w, seed;         // delay write position, noise generator
 	real note_prev, note_body;
 	real pres_prev, vp_prev;  // raw controls of the previous block (pluck triggers)
 	real P;                   // smoothed pressure
-	real amp;                 // bow speed (before accent and tremolo)
+	real Ps;                  // slowly smoothed pressure (bow position, corner rounding)
 	real acc;                 // accent envelope from positive pressure velocity
 	real lift;                // quick release memory (negative pressure velocity)
 	real by;                  // smoothed but_y
@@ -244,6 +251,7 @@ struct VoiceState {
 	real pza, pzc, pzs, pzcw, pzsw; // pluck pulse: amplitude, phasor, rotation
 	real hp, ts;              // DC blocker and tone shelf states
 	real shelf;               // tone shelf gain (ramped)
+	real gout;                // output gain = dynamics (ramped; held after a release)
 	real bd[NB][2];           // body resonator states
 };
 
@@ -412,11 +420,19 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	const bool jump = fabsf(note0 - s.note_prev) >= 1.0f;
 	s.note_prev = c.note;
 	const bool onset = pres > 0.0f && s.pres_prev <= 0.0f;
-	if (onset || jump) s.age = 0.0f;
+	if (onset || jump) { s.age = 0.0f; s.seeded = onset && !pizz; }
 	s.age = rmin(s.age + e.block_dt, 100.0f);
 
 	// --- block rate control
+	// a bowed note starts at once: at a key press the bow is set to the pressure a few ms ahead
+	// (the press is still rising: pressure + its velocity's share of the next ~5 ms)
+	const bool bow_onset = onset && !pizz;
+	if (bow_onset) s.P = pres;
 	s.P += 0.3f * (pres - s.P);
+	// the bow position and the corner rounding follow the pressure slowly (~40 ms): they move the
+	// delay taps, and a fast press would shake the string's motion right at the start
+	if (bow_onset) s.Ps = rmin(pres + 0.4f * rmax(vp, 0.0f), 1.0f);
+	s.Ps += 0.025f * (rmin(s.P, 1.0f) - s.Ps);
 	if (pres <= 0.0f && s.P < 1e-4f) s.P = 0.0f;
 	const real P = s.P;
 	const real Pn = rmin(P, 1.0f);
@@ -446,7 +462,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	const real w0 = e.two_pi_sr * f0;                         // <= 0.86 rad
 	// bow position: tilt forward = towards the bridge (sul ponticello), back = sul tasto;
 	// a light bow drifts towards the fingerboard (flautando), a heavy one towards the bridge
-	const real eb = clampf(-p.pos_tilt * s.by + p.pos_press * (0.5f - Pn), -0.75f, 0.9f);
+	const real eb = clampf(-p.pos_tilt * s.by + p.pos_press * (0.5f - s.Ps), -0.75f, 0.9f);
 	// 0.055 .. 0.2, at least 2 samples from the bridge (the highest notes)
 	// (and on the longest strings not too close to it: the motion gets irregular there)
 	// (pizzicato: plucked over the end of the fingerboard, 0.15 .. 0.3, tilt forward = nearer the bridge)
@@ -509,19 +525,15 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	// excess. The force follows the speed (same force/speed ratio): the motion stays Helmholtz.
 	const real over = rmax(P - 1.0f, 0.0f), osat = over / (1.0f + over);
 	const real Pe = Pn + 0.35f * osat;
-	// The bow can't reach its speed instantly: too fast an acceleration needs more force than the
-	// clean range allows (Guettler) and the start goes raucous. The speed rises with a time
-	// constant of 8 string periods (20 .. 60 ms); it falls quickly.
-	const real amp_t = pizz ? 0.0f : Pe * (1.0f - scur + scur * Pe);
-	{
-		const real trise = clampf(ATT_PER * L * e.inv_sr, ATT_MIN, 0.06f);
-		const real k = amp_t > s.amp ? rmin(e.block_dt / trise, 1.0f) : 0.5f;
-		s.amp += k * (amp_t - s.amp);
-		if (!(s.amp == s.amp)) s.amp = 0.0f;
-	}
-	const real amp = s.amp;
+	// Loudness is an output gain, not the bow speed: the model is homogeneous (scaling bow speed,
+	// force and friction width together just scales the motion), so the string always runs at a
+	// nominal bow speed (1, or 0 once the bow has left) and the pressure's dynamics, as fast as
+	// the key, never disturb the string's motion. Timbre still follows the pressure through the
+	// force ratio, bow position, corner rounding and tone.
+	const real amp_t = Pe * (1.0f - scur + scur * Pe);
+	const real amp = pizz ? 0.0f : (pres > 0.0f ? 1.0f : 0.0f);
 	const real acc = rmin(s.acc, 1.0f);
-	const real vb = amp * (1.0f + 0.15f * acc) * trem;
+	const real vb = amp * trem;  // (constant while bowing: the accent is force and output gain)
 	// bow force: kappa = force/speed*beta. The Helmholtz motion needs kappa between a minimum that
 	// grows towards the bridge and a maximum ~1.1 (above it: raucous, scratchy). Light pressure
 	// sits above the minimum (soft, flautando), full pressure below the maximum (bright,
@@ -542,8 +554,14 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	// ~80 ms the force ratio sits near the top of the clean range, then relaxes to the pressure's.
 	// (towards the fingerboard less: a firm start there locks into the octave)
 	const real of = clampf(1.0f - s.age * (1.0f / ONSET_T), 0.0f, 1.0f) * clampf(ONSET_TASTO * (bq - 1.0f) + 1.0f, 0.0f, 1.0f);
-	const real kon = kap + rmax(khi * ONSET_K - kap, 0.0f) * of;
-	const real kacc = rmax(rmin(kap + 0.25f * clampf(p.acc_force, 0.0f, 3.0f) * acc, rmax(khi * 1.12f, kap)), kon);
+	const real kon = kap + rmax(khi * ONSET_KK - kap, 0.0f) * of;
+	real kacc = rmax(rmin(kap + 0.25f * clampf(p.acc_force, 0.0f, 3.0f) * acc, rmax(khi * 1.12f, kap)), kon);
+	{	// seeded start: the first corner arrives before the bow has built its usual stick force
+		// (the seed is the lossless motion): ease the force for the first ~2 periods so that
+		// corner releases the slip on time
+		const real ofe = s.seeded ? clampf(1.0f - s.age / (2.0f * L * e.inv_sr), 0.0f, 1.0f) : 0.0f;
+		kacc *= 1.0f - ONSET_EASE * ofe;
+	}
 	const real accf = kacc / kap;
 	const real ds = kacc / beta * amp;
 	// friction curve width. A steep curve (hysteresis: the slip starts with a jump) keeps the
@@ -602,7 +620,41 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 
 	// --- string and bow, per sample
 	const real r = 1.0f / BLOCK;
-	if (jump) s.dn = Dn;  // new note: no glide through the jump
+	if (jump || bow_onset) s.dn = Dn;  // new note: no glide through the jump
+	// Seed: a bowed note starts already in Helmholtz motion (no transient chaos from rest, which
+	// is where a scratchy start comes from). With the slip just ended (the stick phase starts
+	// now), the waves written into the two delay lines are sawtooths (Smith, McIntyre/Woodhouse):
+	//   neck   a(t) - a(t - Dn) = v(t),  bridge  b(t) - b(t - Db) = v(t)
+	// for the bow-point velocity v = vb in the stick phase and -vb (1-beta)/beta in the slip
+	// phase: slopes -vb/(beta L) and +vb/(beta L), jumps +vb/beta and -vb/beta, zero mean.
+	// The bow state starts sticking at the bow speed; the bow then sustains the motion.
+	if (bow_onset && vb > 1e-6f) {
+		// (the delays include the two corner filters' delay, half each: the loop's period)
+		const real Dbe = Db + 0.5f * dfilt, Ls = Dn + Dbe + 0.5f * dfilt, bt = Dbe / Ls;
+		const real h = 0.5f * vb / bt, sl = vb / (bt * Ls);
+		const uint32_t w0 = s.w;
+		float* nb = neck_buf[v];
+		float* bb = bridge_buf[v];
+		const int na = (int)Dn + 4, nbr = (int)Db + 3, Li = (int)Ls;
+		(void)Li;
+		const real ph = 0.0f;  // the cycle's phase at t0 (samples after the slip's end)
+		for (int k = 1; k <= na; k++) {
+			real u = (real)k - ph;                                       // a(t0 - k): a jumps at t0 - ph
+			u -= Ls * (real)(int)(u / Ls); if (u <= 0.0f) u += Ls;
+			nb[(w0 - (uint32_t)k) & NECK_MASK] = -h + sl * u;
+		}
+		for (int k = 1; k <= nbr; k++) {
+			real u = (real)k - ph - Dbe;                                 // b jumps at t0 - ph - Dbe
+			u -= Ls * (real)(int)(u / Ls); if (u <= 0.0f) u += Ls;
+			bb[(w0 - (uint32_t)k) & BRIDGE_MASK] = -h + sl * (Ls - u);
+		}
+		s.y = gl * (-h + sl * (Db - (real)(ib + 1) + 1.0f));
+		s.yn = -h + sl * (real)((int)Dn + 1);
+		s.ydc = 0.0f;
+		s.slip = 0; s.xprev = 0.0f; s.cnt = 0;
+		s.vb = vb; s.ds = ds; s.cw = cw; s.nz = nz;
+		s.hp = 0.0f;
+	}
 	const real dvb = (vb - s.vb) * r, dds = (ds - s.ds) * r, dcw = (cw - s.cw) * r, dnz = (nz - s.nz) * r;
 	const real ddn = (Dn - s.dn) * r;
 	// Lagrange coefficients: with the delay moving less than ~0.8 samples in the block (always
@@ -635,6 +687,13 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	real y = s.y, vbn = s.vb, dsn = s.ds, cwn = s.cw, nzn = s.nz, dn = s.dn;
 	const real fa = FRIC_A, fa1 = 1.0f - FRIC_A;
 	real peak = 0.0f, xprev = s.xprev;
+	// dynamics: the output gain follows the pressure (bowed) and holds after a release
+	// (a strike: a short, louder, brighter start, a martele bite; the bow force stays: extra force
+	// at the start breaks the seeded motion after a few periods, the scratch of v5)
+	const real gtarget = pizz ? 1.0f : (pres > 0.0f ? amp_t * (1.0f + 0.3f * acc) : s.gout);
+	if (bow_onset) s.gout = 0.0f;
+	real gn = s.gout;
+	const real dgn = (gtarget - gn) * r;
 	int pzn = s.pzn;
 	real pzc = s.pzc, pzs = s.pzs;
 	const real pza = s.pza, pzcw = s.pzcw, pzsw = s.pzsw;
@@ -703,11 +762,13 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 		nbuf[w & NECK_MASK] = bref + f;
 		bbuf[w & BRIDGE_MASK] = nref + f;
 		w++;
-		sb[n] = br_in;
+		gn += dgn;
+		sb[n] = br_in * gn;
 		peak = rmax(peak, fabsf(br_in - ydc));  // (the DC is not heard)
 	}
 	s.w = w; s.seed = seed; s.y = y; s.slip = slip; s.cnt = cnt < 1000000 ? cnt : 1000000; s.ydc = ydc; s.yn = yn; s.xprev = xprev;
 	s.pzn = pzn; s.pzc = pzc; s.pzs = pzs;
+	s.gout = gn;
 	if (!pizz && tn > 0 && kap * accf < 1.3f) {  // not in raucous motion
 		const real kad = rmin(0.25f, L * e.inv_sr * 25.0f);  // per period: T / 40 ms
 		s.corr = rmin(rmax(s.corr + kad * ((real)tsum - (real)tn * L) / L, -0.02f), 0.04f);
