@@ -100,7 +100,7 @@ struct Params {
 	real hill;            // bridge hill (2-3 kHz brilliance of a violin body)
 	real direct;          // unfiltered string in the output
 	// accent (strike)
-	real acc_force;       // extra force at a strike
+	real acc_force;       // firmer bow at a strike (limited to the top of the clean range)
 	real acc_time;        // accent decay (s)
 	real acc_noise;       // extra bow noise at a strike
 	real acc_bright;      // extra brightness at a strike
@@ -135,7 +135,7 @@ static inline Params violin_params() {
 	p.pos = 0.11f; p.pos_tilt = 1.0f; p.pos_press = 0.5f;
 	p.damp = 4.0f; p.bright = 1.0f; p.tone_lo = 0.3f; p.tone_hi = 1.2f;
 	p.body_size = 1.0f; p.body_track = 0.0f; p.body_amt = 1.0f; p.body_q = 1.0f; p.hill = 0.75f; p.direct = 0.3f;
-	p.acc_force = 1.0f; p.acc_time = 0.013f; p.acc_noise = 0.15f; p.acc_bright = 0.25f;
+	p.acc_force = 1.0f; p.acc_time = 0.013f; p.acc_noise = 0.04f; p.acc_bright = 0.25f;
 	p.rel = 0.12f; p.rel_ped = 3.0f; p.rel_lift = 6.0f;
 	p.vib = 0.0f; p.vib_hz = 5.5f; p.vib_delay = 0.35f;
 	p.trem = 1.3f; p.body_rot = 0.7f;
@@ -215,6 +215,11 @@ static const real FRIC_A = 0.35f;     // dynamic / static friction
 static const real FRIC_C = 0.3f;      // friction curve width (x bow speed)
 static const real FRIC_CD = 0.7f;     // smooth friction for short strings (x force)
 static const real EPS_LO = 0.012f, EPS_HI = 0.005f;  // corner rounding / period, light / full bow
+static const real ATT_PER = 8.0f;     // bow speed rise time: string periods ...
+static const real ATT_MIN = 0.02f;    // ... at least (s)
+static const real ONSET_T = 0.08f;    // firm bow at a note start for this long (s)
+static const real ONSET_K = 1.1f;     // ... at this fraction of the full-pressure force ratio
+static const real ONSET_TASTO = 2.5f; // ... fading out towards the fingerboard (x (bq - 1))
 
 struct VoiceState {
 	int active, quiet;
@@ -227,6 +232,7 @@ struct VoiceState {
 	real note_prev, note_body;
 	real pres_prev, vp_prev;  // raw controls of the previous block (pluck triggers)
 	real P;                   // smoothed pressure
+	real amp;                 // bow speed (before accent and tremolo)
 	real acc;                 // accent envelope from positive pressure velocity
 	real lift;                // quick release memory (negative pressure velocity)
 	real by;                  // smoothed but_y
@@ -414,7 +420,14 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	if (pres <= 0.0f && s.P < 1e-4f) s.P = 0.0f;
 	const real P = s.P;
 	const real Pn = rmin(P, 1.0f);
-	s.acc = rmax(s.acc * exp2_fast(-1.442695f * e.block_dt / rmax(p.acc_time, 0.002f)), vp - 0.04f);  // accent envelope
+	// accent envelope from the pressure velocity: a deadband (ordinary note-ons and sensor jitter,
+	// also with a raised velocity sensitivity, don't count), then a soft saturating curve (0 .. 0.8).
+	// It only listens at a note start (first 100 ms) or to a real strike while held, so jitter on a
+	// sustained note never triggers it.
+	{
+		const real vin = (s.age < 0.1f || vp > 0.6f) ? rmax(vp - 0.12f, 0.0f) : 0.0f;
+		s.acc = rmax(s.acc * exp2_fast(-1.442695f * e.block_dt / rmax(p.acc_time, 0.002f)), vin / (vin + 0.4f));
+	}
 	const real lift_now = rmax(-vp - 0.04f, 0.0f);
 	s.lift = pres > 0.0f ? rmax(s.lift * 0.95f, lift_now) : rmax(s.lift, lift_now);
 	s.by += 0.15f * (clampf(c.but_y, -1.0f, 1.0f) - s.by);
@@ -496,8 +509,18 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	// excess. The force follows the speed (same force/speed ratio): the motion stays Helmholtz.
 	const real over = rmax(P - 1.0f, 0.0f), osat = over / (1.0f + over);
 	const real Pe = Pn + 0.35f * osat;
-	const real amp = pizz ? 0.0f : Pe * (1.0f - scur + scur * Pe);
-	const real acc = rmin(s.acc, 1.5f);
+	// The bow can't reach its speed instantly: too fast an acceleration needs more force than the
+	// clean range allows (Guettler) and the start goes raucous. The speed rises with a time
+	// constant of 8 string periods (20 .. 60 ms); it falls quickly.
+	const real amp_t = pizz ? 0.0f : Pe * (1.0f - scur + scur * Pe);
+	{
+		const real trise = clampf(ATT_PER * L * e.inv_sr, ATT_MIN, 0.06f);
+		const real k = amp_t > s.amp ? rmin(e.block_dt / trise, 1.0f) : 0.5f;
+		s.amp += k * (amp_t - s.amp);
+		if (!(s.amp == s.amp)) s.amp = 0.0f;
+	}
+	const real amp = s.amp;
+	const real acc = rmin(s.acc, 1.0f);
 	const real vb = amp * (1.0f + 0.15f * acc) * trem;
 	// bow force: kappa = force/speed*beta. The Helmholtz motion needs kappa between a minimum that
 	// grows towards the bridge and a maximum ~1.1 (above it: raucous, scratchy). Light pressure
@@ -513,8 +536,16 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	// 2: about v3's level, ~ -19 dB at 1.5; 0: clean)
 	const real grit = clampf(p.force_over, 0.0f, 2.0f) * 0.6f * osat;
 	const real kap = rmax(kfl + (khi - kfl) * Pn * fsqrt(Pn) + rmin(0.4f * grit, rmax(1.25f - khi, 0.0f)), 0.1f);
-	const real accf = 1.0f + clampf(p.acc_force, 0.0f, 3.0f) * acc;
-	const real ds = kap / beta * accf * amp;
+	// the accent firms the bow up towards, never past, the top of the clean (Helmholtz) range
+	// The start of a note needs a firm bow: while the string is still getting up to speed a light
+	// bow slips several times per period (a breathy, scratchy start; Guettler). For the first
+	// ~80 ms the force ratio sits near the top of the clean range, then relaxes to the pressure's.
+	// (towards the fingerboard less: a firm start there locks into the octave)
+	const real of = clampf(1.0f - s.age * (1.0f / ONSET_T), 0.0f, 1.0f) * clampf(ONSET_TASTO * (bq - 1.0f) + 1.0f, 0.0f, 1.0f);
+	const real kon = kap + rmax(khi * ONSET_K - kap, 0.0f) * of;
+	const real kacc = rmax(rmin(kap + 0.25f * clampf(p.acc_force, 0.0f, 3.0f) * acc, rmax(khi * 1.12f, kap)), kon);
+	const real accf = kacc / kap;
+	const real ds = kacc / beta * amp;
 	// friction curve width. A steep curve (hysteresis: the slip starts with a jump) keeps the
 	// Helmholtz motion clean on long strings, but on short ones (a few samples per slip) the jump
 	// snaps the slip onsets to the sample grid, which adds rough subharmonic sidebands: there,
@@ -532,7 +563,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 		+ 0.15f * grit, 0.9f);
 
 	// pizzicato: pluck at a key press, a strike while held, or a new note while held
-	if (pizz && pres > 0.0f && (onset || jump || (vp > 0.25f && s.vp_prev <= 0.15f))) {
+	if (pizz && pres > 0.0f && (onset || jump || (vp > 0.6f && s.vp_prev <= 0.3f))) {
 		// (narrower than the bridge segment: the pulse and its inverted reflection would cancel)
 		const real width = clampf(0.06f / clampf(p.pizz_bright, 0.2f, 5.0f) * L, rmin(6.0f, 0.8f * beta * L), rmin(300.0f, 0.8f * beta * L));
 		s.pzn = (int)width;
