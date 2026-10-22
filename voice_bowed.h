@@ -81,7 +81,7 @@ struct Params {
 	real gain;            // output level
 	// bow
 	real force_lo, force_hi; // bow force/speed ratio (x beta, "kappa") at light and full pressure
-	real force_over;      // extra force when pressing beyond 1 (scratch)
+	real force_over;      // grit when pressing beyond 1 (0 = none; beyond 1 is louder, fuller, brighter)
 	real speed_curve;     // bow speed from pressure: P * (1 - c + c * P)
 	real rosin;           // bow noise (jitter of the static friction)
 	// bow position
@@ -131,7 +131,7 @@ static_assert(sizeof(Params) == NPARAMS * sizeof(real), "Params must hold only f
 static inline Params violin_params() {
 	Params p;
 	p.gain = 1.0f;
-	p.force_lo = 0.75f; p.force_hi = 0.95f; p.force_over = 0.5f; p.speed_curve = 0.7f; p.rosin = 0.01f;
+	p.force_lo = 0.75f; p.force_hi = 0.95f; p.force_over = 1.0f; p.speed_curve = 0.7f; p.rosin = 0.01f;
 	p.pos = 0.11f; p.pos_tilt = 1.0f; p.pos_press = 0.5f;
 	p.damp = 4.0f; p.bright = 1.0f; p.tone_lo = 0.3f; p.tone_hi = 1.2f;
 	p.body_size = 1.0f; p.body_track = 0.0f; p.body_amt = 1.0f; p.body_q = 1.0f; p.hill = 0.75f; p.direct = 0.3f;
@@ -388,7 +388,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	const strisy::VoiceControls c = e.vc[v];
 	const Params& p = e.ps;
 	const bool pizz = p.pizz >= 0.5f;
-	const real pres = clampf(c.pres, 0.0f, 1.5f);  // (also maps NaN to 0)
+	const real pres = clampf(c.pres, 0.0f, 2.0f);  // (also maps NaN to 0)
 	// pressure velocity only counts while the key is held: after a release the firmware leaves the
 	// last value in place (a stale positive value must not keep accents, noise or plucks alive)
 	const real vp = pres > 0.0f ? clampf(c.vpres, -1.5f, 1.5f) : rmin(clampf(c.vpres, -1.5f, 1.5f), 0.0f);
@@ -492,7 +492,11 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	// bow speed and force (homogeneous: the ratio sets the timbre, the speed the loudness)
 	// (pressing beyond 1 adds force, not speed: scratchier, not louder)
 	const real scur = clampf(p.speed_curve, 0.0f, 1.0f);
-	const real amp = pizz ? 0.0f : Pn * (1.0f - scur + scur * Pn);
+	// Beyond pressure 1 the bow gets faster (louder, fuller), saturating softly: x/(1+x) of the
+	// excess. The force follows the speed (same force/speed ratio): the motion stays Helmholtz.
+	const real over = rmax(P - 1.0f, 0.0f), osat = over / (1.0f + over);
+	const real Pe = Pn + 0.35f * osat;
+	const real amp = pizz ? 0.0f : Pe * (1.0f - scur + scur * Pe);
 	const real acc = rmin(s.acc, 1.5f);
 	const real vb = amp * (1.0f + 0.15f * acc) * trem;
 	// bow force: kappa = force/speed*beta. The Helmholtz motion needs kappa between a minimum that
@@ -503,7 +507,12 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	const real bq = fsqrt(BETA_REF / beta);
 	const real khi = clampf(p.force_hi, 0.3f, 1.6f) * rmin(bq * fsqrt(fsqrt(bq)), 1.0f);  // (ref/beta)^1.375
 	const real kfl = rmin(clampf(p.force_lo, 0.3f, 1.6f) * bq, khi - 0.1f);
-	const real kap = rmax(kfl + (khi - kfl) * Pn * fsqrt(Pn) + clampf(p.force_over, 0.0f, 2.0f) * rmax(P - 1.0f, 0.0f), 0.1f);
+	// grit (force_over): beyond pressure 1 the force rises gradually towards the raucous limit and
+	// the bow noise grows with it, so scratch fades in instead of switching on
+	// (force_over 1.0, the default: scratch ~ -26 dB under the tone at pressure 1.5, -23 dB at 2;
+	// 2: about v3's level, ~ -19 dB at 1.5; 0: clean)
+	const real grit = clampf(p.force_over, 0.0f, 2.0f) * 0.6f * osat;
+	const real kap = rmax(kfl + (khi - kfl) * Pn * fsqrt(Pn) + rmin(0.4f * grit, rmax(1.25f - khi, 0.0f)), 0.1f);
 	const real accf = 1.0f + clampf(p.acc_force, 0.0f, 3.0f) * acc;
 	const real ds = kap / beta * accf * amp;
 	// friction curve width. A steep curve (hysteresis: the slip starts with a jump) keeps the
@@ -520,7 +529,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	// bow noise: jitter of the static friction. On long strings the stick phase approaches the
 	// release threshold slowly, so the same jitter shakes the slip timing (the pitch) much more
 	const real nz = rmin(clampf(p.rosin, 0.0f, 0.2f) * rmin(200.0f / L, 1.0f) + clampf(p.acc_noise, 0.0f, 1.0f) * acc
-		+ 0.1f * rmax(P - 1.0f, 0.0f), 0.9f);
+		+ 0.15f * grit, 0.9f);
 
 	// pizzicato: pluck at a key press, a strike while held, or a new note while held
 	if (pizz && pres > 0.0f && (onset || jump || (vp > 0.25f && s.vp_prev <= 0.15f))) {
@@ -540,7 +549,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	// tone shelf above the corner rounding: a light bow (flautando) and the fingerboard are
 	// dark, a heavy bow, the bridge (ponticello) and a strike are bright
 	const real tlo = clampf(p.tone_lo, 0.0f, 3.0f), thi = clampf(p.tone_hi, 0.0f, 3.0f);
-	const real shelf = rmin((tlo + (thi - tlo) * (pizz ? 0.6f : Pn * fsqrt(Pn))) * fsqrt(bq)
+	const real shelf = rmin((tlo + (thi - tlo) * (pizz ? 0.6f : Pn * fsqrt(Pn))) * fsqrt(bq) * (1.0f + 0.5f * osat)
 		* (1.0f + clampf(p.acc_bright, 0.0f, 2.0f) * acc), 4.0f);
 
 	// body coefficients (band-passes, transposed direct form II, peak gain = mode gain)
@@ -840,7 +849,7 @@ static const ParamEntry param_table[] = {
 	{{"gain", "level", 0.0f, 4.0f, 0}, &Params::gain},
 	{{"force_lo", "bow", 0.3f, 1.6f, 0}, &Params::force_lo},       // force/speed at light pressure
 	{{"force_hi", "bow", 0.3f, 1.6f, 0}, &Params::force_hi},       // at full pressure (> 1.1: raucous)
-	{{"force_over", "bow", 0.0f, 2.0f, 0}, &Params::force_over},   // extra force beyond pressure 1
+	{{"force_over", "bow", 0.0f, 2.0f, 0}, &Params::force_over},   // grit beyond pressure 1 (0: none)
 	{{"speed_curve", "bow", 0.0f, 1.0f, 0}, &Params::speed_curve}, // 0 linear .. 1 quadratic dynamics
 	{{"rosin", "bow", 0.0f, 0.2f, 0}, &Params::rosin},             // bow noise texture
 	{{"pos", "position", 0.05f, 0.2f, 0}, &Params::pos},           // bow position (fraction of string)
