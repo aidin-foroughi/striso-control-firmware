@@ -33,4 +33,6 @@ RUN curl -fsSL -o /tmp/cmake.tar.gz \
     && echo "${CMAKE_SHA256}  /tmp/cmake.tar.gz" | sha256sum -c - \
     && tar -C /opt -xzf /tmp/cmake.tar.gz && rm /tmp/cmake.tar.gz \
     && ln -s /opt/cmake-${CMAKE_VERSION}-linux-x86_64/bin/* /usr/local/bin/
+# the tools (tools/docker_env.sh) run their commands directly when they are already in here
+ENV STRISO_IN_IMAGE=1
 WORKDIR /src

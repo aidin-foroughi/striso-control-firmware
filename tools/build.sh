@@ -43,14 +43,16 @@ if [ "$CLEAN" = 1 ]; then
   [ $# -gt 1 ] || exit 0
 fi
 
-GITV="$(striso_git_version)"
+# no git here (e.g. a worktree seen from inside Docker): CMake asks git at build time
+GITV="$(striso_git_version 2>/dev/null || true)"
+GITDEF=""; [ -z "$GITV" ] || GITDEF="-DSTRISO_GIT_VERSION=$GITV"
 # quote each argument for the shell in the container
 q() { printf "'%s' " "${@//\'/\'\\\'\'}"; }
 SUFFIX=""; [ "$VOICE" = strisy ] || SUFFIX="_$VOICE"
-echo "firmware version: $GITV$SUFFIX"
+echo "firmware version: ${GITV:-(from git at build time)}$SUFFIX"
 image_build_dir "build/$PRESET"
 in_docker bash -c "cmake --preset $PRESET -DSTRISO_VOICE=$VOICE -DSTRISO_SYNTH_ENGINE=$ENGINE \
-  -DSTRISO_GIT_VERSION=$GITV $(q "${DEFS[@]}") > build/configure-$PRESET.log 2>&1 \
+  $GITDEF $(q "${DEFS[@]}") > build/configure-$PRESET.log 2>&1 \
   || { cat build/configure-$PRESET.log; exit 1; }
   cmake --build --preset $PRESET $VERBOSE"
 echo "firmware: $FW/build/$PRESET/striso_control.uf2"

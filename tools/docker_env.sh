@@ -8,12 +8,19 @@
 #   MOUNTS    docker run arguments: FW at /src, plus the ChibiOS and uf2 submodules from the main
 #             checkout (read only) when FW is a git worktree without its own copies
 # and the function in_docker <command...>: runs a command in IMAGE at /src.
+# Inside the image itself (STRISO_IN_IMAGE, set by the Dockerfile: CI, or a shell in the
+# container) the commands run directly in the checkout instead.
 _STRISO_TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _winpath() { (cd "$1" && pwd -W 2>/dev/null || pwd); }
 TOOLS="$(_winpath "$_STRISO_TOOLS_DIR")"
 FW="$(_winpath "${FW_DIR:-$_STRISO_TOOLS_DIR/..}")"
 
 _df="$_STRISO_TOOLS_DIR/build-env/Dockerfile"
+if [ -n "${STRISO_IN_IMAGE:-}" ]; then
+  IMAGE="(this image)"
+  MOUNTS=()
+  in_docker() { (cd "$FW" && "$@"); }
+else
 IMAGE="striso-fw:$( (sha256sum "$_df" 2>/dev/null || shasum -a 256 "$_df") | cut -c1-12)"
 if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
   echo "building the Docker image $IMAGE (once)" >&2
@@ -34,6 +41,7 @@ for _sub in ChibiOS:os/rt/include/ch.h uf2:utils/uf2conv.py; do
 done
 
 in_docker() { MSYS_NO_PATHCONV=1 docker run --rm "${MOUNTS[@]}" -w /src "$IMAGE" "$@"; }
+fi
 
 # a build directory made by another image (e.g. before a toolchain update) is started afresh:
 # its CMake cache names compilers that may not exist in this one
@@ -48,5 +56,8 @@ image_build_dir() {
 
 # the version string's git part, from the host (inside Docker a worktree's .git link points nowhere)
 striso_git_version() {
-  echo "$(git -C "$FW" --no-pager show -s --date=short --format=%ad)_$(git -C "$FW" --no-pager describe --tags --always --long --dirty)"
+  local d v
+  d="$(git -C "$FW" --no-pager show -s --date=short --format=%ad)" || return 1
+  v="$(git -C "$FW" --no-pager describe --tags --always --long --dirty)" || return 1
+  echo "${d}_${v}"
 }

@@ -1,0 +1,135 @@
+# Firmware CI: builds the firmware (VOICE=all and the default strisy) and runs every test in the
+# project's Docker image (tools/build-env/Dockerfile: Arm GNU Toolchain 14.2.rel1, CMake, QEMU),
+# with the same scripts as on a PC (inside the image they run their commands directly). A tag v*
+# makes a GitHub release with the UF2s and their SHA256SUMS. Actions are pinned to commit SHAs.
+name: firmware
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: firmware-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  IMAGE_TAR: /tmp/striso-build-image.tar
+
+jobs:
+  image:
+    name: build image
+    runs-on: ubuntu-22.04
+    outputs:
+      image: ${{ steps.tag.outputs.image }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - id: tag
+        run: echo "image=striso-fw:$(sha256sum tools/build-env/Dockerfile | cut -c1-12)" >> "$GITHUB_OUTPUT"
+      - id: cache
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ env.IMAGE_TAR }}
+          key: build-image-${{ hashFiles('tools/build-env/Dockerfile') }}
+      - if: steps.cache.outputs.cache-hit != 'true'
+        env:
+          IMAGE: ${{ steps.tag.outputs.image }}
+        run: |
+          docker build -t "$IMAGE" tools/build-env
+          docker save -o "$IMAGE_TAR" "$IMAGE"
+
+  firmware:
+    name: firmware (VOICE=${{ matrix.voice }})
+    needs: image
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        voice: [all, strisy]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: recursive
+          fetch-depth: 0 # the version string is git describe --tags
+      - uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ env.IMAGE_TAR }}
+          key: build-image-${{ hashFiles('tools/build-env/Dockerfile') }}
+          fail-on-cache-miss: true
+      - run: docker load -i "$IMAGE_TAR"
+      - name: "build (guards: soft-float, synth stack, load address) and test"
+        env:
+          IMAGE: ${{ needs.image.outputs.image }}
+          VOICE: ${{ matrix.voice }}
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src -e VOICE "$IMAGE" bash -c '
+            set -e
+            tools/build.sh VOICE="$VOICE"
+            cmake --build --preset firmware --target target_renders
+            ctest --preset firmware -j"$(nproc)"'
+      - name: name the UF2 after its version
+        run: |
+          version="$(sed -n 's/.*"\(.*\)".*/\1/p' build/firmware/generated/fwversion.h)"
+          mkdir -p dist
+          cp build/firmware/striso_control.uf2 "dist/striso_control_${version}.uf2"
+          echo "firmware version: $version"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: uf2-${{ matrix.voice }}
+          path: dist/*.uf2
+          if-no-files-found: error
+
+  host:
+    name: host tests (${{ matrix.preset }})
+    needs: image
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [host, host-asan]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: ${{ env.IMAGE_TAR }}
+          key: build-image-${{ hashFiles('tools/build-env/Dockerfile') }}
+          fail-on-cache-miss: true
+      - run: docker load -i "$IMAGE_TAR"
+      - name: ctest
+        env:
+          IMAGE: ${{ needs.image.outputs.image }}
+          PRESET: ${{ matrix.preset }}
+        run: docker run --rm -v "$PWD:/src" -w /src -e PRESET "$IMAGE" bash -c 'tools/test.sh "$PRESET"'
+      - name: clang-format and clang-tidy
+        if: matrix.preset == 'host'
+        env:
+          IMAGE: ${{ needs.image.outputs.image }}
+        run: docker run --rm -v "$PWD:/src" -w /src "$IMAGE" bash -c 'tools/format.sh --check && tools/tidy.sh'
+
+  release:
+    name: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [firmware, host]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: uf2-*
+          path: dist
+          merge-multiple: true
+      - name: SHA256SUMS
+        working-directory: dist
+        run: sha256sum -- *.uf2 > SHA256SUMS && cat SHA256SUMS
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" dist/*.uf2 dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" \
+            --title "Striso firmware $TAG" --generate-notes
