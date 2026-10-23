@@ -18,8 +18,15 @@ set(STRISO_STACKCHECK "${PROJECT_SOURCE_DIR}/tools/stackcheck.py")
 # the DSP library (voice engines, effects): header only, for the board and the host
 add_subdirectory(dsp)
 
+enable_testing()
+
 if(CMAKE_CROSSCOMPILING)
   # the firmware (presets firmware, firmware-debug)
   enable_language(ASM)
   add_subdirectory(src)
+else()
+  # the PC (presets host, host-asan): renderers and unit tests
+  include(StrisoHost)
+  add_subdirectory(tools/harness)
+  add_subdirectory(tests)
 endif()

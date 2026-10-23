@@ -20,18 +20,18 @@
 #include <cmath>
 #include <algorithm>
 #include <xmmintrin.h>
-#include "strisy.h"
+#include "striso_dsp/strisy.h"
 #ifdef SYNTH_VOICE_HEADER
 #include SYNTH_VOICE_HEADER
 namespace eng = SYNTH_VOICE_NS;
-#define HAS_PRESETS 1
+
 #else
 namespace eng = strisy;
 #endif
 #ifndef PERF_HEADER
 #define PERF_HEADER "performance.h"
 #endif
-#include "fx.h"
+#include "striso_dsp/fx.h"
 #include PERF_HEADER
 
 static int param_index(const char* name) {
@@ -123,7 +123,7 @@ int main(int argc, char** argv) {
 	static eng::Engine e;
 	const int nv = 6;
 	eng::init(e, SAMPLERATE, nv);
-#ifdef HAS_PRESETS
+#ifdef SYNTH_VOICE_PRESETS
 	if (preset >= 0) eng::set_preset(e, preset);
 #else
 	(void)preset;

@@ -182,7 +182,10 @@ add_custom_command(TARGET striso_control POST_BUILD
   VERBATIM)
 
 # USB descriptors as built (tools/usbaudio/check_descriptors.py reads the ELF): ctest --preset firmware
-enable_testing()
 add_test(NAME usb_descriptors
   COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/usbaudio/check_descriptors.py"
           --elf "$<TARGET_FILE:striso_control>")
+# tools/striso.py flash accepts the UF2 (app region only) and expects the version the build embedded
+add_test(NAME striso_py_firmware
+  COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tests/test_striso_py.py"
+          "${_out}.uf2" "${_gen}/fwversion.h")
