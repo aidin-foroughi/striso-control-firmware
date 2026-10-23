@@ -1,9 +1,10 @@
 """Click test: for every fx parameter, render a steady 220 Hz tone with all stages running and jump
 the parameter from min to max (and back) at t = 0.5 s. A click shows as a burst of energy above
 6 kHz right after the jump, compared with the steady states before and after.
-Usage (from the project root):
+Usage (from the repository root; FW_DIR: the firmware checkout, default the current directory):
   mapfile -t A < <(tools/.venv/Scripts/python tools/harness/fx_clicks.py args | tr -d '\r')
   tools/harness/fx_test.sh "${A[@]}" && tools/.venv/Scripts/python tools/harness/fx_clicks.py"""
+import os
 import re
 import sys
 import numpy as np
@@ -12,7 +13,7 @@ SR = 48828
 ROOT = "."
 BASE = "src=sine freq=220 amp=2 seconds=1.2 drive=0.3 phmix=0.5 chmix=0.5 trdepth=0.5 dlmix=0.5 dltime=100 rvmix=0.5".split()
 
-src = open("worktrees/fw-fx/fx.h").read()
+src = open(os.path.join(os.environ.get("FW_DIR") or ".", "fx.h")).read()
 params = re.findall(r'\{\{"(\w+)",\s*"(\w+)",\s*([-\d.]+)f,\s*([-\d.]+)f,\s*(\d)\}', src)
 args = []
 names = []

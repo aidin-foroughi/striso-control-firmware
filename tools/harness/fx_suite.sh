@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Full host test of the master effects (fx.h): renders demos and stress tests, prints the checks.
-# Usage (from the project root): [FW_DIR=worktrees/fw-fx] tools/harness/fx_suite.sh
+# Usage: [FW_DIR=<checkout>] tools/harness/fx_suite.sh   (FW_DIR: relative to the current directory
+#   or absolute; default this repository; e.g. FW_DIR=../worktrees/fw-fx from the repository root)
 set -euo pipefail
+if [ -n "${FW_DIR:-}" ]; then FW_DIR="$(cd "$FW_DIR" && pwd)"; export FW_DIR; fi
 cd "$(dirname "$0")/../.."
 T=tools/harness/fx_test.sh
 P=tools/.venv/Scripts/python

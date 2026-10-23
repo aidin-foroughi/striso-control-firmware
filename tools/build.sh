@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Build the Striso firmware in Docker. Usage: [FW_DIR=<firmware checkout>] tools/build.sh [make args...]
-# (default target: uf2; FW_DIR defaults to striso-control-firmware, e.g. FW_DIR=worktrees/fw-bowed)
+# (default target: uf2; FW_DIR defaults to this repository, the checkout these tools are in; set it,
+# relative to the current directory, to build a worktree, e.g. FW_DIR=../worktrees/fw-bowed)
 # After building, sanity checks run on the ELF; if one fails the .uf2 is deleted so it can't be flashed.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-MAIN="$(cd "$HERE/../striso-control-firmware" && pwd -W 2>/dev/null || pwd)"
-FW="$(cd "${FW_DIR:-$HERE/../striso-control-firmware}" && pwd -W 2>/dev/null || pwd)"
+# the main checkout (not a worktree) of this repository: it has the ChibiOS and uf2 submodules
+COMMON="$(git -C "$HERE" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+if [ -n "$COMMON" ] && [ -f "$COMMON/../ChibiOS/os/rt/include/ch.h" ]; then MAIN_DIR="$COMMON/.."; else MAIN_DIR="$HERE/.."; fi
+MAIN="$(cd "$MAIN_DIR" && pwd -W 2>/dev/null || pwd)"
+FW="$(cd "${FW_DIR:-$HERE/..}" && pwd -W 2>/dev/null || pwd)"
 docker build -q -t striso-build "$HERE/build-env" >/dev/null
 TOOLS="$(cd "$HERE" && pwd -W 2>/dev/null || pwd)"
 # git worktrees don't have the submodules checked out: use the main checkout's (read only)

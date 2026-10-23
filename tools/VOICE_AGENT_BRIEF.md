@@ -10,7 +10,7 @@ You can't listen to the board; you can render audio on the PC and analyse it.
 
 1. **Never touch the hardware.** Do not run `tools/striso.py`, do not flash, do not access USB
    devices or the UF2 drive. The coordinating session flashes your build after reviewing it.
-2. **Stay in your lane.** Work only in your worktree (`worktrees/fw-<voice>`, branch
+2. **Stay in your lane.** Work only in your worktree (`../worktrees/fw-<voice>`, branch
    `voice-<voice>`). Outside it you may only *create new files*: `tools/harness/out/<voice>_*`
    (renders) and `tools/harness/perf_<voice>.h` (your own test performance). Don't modify shared
    tools or other worktrees. If you need a change there, say so in your report.
@@ -18,8 +18,8 @@ You can't listen to the board; you can render audio on the PC and analyse it.
    Avoid editing shared firmware files (synth_strisy.cpp, Makefile, strisy.h, synth_control.cpp);
    if one is essential keep it minimal and explain it in the commit message and report.
 4. **The build must pass the guards:**
-   `FW_DIR=worktrees/fw-<voice> tools/build.sh uf2 VOICE=<voice>` (run from the project root
-   `<project>`) must end with `build checks passed`. It rejects software
+   `FW_DIR=../worktrees/fw-<voice> tools/build.sh uf2 VOICE=<voice>` (run from the root of the
+   main firmware checkout, `striso-control-firmware`) must end with `build checks passed`. It rejects software
    floating point helpers, synth stacks that don't fit, wrong load addresses.
 5. **No libm in the engine** (sinf, cosf, expf, powf, tanf, logf, ...): newlib here does parts of
    them in software double precision; the build is rejected. Use polynomial/rational
@@ -79,11 +79,13 @@ structs and helpers. Mark functions `static inline`.
 - Controls update asynchronously at ~1.3 kHz. A voice has `pres > 0` while its key is held;
   after release its last note stays until the voice is reused.
 
-## Tools (run from `<project>`, Git Bash on Windows, Docker)
+## Tools (run from the main firmware checkout `striso-control-firmware`, Git Bash on Windows, Docker)
 
-- Build (~15 s): `FW_DIR=worktrees/fw-<voice> tools/build.sh uf2 VOICE=<voice>`
+The tools are in that checkout's `tools/`; the worktrees are next to it in `../worktrees/`.
+
+- Build (~15 s): `FW_DIR=../worktrees/fw-<voice> tools/build.sh uf2 VOICE=<voice>`
 - Host render (same engine code compiled for the PC):
-  `FW_DIR=worktrees/fw-<voice> VOICE=<voice> tools/harness/render_strisy.sh <voice>_<tag> [g++ flags]`
+  `FW_DIR=../worktrees/fw-<voice> VOICE=<voice> tools/harness/render_strisy.sh <voice>_<tag> [g++ flags]`
   -> `tools/harness/out/<voice>_<tag>.f32` (float32, 48828 Hz mono); prints peak and warns about
   non-finite samples. Default performance: `tools/harness/performance.h` (17.5 s: swelling note
   with strike, 6-voice chord with vibrato, tilt sweeps, shaking + rotation, pedal, fast strikes,

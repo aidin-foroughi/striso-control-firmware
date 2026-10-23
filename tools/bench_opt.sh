@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Build, flash and measure synth DSP load for each SYNTH_OPT given as an argument.
 # Stops at the first failure. Engine: SYNTH_ENGINE env (default strisy).
+# Firmware: FW_DIR (default this repository), as for build.sh.
 set -euo pipefail
-HERE="$(cd "$(dirname "$0")" && pwd)"; FW="$HERE/../striso-control-firmware"
+HERE="$(cd "$(dirname "$0")" && pwd)"; FW="$(cd "${FW_DIR:-$HERE/..}" && pwd)"; export FW_DIR="$FW"
 ENGINE="${SYNTH_ENGINE:-strisy}"
 SRC=$([ "$ENGINE" = faust ] && echo synth || echo synth_strisy)
 for opt in "$@"; do

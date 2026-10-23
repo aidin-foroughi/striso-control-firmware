@@ -1,0 +1,16 @@
+# Python environment and caches (python -m venv tools/.venv; pip install -r tools/requirements.txt)
+.venv/
+__pycache__/
+*.pyc
+
+# build and review logs (build.sh, review_voice.sh, bench_opt.sh)
+.last_*.log
+.review_*.log
+*.log
+
+# host renders (large), calibration measurements, one-off debugging variants
+harness/out/
+calib/
+harness/dbg*.dsp
+harness/var_*.dsp
+harness/t_body.dsp

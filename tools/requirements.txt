@@ -1,0 +1,6 @@
+# Host tools: striso.py, record_keys.py, calib_measure.py (pyusb, libusb) and the harness checks (numpy).
+# Python 3.10 or newer:  python -m venv tools/.venv && tools/.venv/Scripts/pip install -r tools/requirements.txt
+importlib_resources==7.1.0
+libusb-package==1.0.30.0
+numpy==2.2.6
+pyusb==1.3.1

@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Review a voice engine from its worktree before it may be flashed: firmware build with all guards,
 # host render of the default performance (finite, level), and the branch state.
-# Usage: tools/review_voice.sh <voice>     (worktree worktrees/fw-<voice>, VOICE=<voice>)
-# Leaves the checked firmware at worktrees/fw-<voice>/build/striso_control.uf2. Does not flash.
+# Usage: [WT=<worktree>] tools/review_voice.sh <voice>     (VOICE=<voice>)
+#   WT: the worktree to review, relative to this repository's root or absolute; default
+#   ../worktrees/fw-<voice> (the worktrees live next to the firmware checkout).
+# Leaves the checked firmware at $WT/build/striso_control.uf2. Does not flash.
 set -euo pipefail
 V="$1"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-WT="${WT:-worktrees/fw-$V}"   # override for voices living in another worktree (e.g. WT=worktrees/fw-reed for wind)
+WT="${WT:-../worktrees/fw-$V}"   # override for voices living in another worktree (e.g. WT=../worktrees/fw-reed for wind)
 cd "$ROOT"
 [ -d "$WT" ] || { echo "!! no worktree $WT (set WT=...)"; exit 1; }
 echo "== branch"

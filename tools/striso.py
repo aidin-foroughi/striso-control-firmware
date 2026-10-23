@@ -16,6 +16,10 @@ Usage (from tools/):  .venv/Scripts/python striso.py <command>
   backup             reboot into bootloader (if needed) and back up the drive contents
   flash <file.uf2> [--no-backup]
                      back up, flash, wait for reboot and verify the version string
+
+Folders (outside the repository, next to the firmware checkout by default):
+  STRISO_BACKUP_DIR    board backups (default: <firmware checkout>/../backup)
+  STRISO_RELEASES_DIR  official release UF2s for recovery (default: <firmware checkout>/../firmware)
 """
 import os, re, shutil, string, struct, sys, time
 from datetime import datetime
@@ -27,8 +31,9 @@ import usb.util
 
 VID, PID = 0xF055, 0x57C0
 BULK_IF, EP_OUT, EP_IN = 2, 0x02, 0x82
-ROOT = Path(__file__).resolve().parent.parent
-BACKUP_DIR = ROOT / "backup"
+ROOT = Path(__file__).resolve().parent.parent  # the firmware checkout these tools are in
+BACKUP_DIR = Path(os.environ.get("STRISO_BACKUP_DIR") or ROOT.parent / "backup")
+RELEASES_DIR = Path(os.environ.get("STRISO_RELEASES_DIR") or ROOT.parent / "firmware")
 APP_START, SETTINGS_START = 0x08040000, 0x081E0000
 
 
@@ -201,7 +206,7 @@ RECOVERY = """
 !! {msg}
 !! The bootloader is untouched, so the board can always be recovered:
 !!   unplug, hold the square button, plug in, then run
-!!   .venv/Scripts/python striso.py flash ../firmware/<official release>.uf2
+!!   .venv/Scripts/python striso.py flash {releases}/<official release>.uf2
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"""
 
 
@@ -236,15 +241,15 @@ def flash(uf2_path, do_backup=True):
     while time.time() - t0 < 15 and not got:
         got = version()
     if not got:
-        raise SystemExit(RECOVERY.format(msg="FLASHED FIRMWARE IS NOT RESPONDING on the USB console."))
+        raise SystemExit(RECOVERY.format(releases=RELEASES_DIR, msg="FLASHED FIRMWARE IS NOT RESPONDING on the USB console."))
     print(f"running: {got}")
     if expected and expected not in got and got not in expected:
-        raise SystemExit(RECOVERY.format(msg=f"VERSION MISMATCH: expected {expected}, board reports {got}"))
+        raise SystemExit(RECOVERY.format(releases=RELEASES_DIR, msg=f"VERSION MISMATCH: expected {expected}, board reports {got}"))
     reply = load(1.0)
     if "avg" in reply:
         print(reply)
         if float(re.search(r"peak ([\d.]+)%", reply).group(1)) > 90:
-            print(RECOVERY.format(msg="SYNTH IS OVERLOADED (>90% CPU): audio will glitch, flash a lighter build."))
+            print(RECOVERY.format(releases=RELEASES_DIR, msg="SYNTH IS OVERLOADED (>90% CPU): audio will glitch, flash a lighter build."))
     # runtime stack check: ChibiOS fills stacks with 0x55, the 'unused' column counts untouched bytes
     for line in console("I").splitlines():
         cols = line.split()
@@ -252,7 +257,7 @@ def flash(uf2_path, do_backup=True):
             unused = int(cols[3])
             print(f"synth thread stack: {unused} bytes never used")
             if unused < 256:
-                raise SystemExit(RECOVERY.format(msg=f"SYNTH THREAD STACK NEARLY FULL ({unused} bytes left): flash the official release."))
+                raise SystemExit(RECOVERY.format(releases=RELEASES_DIR, msg=f"SYNTH THREAD STACK NEARLY FULL ({unused} bytes left): flash the official release."))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -311,7 +316,7 @@ def config_update(updates, remove=()):
     Backs up the current config first; the board reboots afterwards."""
     drive = enter_bootloader()
     current = (drive / "CONFIG.UF2").read_bytes()
-    BACKUP_DIR.mkdir(exist_ok=True)
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     bk = BACKUP_DIR / f"config_{datetime.now():%Y-%m-%d_%H%M%S}.uf2"
     bk.write_bytes(current)
     recs = [(k, v) for k, v in config_parse(current) if k not in updates and k not in remove]
