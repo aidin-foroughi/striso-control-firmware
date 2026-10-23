@@ -994,7 +994,7 @@ static FX_NOINLINE bool stage_out(Engine& e, real* __restrict__ out_l, real* __r
 // ---------------------------------------------------------------------------------------------
 // State management
 
-static inline void clear_buffers_now(void) {
+static inline void clear_buffers_now() {
 	for (int i = 0; i < DL_LEN; i++) dl_buf[i] = 0;
 	for (int i = 0; i < PD_LEN; i++) pd_buf[i] = 0.0f;
 	for (int i = 0; i < RV_LEN; i++) rv_buf[i] = 0.0f;
@@ -1201,8 +1201,8 @@ static inline void process(Engine& e, const real* __restrict__ in, real* __restr
 namespace strisy {
 template <> struct EngineParams<fx::Engine> {
 	static constexpr int count = fx::NPARAM;
-	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &fx::PARAMS[i].d : 0; }
-	static float* ptr(fx::Engine& e, int i) { return (i >= 0 && i < count) ? &e.p[i] : 0; }
+	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &fx::PARAMS[i].d : nullptr; }
+	static float* ptr(fx::Engine& e, int i) { return (i >= 0 && i < count) ? &e.p[i] : nullptr; }
 	static void changed(fx::Engine&, int) {} // process() clamps and smooths every block
 };
 }

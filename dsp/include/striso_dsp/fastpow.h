@@ -61,7 +61,7 @@ fastpow2 (float p)
   return v.f;
 }
 
-#define idiv(a,b) (a)/(b)
+#define idiv(a,b) (a)/(b)  // NOLINT(bugprone-macro-parentheses): third-party code, kept as is
 
 int32_t rand_hoaglin_state = -2014852483;
 static inline int

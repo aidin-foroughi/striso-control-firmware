@@ -979,7 +979,7 @@ template <> struct EngineParams<ep::Engine> {
 		    {"body", "amp", -0.9f, 2.0f, strisy::ParamKind::continuous},
 		    {"wobble", "mod", 0.0f, 40.0f, strisy::ParamKind::continuous},
 		};
-		return (i >= 0 && i < ep::NUM_PARAMS) ? &d[i] : 0;
+		return (i >= 0 && i < ep::NUM_PARAMS) ? &d[i] : nullptr;
 	}
 	static float* ptr(ep::Engine& e, int i) {
 		static float ep::Params::*const m[ep::NUM_PARAMS] = {
@@ -1009,7 +1009,7 @@ template <> struct EngineParams<ep::Engine> {
 		    &ep::Params::body,
 		    &ep::Params::wobble,
 		};
-		return (i >= 0 && i < ep::NUM_PARAMS) ? &(e.p.*m[i]) : 0;
+		return (i >= 0 && i < ep::NUM_PARAMS) ? &(e.p.*m[i]) : nullptr;
 	}
 	static void changed(ep::Engine& e, int) { ep::derive(e); }
 };

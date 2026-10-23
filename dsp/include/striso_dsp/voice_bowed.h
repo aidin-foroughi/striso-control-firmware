@@ -1157,8 +1157,8 @@ static inline void update_derived(Engine&) {}
 namespace strisy {
 template <> struct EngineParams<bowed::Engine> {
 	static constexpr int count = bowed::NUM_LIVE_PARAMS;
-	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &bowed::param_table[i].d : 0; }
-	static float* ptr(bowed::Engine& e, int i) { return (i >= 0 && i < count) ? &(e.p.*(bowed::param_table[i].m)) : 0; }
+	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &bowed::param_table[i].d : nullptr; }
+	static float* ptr(bowed::Engine& e, int i) { return (i >= 0 && i < count) ? &(e.p.*(bowed::param_table[i].m)) : nullptr; }
 	static void changed(bowed::Engine& e, int) { bowed::update_derived(e); }
 };
 } // namespace strisy

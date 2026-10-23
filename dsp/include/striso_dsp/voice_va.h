@@ -1000,8 +1000,8 @@ static_assert(NUM_LIVE_PARAMS == NPARAMS, "every Params field is exposed once");
 namespace strisy {
 template <> struct EngineParams<va::Engine> {
 	static constexpr int count = va::NUM_LIVE_PARAMS;
-	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &va::param_table[i].d : 0; }
-	static float* ptr(va::Engine& e, int i) { return (i >= 0 && i < count) ? &(e.p.*(va::param_table[i].m)) : 0; }
+	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &va::param_table[i].d : nullptr; }
+	static float* ptr(va::Engine& e, int i) { return (i >= 0 && i < count) ? &(e.p.*(va::param_table[i].m)) : nullptr; }
 	static void changed(va::Engine& e, int) { va::update_derived(e); }
 };
 } // namespace strisy

@@ -1,0 +1,42 @@
+# clang-tidy (15, in Docker: tools/tidy.sh) for our C++. Clean on dsp/ (the striso_dsp library),
+# the host tools and tests. The disabled checks don't fit real-time DSP code:
+#   C arrays, unions and pointer arithmetic are the DSP's state and inner loops (fixed size, in
+#   DTCM, indexed in tight loops); magic numbers are filter coefficients; float<->int conversions
+#   and short names (k, g, v1) are the algorithms' notation; members are not initialized in
+#   the structs (the Engine is plain data, zeroed in DTCM, set up by init()); index loops stay
+#   index loops (most walk several arrays at once, and the hot loops' code is checked as it is);
+#   (int)(x + 0.5f) rounding is deliberate (non-negative or sign-handled values, no libm call);
+#   explicit types instead of auto.
+Checks: >
+  -*,
+  bugprone-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-narrowing-conversions,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-integer-division,
+  -bugprone-branch-clone,
+  -bugprone-incorrect-roundings,
+  clang-analyzer-*,
+  -clang-analyzer-optin.performance.Padding,
+  modernize-*,
+  -modernize-avoid-c-arrays,
+  -modernize-use-trailing-return-type,
+  -modernize-macro-to-enum,
+  -modernize-use-default-member-init,
+  -modernize-loop-convert,
+  -modernize-use-auto,
+  performance-*,
+  misc-redundant-expression,
+  misc-unused-alias-decls,
+  misc-unused-using-decls,
+  misc-misplaced-const,
+  readability-misleading-indentation,
+  readability-redundant-declaration,
+  readability-redundant-control-flow,
+  readability-duplicate-include,
+  readability-static-accessed-through-instance,
+  cppcoreguidelines-slicing,
+  cppcoreguidelines-virtual-class-destructor
+WarningsAsErrors: '*'
+HeaderFilterRegex: '(dsp/include|tools/harness|tools/target_render|src/synth/tuning)'
+FormatStyle: none

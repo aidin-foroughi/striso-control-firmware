@@ -992,8 +992,8 @@ static_assert(NUM_LIVE_PARAMS == NPARAMS, "every Params field is exposed once");
 namespace strisy {
 template <> struct EngineParams<wind::Engine> {
 	static constexpr int count = wind::NUM_LIVE_PARAMS;
-	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &wind::param_table[i].d : 0; }
-	static float* ptr(wind::Engine& e, int i) { return (i >= 0 && i < count) ? &(e.p.*(wind::param_table[i].m)) : 0; }
+	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &wind::param_table[i].d : nullptr; }
+	static float* ptr(wind::Engine& e, int i) { return (i >= 0 && i < count) ? &(e.p.*(wind::param_table[i].m)) : nullptr; }
 	static void changed(wind::Engine&, int) {} // the DSP follows e.p through its smoothed copy
 };
 } // namespace strisy

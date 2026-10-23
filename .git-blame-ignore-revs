@@ -1,0 +1,4 @@
+# Formatting-only commits: git blame skips them
+# (git config blame.ignoreRevsFile .git-blame-ignore-revs; GitHub reads this file by itself)
+# clang-format our C++ and the USB audio C code
+9d0dcfc8f7a0fb1e290ad1607ba2b17f7217d3f6

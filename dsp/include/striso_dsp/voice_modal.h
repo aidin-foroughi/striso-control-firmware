@@ -678,8 +678,8 @@ static inline void process(Engine& e, real* __restrict__ output) {
 namespace strisy {
 template <> struct EngineParams<modal::Engine> {
 	static constexpr int count = modal::NUM_PARAMS;
-	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &modal::param_desc[i] : 0; }
-	static float* ptr(modal::Engine& e, int i) { return (i >= 0 && i < count) ? &e.prm.level + i : 0; }
+	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &modal::param_desc[i] : nullptr; }
+	static float* ptr(modal::Engine& e, int i) { return (i >= 0 && i < count) ? &e.prm.level + i : nullptr; }
 	static void changed(modal::Engine& e, int) { modal::params_changed(e); }
 };
 } // namespace strisy

@@ -10,10 +10,10 @@
 //   ramp:<param>=a:b:t0:t1  parameter written every block, linear from a to b during [t0, t1]
 // Writes <out>.f32 (stereo interleaved float32), <out>.wav (16 bit stereo x0.25 clipped like the
 // board), with src=voice also <out>_dry.wav, and prints statistics.
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdint.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <cstdint>
 #include <vector>
 #include <string>
 #include <chrono>

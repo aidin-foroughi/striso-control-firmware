@@ -127,11 +127,11 @@ struct SvfState {
 
 #define SVF_TICK(v0, st_ic1, st_ic2, c, v1, v2) \
 	do { \
-		real e_ = (v0)-st_ic2; \
-		v1 = (c).a * st_ic1 + (c).ga * e_; \
-		v2 = st_ic2 + (c).ga * st_ic1 + (c).g2a * e_; \
-		st_ic1 = 2.0f * v1 - st_ic1; \
-		st_ic2 = 2.0f * v2 - st_ic2; \
+		real e_ = (v0) - (st_ic2); \
+		(v1) = (c).a * (st_ic1) + (c).ga * e_; \
+		(v2) = (st_ic2) + (c).ga * (st_ic1) + (c).g2a * e_; \
+		(st_ic1) = 2.0f * (v1) - (st_ic1); \
+		(st_ic2) = 2.0f * (v2) - (st_ic2); \
 	} while (0)
 
 // ---------------------------------------------------------------------------------------------

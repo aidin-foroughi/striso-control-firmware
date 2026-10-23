@@ -1165,8 +1165,8 @@ static_assert(NUM_LIVE_PARAMS == NPARAMS, "every Params field is exposed once");
 namespace strisy {
 template <> struct EngineParams<brass::Engine> {
 	static constexpr int count = brass::NUM_LIVE_PARAMS;
-	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &brass::param_table[i].d : 0; }
-	static float* ptr(brass::Engine& e, int i) { return (i >= 0 && i < count) ? &(e.p.*(brass::param_table[i].m)) : 0; }
+	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &brass::param_table[i].d : nullptr; }
+	static float* ptr(brass::Engine& e, int i) { return (i >= 0 && i < count) ? &(e.p.*(brass::param_table[i].m)) : nullptr; }
 	static void changed(brass::Engine& e, int) { brass::update_derived(e); }
 };
 } // namespace strisy
