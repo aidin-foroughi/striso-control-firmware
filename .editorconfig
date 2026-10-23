@@ -1,0 +1,43 @@
+# https://editorconfig.org - matches .gitattributes (line endings) and .clang-format (C/C++)
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# C and C++: tabs, as the existing code (shown 4 wide)
+[*.{c,h,cpp,hpp,cc,S,s,ld}]
+indent_style = tab
+indent_size = 4
+tab_width = 4
+
+[{CMakeLists.txt,*.cmake,*.json,*.yml,*.yaml}]
+indent_style = space
+indent_size = 2
+
+[*.py]
+indent_style = space
+indent_size = 4
+
+[*.sh]
+indent_style = space
+indent_size = 2
+
+[{Makefile,*.mk}]
+indent_style = tab
+
+[*.md]
+trim_trailing_whitespace = false
+
+# committed with CRLF line endings (see .gitattributes): keep them
+[{Makefile,board/board.c,board/board.h,board/board.mk,board/cfg/board.chcfg,cfg/*.h,ld/STM32H743xI_uf2.ld,src/app/main.c,src/drivers/lsm6dsl.h}]
+end_of_line = crlf
+[dsp/include/striso_dsp/{voice_brass.h,voice_ep.h,voice_wind.h,voice_wind_tune.h}]
+end_of_line = crlf
+
+# third party code and Piers' files keep their own style
+[{third_party/**,board/**,cfg/**}]
+trim_trailing_whitespace = false
+insert_final_newline = unset

@@ -1,2 +1,0 @@
-# scripts run in bash and in Docker: keep LF regardless of core.autocrlf
-* text=auto eol=lf

@@ -1,0 +1,32 @@
+# Line endings: LF in the repository and in every checkout, whatever core.autocrlf says, for every
+# new text file. (The build embeds files such as the config editor page, so CRLF from a Windows
+# checkout would change the firmware.)
+* text=auto eol=lf
+
+# Files that were committed with CRLF line endings: kept byte for byte as they are (no conversion
+# either way). Editors keep their CRLF (.editorconfig). Add a file here only if it is CRLF in the
+# repository; `git ls-files --eol | grep i/crlf` lists them.
+Makefile                                 -text
+board/board.c                            -text
+board/board.h                            -text
+board/board.mk                           -text
+board/cfg/board.chcfg                    -text
+cfg/chconf.h                             -text
+cfg/halconf.h                            -text
+cfg/mcuconf.h                            -text
+dsp/include/striso_dsp/voice_brass.h     -text
+dsp/include/striso_dsp/voice_ep.h        -text
+dsp/include/striso_dsp/voice_wind.h      -text
+dsp/include/striso_dsp/voice_wind_tune.h -text
+ld/STM32H743xI_uf2.ld                    -text
+src/app/main.c                           -text
+src/drivers/lsm6dsl.h                    -text
+
+# binaries
+*.pdf binary
+*.png binary
+*.uf2 binary
+*.bin binary
+
+# GitHub: the vendored test framework is third party code
+third_party/** linguist-vendored
