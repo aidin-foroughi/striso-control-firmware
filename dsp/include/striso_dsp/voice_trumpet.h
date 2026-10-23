@@ -61,6 +61,9 @@
 
 #include <math.h>
 #include <stdint.h>
+#ifdef TRUMPET_DEBUG
+#include <stdio.h>
+#endif
 
 #include "strisy.h"
 #include "trumpet_bore.h"
@@ -95,6 +98,13 @@ static constexpr real SPUMP = TRUMPET_SPUMP;
 #else
 static constexpr real SPUMP = 0.6f;
 #endif
+// tongued attacks: the breath leads the key during the first 60 ms (LEAD x pressure velocity: a
+// key takes 10-30 ms to go down, the air arrives at the tongue release), a breath floor from the
+// strike (SEED_BREATH x strike, decaying over BFLOOR_T) and the lips released already swinging
+// (SEED_LIP x their settling amplitude)
+static constexpr real LEAD = 0.7f, SEED_BREATH = 0.3f, BFLOOR_T = 0.035f, SEED_LIP = 1.0f;
+// pitch tracker: DC removal of the lip motion (per internal sample), period consistency
+static constexpr real TRK_HP = 0.004f, TRK_TOL = 0.05f;
 // output EQ fitted to the Iowa MIS Bb trumpet recordings (cmpref.py)
 #ifndef TRUMPET_FIT
 static constexpr real FIT_HP_HZ = 450.0f, FIT_LO = 0.12f, FIT_PK_HZ = 1250.0f, FIT_PK_Q = 0.8f, FIT_PK_G = 1.6f;
@@ -117,6 +127,7 @@ struct Params {
 	real gain;    // output level
 	real p_soft;  // mouth pressure at the lightest touch, re the oscillation threshold
 	real p_loud;  // mouth pressure at full pressure (kPa at concert Bb4, scales with register)
+	real pres_ff; // key pressure that plays ff (the player's firm press)
 	real resp_hz; // breath smoothing
 	real release; // breath stop time constant (s)
 	// lips
@@ -177,7 +188,8 @@ struct Preset {
 	p.gain = 1.0f;
 	p.p_soft = 1.8f;
 	p.p_loud = 9.0f;
-	p.resp_hz = 30.0f;
+	p.pres_ff = 0.72f;
+	p.resp_hz = 60.0f;
 	p.release = 0.035f;
 	p.lip_tune = 0.0f;
 	p.lip_q = 400.0f;
@@ -190,7 +202,7 @@ struct Preset {
 	p.bell = 0.0f;
 	p.brassy = 2.5f;
 	p.breath = 0.04f;
-	p.t_noise = 0.3f;
+	p.t_noise = 0.12f;
 	p.attack = 1.0f;
 	p.overshoot = 0.25f;
 	p.vibrato = 0.4f;
@@ -298,7 +310,7 @@ static constexpr int DEFAULT_PRESET = TRUMPET_PRESET;
 #endif
 
 // level matching per preset (median active RMS, measured with the default performance)
-static constexpr real PRESET_GAIN[NUM_PRESETS] = {1.25f, 0.97f, 1.26f, 0.66f, 1.7f, 0.18f, 0.74f, 0.33f, 0.76f};
+static constexpr real PRESET_GAIN[NUM_PRESETS] = {1.0f, 0.7f, 0.86f, 0.53f, 1.37f, 0.13f, 0.64f, 0.27f, 0.82f};
 
 // ---------------------------------------------------------------------------------------------
 // player and key state
@@ -334,6 +346,8 @@ struct Player {
 	real ov;           // overshoot envelope
 	real tn;           // tongue noise envelope
 	int stop_blocks;   // re-tongue: blocks with the tongue against the lips
+	real seed;         // tongued start from silence: seed strength, applied in the next block
+	real bfloor;       // breath at a tongued start (from the strike), decaying into the key pressure
 	int idle_blocks;   // released and silent for this many blocks
 	real b1, b2;       // breath smoother (SVF)
 	real by1, by2;     // tilt smoother
@@ -350,6 +364,7 @@ struct Player {
 	// noise
 	uint32_t rng;
 	real n1, n2;   // noise filter states
+	real um;       // mean jet flow: the turbulence rides on the flow pulses
 	real gr1, gr2; // growl band-pass states
 	real vib_ph;
 	real sh_ph; // lip shake phase
@@ -657,14 +672,15 @@ static inline void start_note(Engine& e, int i, real hard, bool tongue, bool fro
 		const real h = clampr(hard * P.attack, 0.0f, 1.5f);
 		s.tau_on = 0.012f * exp2s(-3.3f * h); // 12 ms "d" .. 1.2 ms "t"
 		s.ov = P.overshoot * h;
+		s.bfloor = from_silence || s.gate < 0.3f ? clampr(SEED_BREATH * h, 0.0f, 0.9f) : 0.0f;
 		s.tn = h;
 		if (!from_silence && s.gate > 0.05f) s.stop_blocks = 6 + (int)(10.0f * (1.0f - rmin(h, 1.0f))); // re-tongue
 		if (from_silence) {
-			// the tongue releases air already under pressure: the lips are blown open at once and the
-			// flow burst into the cup excites the bore (a fast, clean start; soft "d" = less)
-			s.gate = clampr(0.25f + 0.5f * h, 0.0f, 0.9f);
-			s.x = 0.0006f * (0.3f + h);
-			s.v = 0.0f;
+			// the tongue releases air already under pressure: the full breath hits the lips at once,
+			// which the tongue held tensed and ready to swing; the seed (applied in the first block,
+			// when the fingering is known) starts the lips swinging at their frequency
+			s.gate = clampr(0.7f + 0.25f * h, 0.0f, 0.97f);
+			s.seed = clampr(0.4f + 0.6f * h, 0.0f, 1.0f);
 		}
 	}
 	s.t_on = e.blocks;
@@ -784,17 +800,26 @@ static inline void process_player(Engine& e, int i) {
 	real bl;
 	{
 		real b1 = s.b1, b2 = s.b2, t;
-		SVF_TICK(pres, b1, b2, e.bc, t, bl);
+		// during the attack the breath runs ahead of the key: a key takes ~10-30 ms to be pressed
+		// fully, the player's air arrives at the tongue release (the pressure velocity tells how hard)
+		real pin = pres;
+		if (held && (real)(e.blocks - s.t_on) * e.block_dt < 0.06f) pin = rmin(pres + LEAD * rmax(cc.vpres, 0.0f), rmax(pres, 1.1f));
+		SVF_TICK(pin, b1, b2, e.bc, t, bl);
 		s.b1 = b1;
 		s.b2 = b2;
 		(void)t;
-		bl = clampr(bl, 0.0f, 1.5f);
+		// a tongued note starts on the breath the player built up behind the tongue: the strike tells
+		// how hard (the key pressure itself takes ~10 ms to arrive); it hands over to the pressure
+		bl = clampr(rmax(bl, s.bfloor), 0.0f, 1.5f);
+		s.bfloor *= 1.0f - e.block_dt / BFLOOR_T;
 	}
 	const real pthr = cp.pthr; // Pa
 	const real p_lo = pthr * P.p_soft;
 	const real p_hi = rmax(P.p_loud * 1000.0f * exp2s((target - 70.0f) * (1.0f / 24)), p_lo * 1.2f);
-	real pm_t = p_lo + (p_hi - p_lo) * bl * fsqrt(bl);
-	if (!held && s.gest_len > 0.0f && s.gest_t < s.gest_len) pm_t = (p_lo + (p_hi - p_lo) * s.pres_last) * (1.0f - 0.6f * s.gest_t / s.gest_len);
+	// the player's touch: pres_ff (the key pressure of a firm press) is ff; a normal touch is mf
+	const real xb = clampr(bl / clampr(P.pres_ff, 0.2f, 1.5f), 0.0f, 1.3f);
+	real pm_t = p_lo + (p_hi - p_lo) * xb * (0.7f + 0.3f * xb);
+	if (!held && s.gest_len > 0.0f && s.gest_t < s.gest_len) pm_t = (p_lo + (p_hi - p_lo) * clampr(s.pres_last / clampr(P.pres_ff, 0.2f, 1.5f), 0.0f, 1.3f)) * (1.0f - 0.6f * s.gest_t / s.gest_len);
 
 	// gate: tongue stop, attack, release
 	const bool sounding = held || (s.gest_len > 0.0f && s.gest_t < s.gest_len);
@@ -827,6 +852,15 @@ static inline void process_player(Engine& e, int i) {
 	const real lnl = (b.dpure + 60.0f) * (C0 / (real)bore::FS) + 0.3f;
 	const real knl = clampr(P.brassy, 0.0f, 8.0f) * 1.2f * lnl / (RHO * C0 * C0 * C0) * (real)bore::FS / fsqrt(reg);
 
+	if (s.seed > 0.0f) {
+		// the lips start in their swing (phase: opening, through the rest position), with roughly the
+		// amplitude they will settle at; the lip motion locks onto the horn within a few periods
+		const real amp = SEED_LIP * s.seed * (0.12f + 0.25f * fsqrt(bl)) * 0.001f / fsqrt(fsqrt(reg));
+		s.x = h0;
+		s.v = amp * fsqrt(w2_t);
+		s.w2 = w2_t;
+		s.seed = 0.0f;
+	}
 	// ---- audio: 64 internal samples -------------------------------------------------------------
 	const int nsec = b.nsec;
 	int dl[MAXSEC];
@@ -849,9 +883,10 @@ static inline void process_player(Engine& e, int i) {
 	const real imu = 1.0f / mu;
 	const real two_rho = 2.0f / RHO;
 	const real spump = SPUMP * lw * 0.002f; // swept area of the lip motion (m^2)
-	const real br = P.breath * (1.0f + 2.0f * hv);
+	// turbulence of the established jet: it grows with the lip oscillation (none in the first instants)
+	const real br = P.breath * (1.0f + 2.0f * hv) * rmin(s.xamp * (1.0f / 2e-4f), 1.0f);
 	const real tnl = P.t_noise * s.tn * s.tn * 2e-5f;
-	real n1 = s.n1;
+	real n1 = s.n1, um = s.um;
 	uint32_t rng = s.rng;
 	uint32_t w = s.w;
 	real df = s.df;
@@ -871,7 +906,9 @@ static inline void process_player(Engine& e, int i) {
 	int ncross = 0;
 	real per_sum = 0.0f;
 	real peak = 0.0f, xamp = 0.0f;
-	const real gout = 1.0f;
+	// register balance: the bell radiates low notes far less than high ones (~10 dB per octave);
+	// a real player and room even that out to a few dB per octave
+	const real gout = clampr(exp2s(-(target - 70.0f) * (target < 70.0f ? 1.5f / 12 : 1.0f / 12)), 0.25f, 5.0f);
 	real* __restrict__ mix = e.mix;
 	const real rl = 1.5f, ru = 0.9f;
 	for (int n = 0; n < NS; n++) {
@@ -890,7 +927,8 @@ static inline void process_player(Engine& e, int i) {
 		n1 += 0.35f * (noise(rng) - n1);
 		const real uj = wh * two_rho * dp * isj;
 #ifdef TRUMPET_DEBUG
-		real u0 = uj * (1.0f + br * n1) + spump * v + tnl * n1;
+		um += 0.002f * (uj - um);
+		real u0 = uj + br * (uj - um) * n1 + spump * v + tnl * n1;
 		if (dbg_impulse) { u0 = (dbg_n == 0) ? 1e-6f * (real)bore::FS : 0.0f; }
 		if (dbg_pc && dbg_n < dbg_len) {
 			dbg_pc[dbg_n] = pc;
@@ -901,7 +939,8 @@ static inline void process_player(Engine& e, int i) {
 		}
 		dbg_n++;
 #else
-		const real u0 = uj * (1.0f + br * n1) + spump * v + tnl * n1;
+		um += 0.002f * (uj - um); // the jet's mean: turbulence rides on the flow pulses, not the mean
+		const real u0 = uj + br * (uj - um) * n1 + spump * v + tnl * n1;
 #endif
 		const real G = wh * isj * (1.0f / RHO);
 		pc = ((Cdt + G) * pc + u0 + 2.0f * b0 * iz0) / (Cdt + G + iz0);
@@ -1009,7 +1048,7 @@ static inline void process_player(Engine& e, int i) {
 		peak = rmax(peak, fabsf(yb));
 		// pitch tracker: lip displacement, low-passed, DC removed, upward zero crossings
 		xlp += a_lp * (x - xlp);
-		xhp += 0.002f * (xlp - xhp);
+		xhp += TRK_HP * (xlp - xhp);
 		const real xc = xlp - xhp;
 		xamp = rmax(xamp, fabsf(xc));
 		if (xprev < 0.0f && xc >= 0.0f) {
@@ -1017,7 +1056,7 @@ static inline void process_player(Engine& e, int i) {
 			if (tlast > -4000.0f) {
 				const real per = tc - tlast;
 				// count only periods consistent with the previous one (a clean, periodic regime)
-				if (fabsf(per - pprev) < 0.03f * per) {
+				if (fabsf(per - pprev) < TRK_TOL * per) {
 					per_sum += per;
 					ncross++;
 				}
@@ -1033,6 +1072,7 @@ static inline void process_player(Engine& e, int i) {
 	s.pm = pm;
 	s.w2 = w2;
 	s.n1 = n1;
+	s.um = um;
 	s.rng = rng;
 	s.w = w;
 	s.df = df;
@@ -1053,14 +1093,15 @@ static inline void process_player(Engine& e, int i) {
 #ifdef TRUMPET_DEBUG
 	if (dbg_nopll) ncross = 0;
 #endif
-	s.xamp += 0.1f * (xamp - s.xamp);
-	if (s.xamp < 4e-5f || shaking) ncross = 0; // no oscillation (yet), or a shake: nothing to measure
+	s.xamp = rmax(xamp, s.xamp + 0.1f * (xamp - s.xamp)); // fast up, slow down
+	if (s.xamp < 4e-5f || shaking) ncross = 0;            // no oscillation (yet), or a shake: nothing to measure
 	if (ncross > 0) {
 		const real fm = (real)bore::FS * (real)ncross / rmax(per_sum, 1.0f);
 		s.fmeas = fm;
 		const real err = 1200.0f * log2s(fm / f_t);
 		if (fabsf(err) < 160.0f && s.gate > 0.3f && s.stop_blocks == 0) {
-			s.trim = clampr(s.trim - err * rmin(per_sum * dt / 0.04f, 0.5f), -250.0f, 150.0f);
+			const real tc = (e.blocks - s.t_on) * e.block_dt < 0.05f ? 0.012f : 0.04f; // settle the attack fast
+			s.trim = clampr(s.trim - err * rmin(per_sum * dt / tc, 0.6f), -250.0f, 150.0f);
 			s.wrong_blocks = 0;
 			if (fabsf(err) < 8.0f) {
 				if (++s.good_blocks > 100) e.learn[s.combo][s.k] += 0.02f * (s.trim - cp.trim - e.learn[s.combo][s.k]);
@@ -1074,6 +1115,9 @@ static inline void process_player(Engine& e, int i) {
 	// guard
 	const real st = fabsf(s.pc) + fabsf(s.x) * 1e5f + fabsf(s.v);
 	if (!(peak < 1e6f) || !(st < 1e7f)) {
+#ifdef TRUMPET_DEBUG
+		fprintf(stderr, "guard reset: player %d peak %g pc %g x %g v %g%c", i, (double)peak, (double)s.pc, (double)s.x, (double)s.v, 10);
+#endif
 		reset_player(e, i);
 		return;
 	}
@@ -1332,7 +1376,7 @@ static inline void process_output(Engine& e, real* __restrict__ out) {
 	static constexpr real RG[4] = {0.36f, 0.28f, 0.22f, 0.16f};
 	const real room = clampr(P.room, 0.0f, 1.0f);
 	const real arl = 2.0f * PI * 3500.0f / e.sr;
-	const real g = 0.016f * clampr(P.gain, 0.0f, 8.0f) * PRESET_GAIN[e.preset];
+	const real g = 0.0127f * clampr(P.gain, 0.0f, 8.0f) * PRESET_GAIN[e.preset];
 	for (int n = 0; n < BLOCK; n++) {
 		e.hb[e.hbpos] = e.mix[2 * n];
 		e.hb[e.hbpos + 32] = e.mix[2 * n];
@@ -1454,6 +1498,7 @@ static constexpr ParamEntry param_table[] = {
     {{"gain", "level", 0.1f, 4.0f, C_}, &Params::gain},
     {{"p_soft", "level", 0.3f, 8.0f, C_}, &Params::p_soft},     // pp mouth pressure re threshold
     {{"p_loud", "level", 2.0f, 20.0f, C_}, &Params::p_loud},    // ff mouth pressure (kPa at Bb4)
+    {{"pres_ff", "level", 0.2f, 1.5f, C_}, &Params::pres_ff},   // key pressure that plays ff
     {{"resp_hz", "level", 3.0f, 100.0f, C_}, &Params::resp_hz}, // breath response
     {{"release", "level", 0.005f, 0.5f, C_}, &Params::release},
     {{"lip_tune", "lips", -300.0f, 300.0f, C_}, &Params::lip_tune}, // lip tension trim (cents)
