@@ -125,6 +125,8 @@ static void ThreadSend(void *arg) {
     size = msgGet(9, msg);
     if (size >= 2 && size <= 9) {
       synth_message(size, msg);
+      // requests to the control code (ID_INTERNAL, e.g. a settings key from the USB console) stay here
+      if (msg[0] == ID_INTERNAL) continue;
 
       // key values are signed 14 bit on the wire: saturate instead of wrapping, so a hard press
       // (pres >= 1.0) doesn't read as a release. The synth above got the full value.

@@ -82,6 +82,10 @@ set_tests_properties(usb_audio_core PROPERTIES LABELS unit)
 add_test(NAME striso_py COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_striso_py.py")
 set_tests_properties(striso_py PROPERTIES LABELS unit)
 
+# the StcK console command's settings key whitelist against config_but() (source check)
+add_test(NAME settings_keys COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_settings_keys.py")
+set_tests_properties(settings_keys PROPERTIES LABELS unit)
+
 # --- renders ---------------------------------------------------------------------------------------
 set(_golden_file "${CMAKE_CURRENT_SOURCE_DIR}/golden/renders.txt")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_golden_file}")

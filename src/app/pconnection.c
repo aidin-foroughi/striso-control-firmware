@@ -153,13 +153,20 @@ void PExReceiveByte(unsigned char c) {
   // ws2812_write_led(0, 0,67,0);
   static char header = 0;
   static int state = 0;
-  // binary payload of the 'Q' command (set parameter): target, index, float32 little endian
+  // binary payload of the 'Q' command (set parameter): target, index, float32 little endian;
+  // of the 'K' command (press a settings key): the key id
   static unsigned char payload[6];
   static int payload_len = 0, payload_need = 0;
+  static char payload_cmd = 0;
 
   if (payload_need > 0) {
     payload[payload_len++] = c;
-    if (payload_len == payload_need) {
+    if (payload_len == payload_need && payload_cmd == 'K') {
+      payload_need = 0;
+      const int ok = synth_settings_key(payload[0]);
+      chprintf((BaseSequentialStream *)&BDU1, "K %s %d\r\n", ok ? "ok" : "err", payload[0]);
+    }
+    else if (payload_len == payload_need) {
       payload_need = 0;
       union { uint32_t u; float f; } v;
       v.u = (uint32_t)payload[2] | ((uint32_t)payload[3] << 8) | ((uint32_t)payload[4] << 16) | ((uint32_t)payload[5] << 24);
@@ -260,6 +267,12 @@ void PExReceiveByte(unsigned char c) {
       else if (c == 'N') { // the active tuning and every key's pitch (read only, src/synth/tuning.h)
         synth_tuning_print(&BDU1);
       }
+      else if (c == 'K') { // press a settings key: 1 payload byte follows, the key id (whitelist:
+        // synth_settings_key in synth_control.cpp); replies "K ok <id>" or "K err <id>"
+        payload_cmd = 'K';
+        payload_len = 0;
+        payload_need = 1;
+      }
 #ifdef USE_INTERNAL_SYNTH
       else if (c == 'P') { // synth engine profile per section since last read
         synth_profile_print(&BDU1);
@@ -277,6 +290,7 @@ void PExReceiveByte(unsigned char c) {
         print_key_params((BaseSequentialStream *)&BDU1);
       }
       else if (c == 'Q') { // set parameter: 6 payload bytes follow (target, index, float32 LE)
+        payload_cmd = 'Q';
         payload_len = 0;
         payload_need = 6;
       }

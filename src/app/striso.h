@@ -44,6 +44,10 @@ Button message:
 // Motion data for the USB stream only: the same wire id as ID_ACCEL (the protocol header keeps
 // the low 4 bits), but synth_control ignores it, so it causes no MIDI motion messages.
 #define ID_ACCEL_STREAM (ID_ACCEL | 0x10)
+// Requests to the control code through the message queue, so they run in the thread that handles
+// the keys (synth_message); never sent on the wire (main.c ThreadSend stops them).
+#define ID_INTERNAL 6
+#define IDI_SETTINGS_KEY 0    // press a settings key: config_but(id, 0, 0) (console StcK)
 
 // control numbers [0-127]
 #define IDC_PORTAMENTO 0      // length 1

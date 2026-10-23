@@ -1130,6 +1130,56 @@ void int2float(int *msg, float *fmsg, int n) {
 
 unsigned int aux_button_map = 0;
 
+/*
+ * StcK <id>: press a settings key from the USB console (Striso Live's settings overlay), exactly as
+ * pressing key <id> with Settings held does at the initial press: config_but(id, 0, 0), then the
+ * leds as releasing Settings leaves them (update_leds). The console only queues the request
+ * (synth_settings_key, message ID_INTERNAL): it runs in the thread that handles the keys
+ * (synth_message, ThreadSend), so it never races a real key press.
+ * Allowed ids (config_but case numbers, current layout; every other id is refused):
+ *    0  2  4                      MIDI mode MPE, Normal, Mono
+ *   34                            tuning 12-TET
+ *   36 38 23 25 27 29 31 33       tunings 1..8 (fT<n>... in the config)
+ *   35 37 39 41 43 45 30 32       settings presets 1..8 (load_preset: MIDI mode, sensitivities...)
+ *   18 20 22 24 26 28 13          voices strisy, va, modal, bowed, wind, ep, brass (internal synth)
+ *   63                            panic: all notes off (MIDI)
+ * Refused: 67 system reset, 65 send MPE/bend config, 11 debug/flip layout, the dials (17 threshold,
+ * 19 pressure, 21 velocity, 6 bend, 8 tilt, 51 volume, 53 sustain, 56 MPE bend range, 58 message
+ * interval: they need an amount, not a press) and anything else. None of the allowed keys writes
+ * flash or reboots.
+ */
+static bool settings_key_allowed(int id) {
+#ifdef OLD_CONFIG_LAYOUT
+    (void)id;
+    return false;
+#else
+    switch (id) {
+    case 0: case 2: case 4:                                                  // MIDI modes
+    case 34: case 36: case 38: case 23: case 25: case 27: case 29: case 31: case 33:  // tunings
+    case 35: case 37: case 39: case 41: case 43: case 45: case 30: case 32:  // settings presets
+#ifdef USE_INTERNAL_SYNTH
+    case 18: case 20: case 22: case 24: case 26: case 28: case 13:           // voices
+#endif
+    case 63:                                                                 // panic
+        return true;
+    default:
+        return false;
+    }
+#endif
+}
+
+static void settings_key_press(int id) {
+    if (!settings_key_allowed(id)) return;
+    config_but(id, 0, 0);
+    update_leds();
+}
+
+int synth_settings_key(int id) {
+    if (!settings_key_allowed(id)) return 0;
+    int msg[3] = {ID_INTERNAL, IDI_SETTINGS_KEY, id};
+    return msgSend(3, msg) == 0;  // 0: queued
+}
+
 int synth_message(int size, int* msg) {
     static float note_offset_old;
     float fmsg[7];
@@ -1137,6 +1187,11 @@ int synth_message(int size, int* msg) {
     int id = msg[1];
     msg = &msg[2];
     size -= 2;
+
+    if (src == ID_INTERNAL) {  // requests queued by synth_settings_key() (console StcK)
+        if (id == IDI_SETTINGS_KEY && size >= 1) settings_key_press(msg[0]);
+        return 0;
+    }
 
     if (src == ID_CONTROL) {
         if (config.key_swap) {

@@ -95,6 +95,11 @@ int synth_touch_set(int i, float v);
 // src/synth/tuning.h) to a BaseSequentialStream.
 void synth_tuning_print(void *chp);
 
+// Press settings key id (a config_but() case number) as with Settings held, from the USB console
+// (StcK): queued for the key handling thread. Returns 0 if the id isn't allowed (the whitelist is
+// in synth_control.cpp) or the queue is full, 1 if queued.
+int synth_settings_key(int id);
+
 int synth_message(int size, int* msg);
 void synth_tick(void);
 void midi_config(void);
