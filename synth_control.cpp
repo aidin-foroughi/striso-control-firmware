@@ -112,6 +112,7 @@ static inline uint32_t log2i(const uint32_t x){return (31 - __builtin_clz (x));}
 void update_leds(void);
 void set_midi_mode(midi_mode_t mode);
 float config_but(int but, int type, float adjust);
+static volatile bool reset_on_release = false;  // settings + key 67, see synth_tick()
 
 typedef enum {
     STATE_OFF = 0,
@@ -1683,8 +1684,7 @@ float config_but(int but, int type, float adjust) {
         } return 0;
         case (67): { // system reset
             led_rgb(0xff0000);
-            chThdSleepMilliseconds(500);
-            NVIC_SystemReset();
+            reset_on_release = true;
         } return 0;
         default: return 0;
     }
@@ -2061,8 +2061,7 @@ float config_but(int but, int type, float adjust) {
     case (67): // system reset
         if (type == 0) {
             led_rgb(0xff0000);
-            chThdSleepMilliseconds(500);
-            NVIC_SystemReset();
+            reset_on_release = true;
         } return 0;
     default: return 0;
     }
@@ -2333,6 +2332,12 @@ void clear_dead_notes(void) {
 
 void synth_tick(void) {
     dis.tick();
+    // system reset (settings + key 67) waits for the settings button to be released: reset while it's
+    // held and the UF2 bootloader sees its button and stays in update mode
+    if (reset_on_release && !(dis.altmode & 1)) {
+        chThdSleepMilliseconds(200);
+        NVIC_SystemReset();
+    }
 }
 
 void update_leds(void) {
