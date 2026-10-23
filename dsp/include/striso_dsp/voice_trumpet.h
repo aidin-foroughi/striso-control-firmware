@@ -124,6 +124,7 @@ static constexpr real WARM_D0 = TRUMPET_WARM_D0, WARM_D1 = TRUMPET_WARM_D1, WARM
 #endif
 static constexpr real WARM_FADE_HARD = 0.001f, WARM_FADE_SOFT = 0.004f, WARM_OV_T = 0.004f;
 static constexpr int WARM_PER_BLOCK = 1;
+static constexpr real WARM_TAIL_GATE = 0.15f; // a released player this quiet can be warm started
 #ifndef TRUMPET_WARM_NPRE
 static constexpr int WARM_NPRE = 192;
 #else
@@ -174,6 +175,7 @@ struct Params {
 	// attack
 	real attack;    // tonguing hardness scale
 	real overshoot; // attack pressure overshoot
+	real warm;      // warm start: a tongued note from silence starts in its steady oscillation (seed amplitude, 0: off)
 	// modulation
 	real vibrato; // pedal vibrato depth (semitones at full pedal)
 	real vib_hz;
@@ -231,6 +233,7 @@ struct Preset {
 	p.t_noise = 0.12f;
 	p.attack = 1.0f;
 	p.overshoot = 0.25f;
+	p.warm = 1.0f;
 	p.vibrato = 0.4f;
 	p.vib_hz = 5.6f;
 	p.shake = 1.0f;
@@ -410,6 +413,7 @@ struct Player {
 	real wdyn;    // the strike, then the breath the seed was chosen for (key pressure units)
 	real rf, rf1; // radiated fade-in (two one-poles at block rate; 1 = full)
 	real rf_tau;  // its time constant (s)
+	int wpre;     // a warm start on a player still ringing: its tail fades out over one block first
 	float wt[2][68];     // one period of the seeded cylinder waves (forward input, reflection)
 	uint32_t wfi, wbi;   // next sample of the forward / backward line still to seed
 	int wfn, wbn;        // samples left to seed
@@ -787,7 +791,7 @@ struct WarmSeed {
 #ifdef TRUMPET_DEBUG
 static const seed::State* dbg_seed_ovr = nullptr; // capture: seed from this state
 static int dbg_nowarm = 0;
-static float dbg_force_dyn = -1.0f, dbg_bright = -1.0f; // capture: the seed's breath and harmonics
+static float dbg_force_dyn = -1.0f, dbg_bright = -1.0f, dbg_walpha = 1.0f; // capture: the seed's breath and harmonics
 #endif
 
 // the seed for this note and breath (interpolated between the captured breaths); false: none
@@ -800,9 +804,20 @@ static inline bool warm_lookup(const Engine& e, real note, real dyn, const Finge
 	if (dbg_seed_ovr) a = c = dbg_seed_ovr;
 #endif
 	if (a == nullptr) {
+		// the nearest captured note with this fingering (a bent note may sit nearer the next semitone)
 		const seed::Set& st = seed::SETS[e.preset];
-		const int n = (int)(note + 0.5f) - st.lo;
-		if (st.st == nullptr || n < 0 || n >= st.n) return false;
+		if (st.st == nullptr) return false;
+		const int n0 = (int)(note + 0.5f) - st.lo, n1 = note + 0.5f - (real)(int)(note + 0.5f) < 0.5f ? n0 - 1 : n0 + 1;
+		int n = -1;
+		for (int c = 0; c < 2 && n < 0; c++) {
+			const int m = c ? n1 : n0;
+			if (m < 0 || m >= st.n) continue;
+			for (int d = 0; d < seed::NDYN; d++) {
+				const seed::State& q = st.st[m * seed::NDYN + d];
+				if (q.ok && q.combo == fg.combo && q.k == fg.k && q.ext == fg.ext) n = m;
+			}
+		}
+		if (n < 0) return false;
 		const seed::State* row = &st.st[n * seed::NDYN];
 		int j = 0;
 		while (j < seed::NDYN - 2 && dyn > seed::DYN[j + 1]) j++;
@@ -827,6 +842,32 @@ static inline bool warm_lookup(const Engine& e, real note, real dyn, const Finge
 		}
 	}
 	return true;
+}
+
+// the fingering of the nearest captured note, if it reaches this one (lipped within 1.2 semitones)
+[[nodiscard]] static inline bool warm_fingering(const Engine& e, real note, Fingering& f) {
+	const seed::Set& st = seed::SETS[e.preset];
+	const int n = (int)(note + 0.5f) - st.lo;
+	if (st.st == nullptr || n < 0 || n >= st.n) return false;
+	for (int d = 0; d < seed::NDYN; d++) {
+		const seed::State& q = st.st[n * seed::NDYN + d];
+		if (!q.ok || q.combo < 0 || q.combo >= bore::NCOMBO || q.k < 0 || q.k >= bore::NK) continue;
+		const real fp = e.fpitch[q.combo][q.k];
+		if (fp < -100.0f || fabsf(note + (real)q.ext - fp) > 1.2f) continue;
+		f = {q.combo, q.k, q.ext, fp - (real)q.ext};
+		return true;
+	}
+	return false;
+}
+
+// a seed exists for this note (some breath)
+[[nodiscard]] static inline bool warm_has(const Engine& e, real note) {
+	const seed::Set& st = seed::SETS[e.preset];
+	const int n = (int)(note + 0.5f) - st.lo;
+	if (st.st == nullptr || n < 0 || n >= st.n) return false;
+	for (int d = 0; d < seed::NDYN; d++)
+		if (st.st[n * seed::NDYN + d].ok) return true;
+	return false;
 }
 
 // a phase into a 64-point period table (64 frac(t / per)) and a read of the table there
@@ -997,12 +1038,16 @@ static inline void warm_front(Player& s, const bore::Bore& b, const WarmSeed& w,
 // (trumpet_seed.h): 0 the cylinder's forward input, 1 the bell's reflection, 2 the cup pressure,
 // 3 and 4 the outward and inward lip modes. bright 0..1: the seeded harmonics (0: the first two,
 // 1: all NH)
-static inline void warm_fill(Engine& e, int i, const WarmSeed& w, real per, real df, real loss_b, real knl, real bright) {
+static inline void warm_fill(Engine& e, int i, const WarmSeed& w, real per, real df, real loss_b, real knl, real bright, real alpha) {
 	Player& s = e.pl[i];
 	const bore::Bore& b = bore_of(e);
 	constexpr int NH = seed::NH;
 	real g[NH];
 	for (int k = 0; k < NH; k++) g[k] = clampr(bright * (real)(NH - 2) + 2.0f - (real)k, 0.0f, 1.0f);
+#ifdef TRUMPET_DEBUG
+	for (int k = 0; k < NH; k++) g[k] *= dbg_walpha;
+#endif
+	for (int k = 0; k < NH; k++) g[k] *= alpha;
 	float* Tf = s.wt[0];
 	float* Tr = s.wt[1];
 	wtab_make(Tf, w.dc[0], w.re[0], w.im[0], g);
@@ -1138,14 +1183,27 @@ static inline void process_player(Engine& e, int i) {
 	// pressure takes 10-30 ms to arrive); the player holds that breath through the attack
 	WarmSeed wseed;
 	bool wfill = false;
-	real wbright = 0.0f;
-	if (s.seed > 0.0f && held) {
+	real wbright = 0.0f, walpha = 1.0f;
+	bool wprefade = false;
+	if (s.seed > 0.0f && held && P.warm > 0.05f) {
 		const real h = s.wdyn;
 		real dyn = clampr(rmax(WARM_D0 + WARM_D1 * h, pres), 0.05f, 1.3f);
 #ifdef TRUMPET_DEBUG
 		if (dbg_force_dyn > 0.0f) dyn = dbg_force_dyn;
 #endif
-		if (warm_lookup(e, target, dyn, fg, wseed)) {
+		const bool pre = s.wpre != 0;
+		s.wpre = 0;
+		Fingering wf = fg;
+		if (!warm_lookup(e, target, dyn, wf, wseed) && warm_fingering(e, target, wf)) {
+			// a bent note between the captured ones: the player takes the nearest note's fingering
+			s.combo = wf.combo;
+			s.k = wf.k;
+			s.ext = wf.ext;
+			s.nominal = wf.nominal;
+		}
+		if (pre && warm_lookup(e, target, dyn, wf, wseed)) {
+			wprefade = true; // this block: the old tail fades out; the seed in the next
+		} else if (warm_lookup(e, target, dyn, wf, wseed)) {
 			if (e.wseeds >= WARM_PER_BLOCK) {
 				// another player was seeded in this block (CPU): this one starts in the next
 				warm_skip_debug();
@@ -1165,6 +1223,7 @@ static inline void process_player(Engine& e, int i) {
 			s.rf = s.rf1 = 0.0f;
 			s.rf_tau = WARM_FADE_SOFT + (WARM_FADE_HARD - WARM_FADE_SOFT) * clampr(h, 0.0f, 1.0f);
 			wbright = clampr(h + 1.5f * (dyn - 0.45f), 0.0f, 1.0f);
+			walpha = clampr(P.warm, 0.0f, 1.0f); // below 1: the note grows into its level and brightness (slower)
 #ifdef TRUMPET_DEBUG
 			if (dbg_bright >= 0.0f) wbright = dbg_bright;
 #endif
@@ -1265,7 +1324,7 @@ static inline void process_player(Engine& e, int i) {
 
 	if (wfill) {
 		// this block: the seed instead of the sound (the next block starts in the oscillation)
-		warm_fill(e, i, wseed, (real)bore::FS / f_t, d_target, loss_b, knl, wbright);
+		warm_fill(e, i, wseed, (real)bore::FS / f_t, d_target, loss_b, knl, wbright, walpha);
 		s.seed = 0.0f;
 		s.pm = pm_end;
 		s.w2 = w2_t;
@@ -1282,7 +1341,7 @@ static inline void process_player(Engine& e, int i) {
 		wline_fill(cyl_f[i], s.wfi, s.wfn, s.wfu, s.winc, s.wt[0], nf);
 		wline_fill(cyl_b[i], s.wbi, s.wbn, s.wbu, s.winc, s.wt[1], nb);
 	}
-	if (s.seed > 0.0f) {
+	if (s.seed > 0.0f && !wprefade) {
 		// the lips start in their swing (phase: opening, through the rest position), with roughly the
 		// amplitude they will settle at; the lip motion locks onto the horn within a few periods
 #ifdef TRUMPET_DEBUG
@@ -1353,7 +1412,9 @@ static inline void process_player(Engine& e, int i) {
 	real* __restrict__ mix = e.mix;
 	// radiated fade-in of a warm start (two one-poles at block rate, linear within the block)
 	real gr = gout * s.rf;
-	if (s.rf < 1.0f) {
+	if (wprefade) {
+		s.rf = s.rf1 = 0.0f;
+	} else if (s.rf < 1.0f) {
 		const real a = rmin(e.block_dt / rmax(s.rf_tau, 1e-4f), 1.0f);
 		s.rf1 += a * (1.0f - s.rf1);
 		s.rf += a * (s.rf1 - s.rf);
@@ -1689,6 +1750,9 @@ static inline void key_on(Engine& e, int key, real strike) {
 	Player& s = e.pl[i];
 	if (s.owner >= 0) e.ks[s.owner].player = -1;
 	const bool from_silence = !s.active || s.gate < 0.02f;
+	// a released player still ringing quietly: a new tongued note there starts warm too, once the
+	// tail has faded out (one block)
+	const bool quiet_tail = !from_silence && s.owner < 0 && s.gate < WARM_TAIL_GATE && e.ps.warm > 0.05f && warm_has(e, fold_note(e, e.vc[key].note));
 	s.owner = key;
 	s.nstack = 0;
 	k.player = i;
@@ -1707,7 +1771,8 @@ static inline void key_on(Engine& e, int key, real strike) {
 		s.vy = 0.0f;
 		s.rf = s.rf1 = 1.0f;
 	}
-	start_note(e, i, rmax(strike, 0.15f), true, from_silence);
+	s.wpre = quiet_tail ? 1 : 0;
+	start_note(e, i, rmax(strike, 0.15f), true, from_silence || quiet_tail);
 }
 
 static inline void key_off(Engine& e, int key) {
@@ -1994,6 +2059,7 @@ static constexpr ParamEntry param_table[] = {
     {{"t_noise", "air", 0.0f, 1.0f, C_}, &Params::t_noise},
     {{"attack", "attack", 0.0f, 2.0f, C_}, &Params::attack}, // tonguing hardness
     {{"overshoot", "attack", 0.0f, 1.0f, C_}, &Params::overshoot},
+    {{"warm", "attack", 0.0f, 1.0f, C_}, &Params::warm}, // warm start (seed amplitude; 0: the natural start)
     {{"vibrato", "mod", 0.0f, 1.0f, C_}, &Params::vibrato}, // pedal vibrato (semitones)
     {{"vib_hz", "mod", 3.0f, 8.0f, C_}, &Params::vib_hz},
     {{"shake", "mod", 0.0f, 2.0f, C_}, &Params::shake},
