@@ -102,8 +102,9 @@ static constexpr real SPUMP = 0.6f;
 // key takes 10-30 ms to go down, the air arrives at the tongue release), a breath floor from the
 // strike (SEED_BREATH x strike, decaying over BFLOOR_T) and the lips released already swinging
 // (SEED_LIP x their settling amplitude)
-static constexpr real SHORT_G = 1.5f, SHORT_T = 0.04f;      // short-note gain: depth, fade time
-static constexpr real ATK_LO_C = 150.0f, ATK_LO_T = 0.012f; // lipping up: cents below, relax time
+// the lips' second (inward striking) mode: its response to the pressure difference re the outward
+// mode's, and its tuning above the outward mode (cents); see the LIPS comment in process_player
+static constexpr real LIP_IN_R = 0.75f, LIP_IN_C = 150.0f;
 static constexpr real LEAD = 0.7f, SEED_BREATH = 0.3f, BFLOOR_T = 0.035f, SEED_LIP = 1.0f;
 // pitch tracker: DC removal of the lip motion (per internal sample), period consistency
 static constexpr real TRK_HP = 0.004f, TRK_TOL = 0.05f;
@@ -194,7 +195,7 @@ struct Preset {
 	p.resp_hz = 60.0f;
 	p.release = 0.035f;
 	p.lip_tune = 0.0f;
-	p.lip_q = 400.0f;
+	p.lip_q = 15.0f;
 	p.lip_mass = 3.3f;
 	p.lip_open = 0.15f;
 	p.lip_width = 8.0f;
@@ -318,8 +319,8 @@ static constexpr real PRESET_GAIN[NUM_PRESETS] = {0.81f, 0.69f, 1.08f, 0.64f, 1.
 // player and key state
 
 struct Player {
-	// lips and cup
-	real x, v, pc;
+	// lips and cup: outward mode (x, v), inward mode (y, vy)
+	real x, v, pc, y, vy;
 	// front end rings
 	float ff[MAXSEC][SLEN], fb[MAXSEC][SLEN];
 	uint32_t w; // ring / delay line write index
@@ -350,7 +351,6 @@ struct Player {
 	int stop_blocks;   // re-tongue: blocks with the tongue against the lips
 	real seed;         // tongued start from silence: seed strength, applied in the next block
 	real bfloor;       // breath at a tongued start (from the strike), decaying into the key pressure
-	real lipup;        // lipping up into the note after a tongued start (1 = ATK_LO_C below), decaying
 	int idle_blocks;   // released and silent for this many blocks
 	real b1, b2;       // breath smoother (SVF)
 	real by1, by2;     // tilt smoother
@@ -484,7 +484,8 @@ struct Engine {
 [[nodiscard]] static inline const bore::Bore& bore_of(const Engine& e) { return bore::BORES[e.bore_i]; }
 
 #ifdef TRUMPET_DEBUG
-static int dbg_nocal = 0;
+static int dbg_nocal = 0;                                       // 1: no calibration, 2: the values below
+static float dbg_cal_lip = 0.0f, dbg_cal_trim = 0.0f, dbg_cal_pthr = 600.0f; // (calibration runs)
 #endif
 
 // the player's knowledge of the horn (trumpet_cal.h): lip setting, slide trim and the pressure where
@@ -500,7 +501,8 @@ struct CalPoint {
 	CalPoint p{c.trim[i] + f * (c.trim[i + 1] - c.trim[i]), c.lip[i] + f * (c.lip[i + 1] - c.lip[i]),
 	    c.pthr[i] + f * (c.pthr[i + 1] - c.pthr[i])};
 #ifdef TRUMPET_DEBUG
-	if (dbg_nocal) p = {0.0f, 0.0f, 1200.0f * exp2s((note - 70.0f) * (1.0f / 18))};
+	if (dbg_nocal == 1) p = {0.0f, 0.0f, 1200.0f * exp2s((note - 70.0f) * (1.0f / 18))};
+	if (dbg_nocal == 2) p = {dbg_cal_trim, dbg_cal_lip, dbg_cal_pthr};
 #endif
 	return p;
 }
@@ -675,7 +677,6 @@ static inline void start_note(Engine& e, int i, real hard, bool tongue, bool fro
 		const real h = clampr(hard * P.attack, 0.0f, 1.5f);
 		s.tau_on = 0.012f * exp2s(-3.3f * h); // 12 ms "d" .. 1.2 ms "t"
 		s.ov = P.overshoot * h;
-		s.lipup = from_silence || s.gate < 0.3f ? 1.0f : 0.0f;
 		s.bfloor = from_silence || s.gate < 0.3f ? clampr(SEED_BREATH * h, 0.0f, 0.9f) : 0.0f;
 		s.tn = h;
 		if (!from_silence && s.gate > 0.05f) s.stop_blocks = 6 + (int)(10.0f * (1.0f - rmin(h, 1.0f))); // re-tongue
@@ -709,6 +710,9 @@ template <int N> static inline void ladder(Player& s, uint32_t w, const int* __r
 }
 
 #ifdef TRUMPET_DEBUG
+static float dbg_rb = LIP_IN_R, dbg_cb = LIP_IN_C, dbg_qb = 0.0f; // inward lip mode: ratio, cents, Q (0: lip_q)
+static int dbg_norefl = 0;
+static float dbg_seed = SEED_LIP;
 static int dbg_impulse = 0, dbg_nopll = 0;
 static long dbg_n = 0, dbg_len = 0;
 static float* dbg_pc = nullptr;
@@ -791,11 +795,7 @@ static inline void process_player(Engine& e, int i) {
 	if (s.sh_ph >= 1.0f) s.sh_ph -= 1.0f;
 	const bool shaking = shk > 0.05f;
 	const real shake_c = (shaking && s.sh_ph < 0.5f) ? shk * 1200.0f * log2s((real)(s.k + 1) / (real)s.k) : 0.0f;
-	// players lip up into a note: right after the tongue release the lips are set a little low (so
-	// they catch the intended resonance from below and never the one above), relaxing in ~ATK_LO_T
-	const real lip_up = -ATK_LO_C * s.lipup;
-	s.lipup *= 1.0f - e.block_dt / ATK_LO_T;
-	const real f_lip = f_t * exp2s((P.lip_tune + cp.lip + s.lipc + s.trim + shake_c + lip_up) * (1.0f / 1200) - 0.074f); // the lips follow the horn
+	const real f_lip = f_t * exp2s((P.lip_tune + cp.lip + s.lipc + s.trim + shake_c) * (1.0f / 1200) - 0.116f); // the lips follow the horn
 	const real wl = 2.0f * PI * rmin(f_lip, 6000.0f);
 	const real w2_t = wl * wl;
 	const real q = clampr(P.lip_q * exp2s(0.3f * tilt * P.tilt_lip), 0.3f, 500.0f);
@@ -863,6 +863,9 @@ static inline void process_player(Engine& e, int i) {
 	if (s.seed > 0.0f) {
 		// the lips start in their swing (phase: opening, through the rest position), with roughly the
 		// amplitude they will settle at; the lip motion locks onto the horn within a few periods
+#ifdef TRUMPET_DEBUG
+		const real SEED_LIP = dbg_seed;
+#endif
 		const real amp = SEED_LIP * s.seed * (0.12f + 0.25f * fsqrt(bl)) * 0.001f / fsqrt(fsqrt(reg));
 		s.x = h0;
 		s.v = amp * fsqrt(w2_t);
@@ -877,7 +880,12 @@ static inline void process_player(Engine& e, int i) {
 		dl[j] = j < nsec ? b.sec_d[j] : 1;
 		kl[j] = j < nsec ? b.sec_k[j] : 0.0f;
 	}
-	real x = s.x, v = s.v, pc = s.pc;
+	real x = s.x, v = s.v, pc = s.pc, y = s.y, vy = s.vy;
+#ifdef TRUMPET_DEBUG
+	const real rb = dbg_rb, w2b_f = exp2s(dbg_cb * (1.0f / 600)), qb = dbg_qb > 0.0f ? dbg_qb : q;
+#else
+	const real rb = LIP_IN_R, w2b_f = exp2s(LIP_IN_C * (1.0f / 600)), qb = q;
+#endif
 	real pm = s.pm, w2 = s.w2;
 	if (s.active == 1 && s.w2 == 0.0f) w2 = w2_t;
 	const real dpm = (pm_end - pm) * (1.0f / NS), dw2 = (w2_t - w2) * (1.0f / NS);
@@ -888,6 +896,9 @@ static inline void process_player(Engine& e, int i) {
 	const real damp = 1.0f / (1.0f + dt * wq);
 	const real kc = 3.0f * w2_t; // contact stiffness when closed
 	const real cdamp = 1.0f / (1.0f + dt * (wq + 2.0f * fsqrt(kc)));
+	const real wqb = rmax(fsqrt(w2_t * w2b_f), 1.0f) / qb;
+	const real dampb = 1.0f / (1.0f + dt * wqb);
+	const real cdampb = 1.0f / (1.0f + dt * (wqb + 2.0f * fsqrt(kc * rmax(rb, 0.01f))));
 	const real imu = 1.0f / mu;
 	const real two_rho = 2.0f / RHO;
 	const real spump = SPUMP * lw * 0.002f; // swept area of the lip motion (m^2)
@@ -916,11 +927,7 @@ static inline void process_player(Engine& e, int i) {
 	real peak = 0.0f, xamp = 0.0f;
 	// register balance: the bell radiates low notes far less than high ones (~10 dB per octave);
 	// a real player and room even that out to a few dB per octave
-	// short low notes: the long bore needs several round trips to build up, so a short staccato
-	// note would end before it reaches its level; a gain that fades out as the bore builds (~60 ms)
-	const real age = (real)(e.blocks - s.t_on) * e.block_dt;
-	const real short_boost = 1.0f + SHORT_G * clampr((68.0f - target) * (1.0f / 12), 0.0f, 1.5f) * exp2s(-age * (1.0f / SHORT_T));
-	const real gout = clampr(exp2s(-(target - 70.0f) * (target < 70.0f ? 1.5f / 12 : 1.0f / 12)), 0.25f, 5.0f) * short_boost;
+	const real gout = clampr(exp2s(-(target - 70.0f) * (target < 70.0f ? 1.5f / 12 : 1.0f / 12)), 0.25f, 5.0f);
 	real* __restrict__ mix = e.mix;
 	const real rl = 1.5f, ru = 0.9f;
 	for (int n = 0; n < NS; n++) {
@@ -933,7 +940,7 @@ static inline void process_player(Engine& e, int i) {
 		const real dp = pm - pc;
 		const real sj = fsqrt(two_rho * fabsf(dp) + 4.0f);
 		const real isj = 1.0f / sj;
-		const real h = rmax(x, 0.0f);
+		const real h = rmax(x + y, 0.0f);
 		const real wh = lw * h;
 		// flow: Bernoulli jet + turbulence + swept volume; tongue noise
 		n1 += 0.35f * (noise(rng) - n1);
@@ -946,7 +953,7 @@ static inline void process_player(Engine& e, int i) {
 			dbg_pc[dbg_n] = pc;
 			if (dbg_u) {
 				dbg_u[dbg_n] = u0;
-				dbg_x[dbg_n] = x;
+				dbg_x[dbg_n] = x + y;
 			}
 		}
 		dbg_n++;
@@ -959,12 +966,16 @@ static inline void process_player(Engine& e, int i) {
 		s.ff[0][w & SMASK] = pc - b0;
 		// lips: outward striking (the pressure difference pushes them open), contact when closed
 		const real F = (pm - pc) * imu;
-		if (x >= 0.0f) {
+		const real hc = x + y;
+		if (hc >= 0.0f) {
 			v = (v + dt * (-w2 * (x - h0) + F)) * damp;
+			vy = (vy + dt * (-w2 * w2b_f * y - rb * F)) * dampb;
 		} else {
-			v = (v + dt * (-w2 * (x - h0) - kc * x + F)) * cdamp;
+			v = (v + dt * (-w2 * (x - h0) - kc * hc + F)) * cdamp;
+			vy = (vy + dt * (-w2 * w2b_f * y - rb * (kc * hc + F))) * cdampb;
 		}
 		x += dt * v;
+		y += dt * vy;
 		// front end ladder (Kelly-Lochbaum, one multiply per junction)
 		if (nsec == 7) ladder<7>(s, w, dl, kl);
 		else if (nsec == 5) ladder<5>(s, w, dl, kl);
@@ -1049,17 +1060,20 @@ static inline void process_player(Engine& e, int i) {
 			for (int k = 5; k > 0; k--) s.ih[k] = s.ih[k - 1];
 			s.ih[0] = r;
 		}
-		real rb = 0.0f;
+		real rfl = 0.0f;
 		{
-			for (int m = 0; m < 6; m++) rb += bore::HINT[8 * m + phase] * s.ih[m];
+			for (int m = 0; m < 6; m++) rfl += bore::HINT[8 * m + phase] * s.ih[m];
 		}
-		CB[w & CMASK] = rb * loss_b;
+#ifdef TRUMPET_DEBUG
+		if (dbg_norefl) rfl = 0.0f;
+#endif
+		CB[w & CMASK] = rfl * loss_b;
 		w++;
 		// radiated: the forward wave at the bell entry
 		mix[n] += gout * yb;
 		peak = rmax(peak, fabsf(yb));
 		// pitch tracker: lip displacement, low-passed, DC removed, upward zero crossings
-		xlp += a_lp * (x - xlp);
+		xlp += a_lp * (x + y - xlp);
 		xhp += TRK_HP * (xlp - xhp);
 		const real xc = xlp - xhp;
 		xamp = rmax(xamp, fabsf(xc));
@@ -1080,6 +1094,8 @@ static inline void process_player(Engine& e, int i) {
 	}
 	s.x = x;
 	s.v = v;
+	s.y = y;
+	s.vy = vy;
 	s.pc = pc;
 	s.pm = pm;
 	s.w2 = w2;
@@ -1244,6 +1260,8 @@ static inline void key_on(Engine& e, int key, real strike) {
 		s.by2 = clampr(e.vc[key].but_y, -1.0f, 1.0f);
 		s.x = 0.0f;
 		s.v = 0.0f;
+		s.y = 0.0f;
+		s.vy = 0.0f;
 	}
 	start_note(e, i, rmax(strike, 0.15f), true, from_silence);
 }
