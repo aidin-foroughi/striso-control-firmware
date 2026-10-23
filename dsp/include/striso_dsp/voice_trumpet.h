@@ -102,6 +102,8 @@ static constexpr real SPUMP = 0.6f;
 // key takes 10-30 ms to go down, the air arrives at the tongue release), a breath floor from the
 // strike (SEED_BREATH x strike, decaying over BFLOOR_T) and the lips released already swinging
 // (SEED_LIP x their settling amplitude)
+static constexpr real SHORT_G = 1.5f, SHORT_T = 0.04f;      // short-note gain: depth, fade time
+static constexpr real ATK_LO_C = 150.0f, ATK_LO_T = 0.012f; // lipping up: cents below, relax time
 static constexpr real LEAD = 0.7f, SEED_BREATH = 0.3f, BFLOOR_T = 0.035f, SEED_LIP = 1.0f;
 // pitch tracker: DC removal of the lip motion (per internal sample), period consistency
 static constexpr real TRK_HP = 0.004f, TRK_TOL = 0.05f;
@@ -201,7 +203,7 @@ struct Preset {
 	p.bore_loss = 0.0f;
 	p.bell = 0.0f;
 	p.brassy = 2.5f;
-	p.breath = 0.04f;
+	p.breath = 0.02f;
 	p.t_noise = 0.12f;
 	p.attack = 1.0f;
 	p.overshoot = 0.25f;
@@ -238,7 +240,7 @@ static constexpr int NUM_PRESETS = 9;
 		p.bell = 1.5f;
 		p.brassy = 4.5f;
 		p.lip_open = 0.12f;
-		p.breath = 0.06f;
+		p.breath = 0.03f;
 		p.growl = 0.6f;
 		p.overshoot = 0.35f;
 		p.fall = 9.0f;
@@ -260,7 +262,7 @@ static constexpr int NUM_PRESETS = 9;
 		p.cup = 1.05f;
 		p.bell = -1.5f;
 		p.brassy = 2.0f;
-		p.breath = 0.05f;
+		p.breath = 0.025f;
 		return {"cornet", 3, MUTE_NONE, p};
 	case 5: // harmon mute, stem out (Miles): thin, buzzy, nasal; tilt = hand over the stem
 		p.cup = 0.6f;
@@ -269,7 +271,7 @@ static constexpr int NUM_PRESETS = 9;
 		p.mute = 1.0f;
 		p.wah = 0.8f;
 		p.tilt_lip = 0.15f;
-		p.breath = 0.07f;
+		p.breath = 0.035f;
 		p.vibrato = 0.25f;
 		return {"harmon", 0, MUTE_HARMON, p};
 	case 6: // cup mute: dark, soft-edged, distant
@@ -310,7 +312,7 @@ static constexpr int DEFAULT_PRESET = TRUMPET_PRESET;
 #endif
 
 // level matching per preset (median active RMS, measured with the default performance)
-static constexpr real PRESET_GAIN[NUM_PRESETS] = {1.0f, 0.7f, 0.86f, 0.53f, 1.37f, 0.13f, 0.64f, 0.27f, 0.82f};
+static constexpr real PRESET_GAIN[NUM_PRESETS] = {0.81f, 0.69f, 1.08f, 0.64f, 1.62f, 0.116f, 0.49f, 0.21f, 0.65f};
 
 // ---------------------------------------------------------------------------------------------
 // player and key state
@@ -348,6 +350,7 @@ struct Player {
 	int stop_blocks;   // re-tongue: blocks with the tongue against the lips
 	real seed;         // tongued start from silence: seed strength, applied in the next block
 	real bfloor;       // breath at a tongued start (from the strike), decaying into the key pressure
+	real lipup;        // lipping up into the note after a tongued start (1 = ATK_LO_C below), decaying
 	int idle_blocks;   // released and silent for this many blocks
 	real b1, b2;       // breath smoother (SVF)
 	real by1, by2;     // tilt smoother
@@ -672,6 +675,7 @@ static inline void start_note(Engine& e, int i, real hard, bool tongue, bool fro
 		const real h = clampr(hard * P.attack, 0.0f, 1.5f);
 		s.tau_on = 0.012f * exp2s(-3.3f * h); // 12 ms "d" .. 1.2 ms "t"
 		s.ov = P.overshoot * h;
+		s.lipup = from_silence || s.gate < 0.3f ? 1.0f : 0.0f;
 		s.bfloor = from_silence || s.gate < 0.3f ? clampr(SEED_BREATH * h, 0.0f, 0.9f) : 0.0f;
 		s.tn = h;
 		if (!from_silence && s.gate > 0.05f) s.stop_blocks = 6 + (int)(10.0f * (1.0f - rmin(h, 1.0f))); // re-tongue
@@ -787,7 +791,11 @@ static inline void process_player(Engine& e, int i) {
 	if (s.sh_ph >= 1.0f) s.sh_ph -= 1.0f;
 	const bool shaking = shk > 0.05f;
 	const real shake_c = (shaking && s.sh_ph < 0.5f) ? shk * 1200.0f * log2s((real)(s.k + 1) / (real)s.k) : 0.0f;
-	const real f_lip = f_t * exp2s((P.lip_tune + cp.lip + s.lipc + s.trim + shake_c) * (1.0f / 1200) - 0.074f); // the lips follow the horn
+	// players lip up into a note: right after the tongue release the lips are set a little low (so
+	// they catch the intended resonance from below and never the one above), relaxing in ~ATK_LO_T
+	const real lip_up = -ATK_LO_C * s.lipup;
+	s.lipup *= 1.0f - e.block_dt / ATK_LO_T;
+	const real f_lip = f_t * exp2s((P.lip_tune + cp.lip + s.lipc + s.trim + shake_c + lip_up) * (1.0f / 1200) - 0.074f); // the lips follow the horn
 	const real wl = 2.0f * PI * rmin(f_lip, 6000.0f);
 	const real w2_t = wl * wl;
 	const real q = clampr(P.lip_q * exp2s(0.3f * tilt * P.tilt_lip), 0.3f, 500.0f);
@@ -908,7 +916,11 @@ static inline void process_player(Engine& e, int i) {
 	real peak = 0.0f, xamp = 0.0f;
 	// register balance: the bell radiates low notes far less than high ones (~10 dB per octave);
 	// a real player and room even that out to a few dB per octave
-	const real gout = clampr(exp2s(-(target - 70.0f) * (target < 70.0f ? 1.5f / 12 : 1.0f / 12)), 0.25f, 5.0f);
+	// short low notes: the long bore needs several round trips to build up, so a short staccato
+	// note would end before it reaches its level; a gain that fades out as the bore builds (~60 ms)
+	const real age = (real)(e.blocks - s.t_on) * e.block_dt;
+	const real short_boost = 1.0f + SHORT_G * clampr((68.0f - target) * (1.0f / 12), 0.0f, 1.5f) * exp2s(-age * (1.0f / SHORT_T));
+	const real gout = clampr(exp2s(-(target - 70.0f) * (target < 70.0f ? 1.5f / 12 : 1.0f / 12)), 0.25f, 5.0f) * short_boost;
 	real* __restrict__ mix = e.mix;
 	const real rl = 1.5f, ru = 0.9f;
 	for (int n = 0; n < NS; n++) {
@@ -1100,8 +1112,12 @@ static inline void process_player(Engine& e, int i) {
 		s.fmeas = fm;
 		const real err = 1200.0f * log2s(fm / f_t);
 		if (fabsf(err) < 160.0f && s.gate > 0.3f && s.stop_blocks == 0) {
-			const real tc = (e.blocks - s.t_on) * e.block_dt < 0.05f ? 0.012f : 0.04f; // settle the attack fast
-			s.trim = clampr(s.trim - err * rmin(per_sum * dt / tc, 0.6f), -250.0f, 150.0f);
+			// settle the attack fast once the note is locked near its pitch; never jump (a big slide
+			// move at once would knock the lips out of their regime)
+			const bool early = (e.blocks - s.t_on) * e.block_dt < 0.05f;
+			const real tc = early && fabsf(err) < 40.0f ? 0.015f : 0.05f;
+			const real step = clampr(err * rmin(per_sum * dt / tc, 0.6f), -4.0f, 4.0f);
+			s.trim = clampr(s.trim - step, -250.0f, 150.0f);
 			s.wrong_blocks = 0;
 			if (fabsf(err) < 8.0f) {
 				if (++s.good_blocks > 100) e.learn[s.combo][s.k] += 0.02f * (s.trim - cp.trim - e.learn[s.combo][s.k]);
@@ -1376,7 +1392,7 @@ static inline void process_output(Engine& e, real* __restrict__ out) {
 	static constexpr real RG[4] = {0.36f, 0.28f, 0.22f, 0.16f};
 	const real room = clampr(P.room, 0.0f, 1.0f);
 	const real arl = 2.0f * PI * 3500.0f / e.sr;
-	const real g = 0.0127f * clampr(P.gain, 0.0f, 8.0f) * PRESET_GAIN[e.preset];
+	const real g = 0.0107f * clampr(P.gain, 0.0f, 8.0f) * PRESET_GAIN[e.preset];
 	for (int n = 0; n < BLOCK; n++) {
 		e.hb[e.hbpos] = e.mix[2 * n];
 		e.hb[e.hbpos + 32] = e.mix[2 * n];
