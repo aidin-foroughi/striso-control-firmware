@@ -77,6 +77,10 @@ static float ens_buf[ENS_LEN] __attribute__((aligned(32)));
 #ifndef BOWED_TRACE
 #define BOWED_TRACE(v, vbow, vstring, R)
 #endif
+// test hook: bounds checks of the delay taps (host fuzz builds abort on failure)
+#ifndef BOWED_ASSERT
+#define BOWED_ASSERT(cond)
+#endif
 
 using strisy::rmax;
 using strisy::rmin;
@@ -95,6 +99,7 @@ struct Params {
 	real pos;             // bow-bridge distance / string length at flat tilt and medium pressure
 	real pos_tilt;        // octaves of position per unit tilt (forward = bridge)
 	real pos_press;       // octaves towards the fingerboard from full to light pressure
+	real tilt_dead;       // tilt dead zone: the forward tilt of a fast press doesn't move the bow
 	// string
 	real damp;            // string decay time (s) at note 40 (halves every 2 octaves)
 	real bright;          // corner sharpness (string loss filters): > 1 brighter
@@ -139,7 +144,7 @@ static inline Params violin_params() {
 	Params p;
 	p.gain = 1.0f;
 	p.force_lo = 0.75f; p.force_hi = 0.95f; p.force_over = 1.0f; p.speed_curve = 0.7f; p.rosin = 0.01f;
-	p.pos = 0.11f; p.pos_tilt = 1.0f; p.pos_press = 0.5f;
+	p.pos = 0.11f; p.pos_tilt = 1.0f; p.pos_press = 0.5f; p.tilt_dead = 0.35f;
 	p.damp = 4.0f; p.bright = 1.0f; p.tone_lo = 0.3f; p.tone_hi = 1.2f;
 	p.body_size = 1.0f; p.body_track = 0.0f; p.body_amt = 1.0f; p.body_q = 1.0f; p.hill = 0.75f; p.direct = 0.3f;
 	p.acc_force = 0.0f; p.acc_time = 0.02f; p.acc_noise = 0.04f; p.acc_bright = 0.4f;
@@ -223,6 +228,7 @@ static const real FRIC_C = 0.3f;      // friction curve width (x bow speed)
 static const real FRIC_CD = 0.7f;     // smooth friction for short strings (x force)
 static const real EPS_LO = 0.012f, EPS_HI = 0.005f;  // corner rounding / period, light / full bow
 static const real ONSET_T = 0.08f;    // firm bow at a note start for this long (s)
+static const int SEED_BUDGET = 5200;  // seed writes per block (~2 of the lowest notes, ~35k cycles)
 static const real ONSET_KK = 0.0f;    // (v5's firm start: not needed with a seeded string)
 static const real ONSET_EASE = 0.45f; // seeded start: force eased over the first two periods
 static const real ONSET_TASTO = 2.5f; // ... fading out towards the fingerboard (x (bq - 1))
@@ -273,6 +279,7 @@ struct Engine {
 	real e_lvl;               // ramped section level
 	VoiceState vs[MAX_VOICES];
 	real sbuf[BLOCK];         // string output of the current voice
+	int seed_budget;          // delay samples the note-on seeds may still write in this block
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -407,7 +414,10 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	// last value in place (a stale positive value must not keep accents, noise or plucks alive)
 	const real vp = pres > 0.0f ? clampf(c.vpres, -1.5f, 1.5f) : rmin(clampf(c.vpres, -1.5f, 1.5f), 0.0f);
 	if (!s.active) {
-		if (pres <= 0.0f) {
+		// (a silent voice starting a bowed note needs a seed; the seeds share a per-block budget,
+		// so a big low chord spreads its seeds over a few blocks instead of one long block)
+		const bool need_seed = pres > 0.0f && p.pizz < 0.5f;
+		if (pres <= 0.0f || (need_seed && e.seed_budget <= 0)) {
 			s.note_prev = c.note;
 			s.pres_prev = 0.0f;
 			s.vp_prev = vp;
@@ -420,7 +430,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	const bool jump = fabsf(note0 - s.note_prev) >= 1.0f;
 	s.note_prev = c.note;
 	const bool onset = pres > 0.0f && s.pres_prev <= 0.0f;
-	if (onset || jump) { s.age = 0.0f; s.seeded = onset && !pizz; }
+	if (onset || jump) { s.age = 0.0f; s.seeded = onset && !pizz && e.seed_budget > 0; }
 	s.age = rmin(s.age + e.block_dt, 100.0f);
 
 	// --- block rate control
@@ -446,7 +456,13 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	}
 	const real lift_now = rmax(-vp - 0.04f, 0.0f);
 	s.lift = pres > 0.0f ? rmax(s.lift * 0.95f, lift_now) : rmax(s.lift, lift_now);
-	s.by += 0.15f * (clampf(c.but_y, -1.0f, 1.0f) - s.by);
+	// (a dead zone: pressing fast tilts the key forward by itself, up to ~0.5 in recordings of
+	// staccato playing; without it fast passages drift towards the bridge: brighter, scratchier)
+	{
+		const real yin = clampf(c.but_y, -1.0f, 1.0f), dz = clampf(p.tilt_dead, 0.0f, 0.8f);
+		const real ya = rmax(fabsf(yin) - dz, 0.0f) / (1.0f - dz);
+		s.by += 0.15f * ((yin < 0.0f ? -ya : ya) - s.by);
+	}
 	if (jump) s.note_body = note0;
 	s.note_body += 0.005f * (note0 - s.note_body);           // slow: vibrato doesn't move the body
 
@@ -628,24 +644,32 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	// for the bow-point velocity v = vb in the stick phase and -vb (1-beta)/beta in the slip
 	// phase: slopes -vb/(beta L) and +vb/(beta L), jumps +vb/beta and -vb/beta, zero mean.
 	// The bow state starts sticking at the bow speed; the bow then sustains the motion.
-	if (bow_onset && vb > 1e-6f) {
+	// (a re-pressed voice that is still sounding gets no seed once the block's budget is spent:
+	// it continues from its current motion, like a legato note)
+	if (bow_onset && e.seed_budget > 0 && vb > 1e-6f && Dn == Dn && Db == Db) {
 		// (the delays include the two corner filters' delay, half each: the loop's period)
-		const real Dbe = Db + 0.5f * dfilt, Ls = Dn + Dbe + 0.5f * dfilt, bt = Dbe / Ls;
+		const real Dbe = Db + 0.5f * clampf(dfilt, 0.0f, 8.0f);
+		const real Ls = rmax(Dn + Dbe + 0.5f * clampf(dfilt, 0.0f, 8.0f), 4.0f), bt = Dbe / Ls;
 		const real h = 0.5f * vb / bt, sl = vb / (bt * Ls);
 		const uint32_t w0 = s.w;
 		float* nb = neck_buf[v];
 		float* bb = bridge_buf[v];
-		const int na = (int)Dn + 4, nbr = (int)Db + 3, Li = (int)Ls;
-		(void)Li;
-		const real ph = 0.0f;  // the cycle's phase at t0 (samples after the slip's end)
+		// the history the reads can reach: the neck taps up to Dn + 3, the bridge up to Db + 2
+		// (both clamped well inside the buffers; the indices are masked anyway)
+		const int na = (int)clampf(Dn + 4.0f, 0.0f, (real)(NECK_LEN - 1));
+		const int nbr = (int)clampf(Db + 3.0f, 0.0f, (real)(BRIDGE_LEN - 1));
+		BOWED_ASSERT(na < NECK_LEN && nbr < BRIDGE_LEN);
+		e.seed_budget -= na + nbr;
+		// a(t0 - k) = -h + sl u, u = time since a's last jump (a jumps at t0): k, wrapped into (0, Ls]
+		real u = 0.0f;
 		for (int k = 1; k <= na; k++) {
-			real u = (real)k - ph;                                       // a(t0 - k): a jumps at t0 - ph
-			u -= Ls * (real)(int)(u / Ls); if (u <= 0.0f) u += Ls;
+			u += 1.0f; if (u > Ls) u -= Ls;
 			nb[(w0 - (uint32_t)k) & NECK_MASK] = -h + sl * u;
 		}
+		// b(t0 - k) = -h + sl (Ls - u), u = k - Dbe wrapped into (0, Ls] (b jumped at t0 - Dbe)
+		u = -Dbe; while (u <= 0.0f) u += Ls;  // (at most one pass: Dbe < Ls)
 		for (int k = 1; k <= nbr; k++) {
-			real u = (real)k - ph - Dbe;                                 // b jumps at t0 - ph - Dbe
-			u -= Ls * (real)(int)(u / Ls); if (u <= 0.0f) u += Ls;
+			u += 1.0f; if (u > Ls) u -= Ls;
 			bb[(w0 - (uint32_t)k) & BRIDGE_MASK] = -h + sl * (Ls - u);
 		}
 		s.y = gl * (-h + sl * (Db - (real)(ib + 1) + 1.0f));
@@ -703,6 +727,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 		real nut_in;
 		if (lramp) {
 			lh[0] += ldh[0]; lh[1] += ldh[1]; lh[2] += ldh[2]; lh[3] += ldh[3];
+			BOWED_ASSERT(ilr >= 2 && ilr + 2 < NECK_LEN);
 			const uint32_t r0 = w - (uint32_t)(ilr - 1);
 			nut_in = lh[0] * nbuf[r0 & NECK_MASK] + lh[1] * nbuf[(r0 - 1) & NECK_MASK]
 				+ lh[2] * nbuf[(r0 - 2) & NECK_MASK] + lh[3] * nbuf[(r0 - 3) & NECK_MASK];
@@ -710,11 +735,13 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 			const int i = (int)dn;
 			real h[4];
 			lagrange(dn - (real)i, h);
+			BOWED_ASSERT(i >= 2 && i + 2 < NECK_LEN);
 			const uint32_t r0 = w - (uint32_t)(i - 1);
 			nut_in = h[0] * nbuf[r0 & NECK_MASK] + h[1] * nbuf[(r0 - 1) & NECK_MASK]
 				+ h[2] * nbuf[(r0 - 2) & NECK_MASK] + h[3] * nbuf[(r0 - 3) & NECK_MASK];
 		}
 		// bridge side: linear interpolation at the block-constant delay Db
+		BOWED_ASSERT(ib >= 1 && ib + 1 < BRIDGE_LEN);
 		const real b0 = bbuf[(w - (uint32_t)ib) & BRIDGE_MASK];
 		const real b1 = bbuf[(w - (uint32_t)ib - 1u) & BRIDGE_MASK];
 		const real br_in = b0 + fb * (b1 - b0);
@@ -873,6 +900,7 @@ static inline void process_section(Engine& e, real* __restrict__ output) {
 		for (int k = 0; k < 2; k++) {
 			d0[k] += dd[k];
 			const int id = (int)d0[k];
+			BOWED_ASSERT(id >= 1 && id + 1 < ENS_LEN);
 			const real fr = d0[k] - (real)id;
 			const real a = ens_buf[(w - (uint32_t)id) & ENS_MASK], b = ens_buf[(w - (uint32_t)id - 1u) & ENS_MASK];
 			sum += a + fr * (b - a);
@@ -918,6 +946,7 @@ static inline void process(Engine& e, real* __restrict__ output) {
 	// rotation shifts the body resonances
 	const real rot = clampf(e.g.rot_x + e.g.rot_y + e.g.rot_z, -1.0f, 1.0f);
 	const real body_shift = exp2_fast(clampf(e.ps.body_rot, -2.0f, 2.0f) * rot);
+	e.seed_budget = SEED_BUDGET;
 	for (int v = 0; v < e.nvoices; v++) process_voice(e, v, trem, body_shift, output);
 	process_section(e, output);
 	// safety soft limiter: linear up to 4, then smoothly towards 8 (C1 at the knee)
@@ -947,6 +976,7 @@ static const ParamEntry param_table[] = {
 	{{"pos", "position", 0.05f, 0.2f, 0}, &Params::pos},           // bow position (fraction of string)
 	{{"pos_tilt", "position", 0.0f, 1.5f, 0}, &Params::pos_tilt},  // tilt range (octaves)
 	{{"pos_press", "position", 0.0f, 1.0f, 0}, &Params::pos_press},// light bow drifts to the fingerboard
+	{{"tilt_dead", "position", 0.0f, 0.8f, 0}, &Params::tilt_dead},// tilt dead zone
 	{{"damp", "string", 0.5f, 10.0f, 0}, &Params::damp},           // ring time (s) at note 40
 	{{"bright", "string", 0.3f, 3.0f, 0}, &Params::bright},        // corner sharpness
 	{{"tone_lo", "string", 0.0f, 3.0f, 0}, &Params::tone_lo},      // treble at light pressure
