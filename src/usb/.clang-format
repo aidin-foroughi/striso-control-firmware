@@ -1,0 +1,7 @@
+# usb_audio.c/.h and usb_audio_core.h follow the ChibiOS C style of the USB code around them:
+# 2 spaces, pointers bound to the name.
+BasedOnStyle: InheritParentConfig
+UseTab: Never
+IndentWidth: 2
+ContinuationIndentWidth: 4
+PointerAlignment: Right

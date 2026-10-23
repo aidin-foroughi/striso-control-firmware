@@ -41,7 +41,7 @@ using real = float;
 static constexpr int BLOCK = strisy::BLOCK;
 static constexpr int MAX_VOICES = 10;
 static constexpr int NMODES = 12;
-static constexpr int NSLOT = NMODES + 4;   // + 4 dummy (always zero) slots to pad the mode list
+static constexpr int NSLOT = NMODES + 4; // + 4 dummy (always zero) slots to pad the mode list
 
 using strisy::rmax;
 using strisy::rmin;
@@ -50,56 +50,39 @@ using strisy::rmin;
 // Presets
 
 struct Partial {
-	float ratio;   // frequency / note frequency
-	float amp;     // strike level at full hardness
-	float hexp;    // level scales with hardness^hexp (0: independent of the mallet)
-	float t60;     // decay time (s) at note 60
-	float bow;     // rubbed level (wine glass only)
+	float ratio; // frequency / note frequency
+	float amp;   // strike level at full hardness
+	float hexp;  // level scales with hardness^hexp (0: independent of the mallet)
+	float t60;   // decay time (s) at note 60
+	float bow;   // rubbed level (wine glass only)
 };
 struct Preset {
 	const char* name;
-	int n;              // number of partials
-	float alpha;        // T60 ~ (f/f_C4)^-alpha over the keyboard
-	float gain;         // level matching between presets
-	float damper;       // damper strength on release (1 = vibraphone damper bar)
-	float tremolo;      // 1: motor tremolo from pressure and gyro (vibraphone)
-	float rub;          // > 0: held pressure rubs (wine glass), rubbed level per unit pressure
+	int n;         // number of partials
+	float alpha;   // T60 ~ (f/f_C4)^-alpha over the keyboard
+	float gain;    // level matching between presets
+	float damper;  // damper strength on release (1 = vibraphone damper bar)
+	float tremolo; // 1: motor tremolo from pressure and gyro (vibraphone)
+	float rub;     // > 0: held pressure rubs (wine glass), rubbed level per unit pressure
 	Partial p[NMODES];
 };
 
 static constexpr int NUM_PRESETS = 6;
 
 static constexpr Preset presets[NUM_PRESETS] = {
-	{	// aluminium bar tuned 1 : 4 : 10, resonator tube; weak torsional and higher bending modes
-		"vibraphone", 7, 0.8f, 0.87f, 1.0f, 1.0f, 0.0f, {
-		{1.000f, 1.00f, 0.0f, 9.0f, 0}, {4.000f, 0.32f, 1.2f, 2.2f, 0}, {10.00f, 0.11f, 2.0f, 0.7f, 0},
-		{2.760f, 0.025f, 1.5f, 0.5f, 0}, {6.250f, 0.025f, 2.0f, 0.30f, 0}, {13.50f, 0.02f, 2.5f, 0.15f, 0},
-		{17.80f, 0.03f, 2.5f, 0.15f, 0}}},
-	{	// rosewood bar tuned 1 : 3.96 : 9.86 (Rossing, E3 bar), resonator; short woody torsional modes
-		"marimba", 8, 0.9f, 1.83f, 0.6f, 0.0f, 0.0f, {
-		{1.000f, 1.00f, 0.0f, 1.6f, 0}, {3.960f, 0.38f, 1.3f, 0.35f, 0}, {9.860f, 0.13f, 2.0f, 0.10f, 0},
-		{2.800f, 0.06f, 1.5f, 0.06f, 0}, {5.600f, 0.05f, 1.8f, 0.04f, 0}, {7.300f, 0.04f, 2.0f, 0.03f, 0},
-		{12.30f, 0.03f, 2.5f, 0.025f, 0}, {15.90f, 0.04f, 2.5f, 0.03f, 0}}},
-	{	// steel bar, free-free bending modes 1 : 2.71 : 5.15 : 8.43 (Rossing, glockenspiel)
-		"glockenspiel", 7, 0.7f, 0.96f, 0.7f, 0.0f, 0.0f, {
-		{1.000f, 1.00f, 0.0f, 6.0f, 0}, {2.710f, 0.42f, 1.2f, 1.2f, 0}, {5.150f, 0.20f, 1.8f, 0.5f, 0},
-		{8.430f, 0.09f, 2.2f, 0.25f, 0}, {12.60f, 0.05f, 2.5f, 0.12f, 0}, {3.600f, 0.04f, 1.5f, 0.20f, 0},
-		{7.100f, 0.03f, 2.0f, 0.10f, 0}}},
-	{	// tuned church bell, prime = note: hum 0.5, tierce 1.183 (minor third), quint 1.506,
-		// nominal 2.0, deciem 2.514, undeciem 2.662, duodeciem 3.011, upper octave 4.166 ...
-		"bell", 11, 0.6f, 0.67f, 0.3f, 0.0f, 0.0f, {
-		{1.000f, 0.55f, 0.3f, 9.0f, 0}, {0.500f, 0.45f, 0.0f, 14.0f, 0}, {1.183f, 0.60f, 0.4f, 8.0f, 0},
-		{1.506f, 0.25f, 0.6f, 5.0f, 0}, {2.000f, 1.00f, 0.8f, 6.0f, 0}, {2.514f, 0.35f, 1.2f, 3.5f, 0},
-		{2.662f, 0.25f, 1.3f, 3.0f, 0}, {3.011f, 0.30f, 1.5f, 2.5f, 0}, {4.166f, 0.20f, 1.8f, 1.6f, 0},
-		{5.433f, 0.12f, 2.2f, 1.0f, 0}, {6.796f, 0.08f, 2.5f, 0.7f, 0}}},
-	{	// steel tine clamped at one end: 1 : 6.27 : 17.55, plus short box/knock modes
-		"kalimba", 5, 0.7f, 1.25f, 0.5f, 0.0f, 0.0f, {
-		{1.000f, 1.00f, 0.0f, 3.5f, 0}, {6.270f, 0.20f, 1.5f, 0.25f, 0}, {17.55f, 0.06f, 2.5f, 0.06f, 0},
-		{3.100f, 0.04f, 1.5f, 0.05f, 0}, {10.30f, 0.03f, 2.0f, 0.04f, 0}}},
-	{	// wine glass, (m,0) modes 1 : 2.32 : 4.25 : 6.63 : 9.4; rubbing the rim drives the (2,0) mode
-		"wine glass", 5, 0.7f, 0.90f, 0.15f, 0.0f, 0.32f, {
-		{1.000f, 1.00f, 0.0f, 12.0f, 1.0f}, {2.320f, 0.35f, 1.0f, 5.0f, 0.12f}, {4.250f, 0.15f, 1.8f, 2.5f, 0.03f},
-		{6.630f, 0.07f, 2.2f, 1.2f, 0}, {9.400f, 0.04f, 2.5f, 0.7f, 0}}},
+    {// aluminium bar tuned 1 : 4 : 10, resonator tube; weak torsional and higher bending modes
+        "vibraphone", 7, 0.8f, 0.87f, 1.0f, 1.0f, 0.0f, {{1.000f, 1.00f, 0.0f, 9.0f, 0}, {4.000f, 0.32f, 1.2f, 2.2f, 0}, {10.00f, 0.11f, 2.0f, 0.7f, 0}, {2.760f, 0.025f, 1.5f, 0.5f, 0}, {6.250f, 0.025f, 2.0f, 0.30f, 0}, {13.50f, 0.02f, 2.5f, 0.15f, 0}, {17.80f, 0.03f, 2.5f, 0.15f, 0}}},
+    {// rosewood bar tuned 1 : 3.96 : 9.86 (Rossing, E3 bar), resonator; short woody torsional modes
+        "marimba", 8, 0.9f, 1.83f, 0.6f, 0.0f, 0.0f, {{1.000f, 1.00f, 0.0f, 1.6f, 0}, {3.960f, 0.38f, 1.3f, 0.35f, 0}, {9.860f, 0.13f, 2.0f, 0.10f, 0}, {2.800f, 0.06f, 1.5f, 0.06f, 0}, {5.600f, 0.05f, 1.8f, 0.04f, 0}, {7.300f, 0.04f, 2.0f, 0.03f, 0}, {12.30f, 0.03f, 2.5f, 0.025f, 0}, {15.90f, 0.04f, 2.5f, 0.03f, 0}}},
+    {// steel bar, free-free bending modes 1 : 2.71 : 5.15 : 8.43 (Rossing, glockenspiel)
+        "glockenspiel", 7, 0.7f, 0.96f, 0.7f, 0.0f, 0.0f, {{1.000f, 1.00f, 0.0f, 6.0f, 0}, {2.710f, 0.42f, 1.2f, 1.2f, 0}, {5.150f, 0.20f, 1.8f, 0.5f, 0}, {8.430f, 0.09f, 2.2f, 0.25f, 0}, {12.60f, 0.05f, 2.5f, 0.12f, 0}, {3.600f, 0.04f, 1.5f, 0.20f, 0}, {7.100f, 0.03f, 2.0f, 0.10f, 0}}},
+    {// tuned church bell, prime = note: hum 0.5, tierce 1.183 (minor third), quint 1.506,
+        // nominal 2.0, deciem 2.514, undeciem 2.662, duodeciem 3.011, upper octave 4.166 ...
+        "bell", 11, 0.6f, 0.67f, 0.3f, 0.0f, 0.0f, {{1.000f, 0.55f, 0.3f, 9.0f, 0}, {0.500f, 0.45f, 0.0f, 14.0f, 0}, {1.183f, 0.60f, 0.4f, 8.0f, 0}, {1.506f, 0.25f, 0.6f, 5.0f, 0}, {2.000f, 1.00f, 0.8f, 6.0f, 0}, {2.514f, 0.35f, 1.2f, 3.5f, 0}, {2.662f, 0.25f, 1.3f, 3.0f, 0}, {3.011f, 0.30f, 1.5f, 2.5f, 0}, {4.166f, 0.20f, 1.8f, 1.6f, 0}, {5.433f, 0.12f, 2.2f, 1.0f, 0}, {6.796f, 0.08f, 2.5f, 0.7f, 0}}},
+    {// steel tine clamped at one end: 1 : 6.27 : 17.55, plus short box/knock modes
+        "kalimba", 5, 0.7f, 1.25f, 0.5f, 0.0f, 0.0f, {{1.000f, 1.00f, 0.0f, 3.5f, 0}, {6.270f, 0.20f, 1.5f, 0.25f, 0}, {17.55f, 0.06f, 2.5f, 0.06f, 0}, {3.100f, 0.04f, 1.5f, 0.05f, 0}, {10.30f, 0.03f, 2.0f, 0.04f, 0}}},
+    {// wine glass, (m,0) modes 1 : 2.32 : 4.25 : 6.63 : 9.4; rubbing the rim drives the (2,0) mode
+        "wine glass", 5, 0.7f, 0.90f, 0.15f, 0.0f, 0.32f, {{1.000f, 1.00f, 0.0f, 12.0f, 1.0f}, {2.320f, 0.35f, 1.0f, 5.0f, 0.12f}, {4.250f, 0.15f, 1.8f, 2.5f, 0.03f}, {6.630f, 0.07f, 2.2f, 1.2f, 0}, {9.400f, 0.04f, 2.5f, 0.7f, 0}}},
 };
 
 [[nodiscard]] static inline const char* preset_name(int i) {
@@ -116,17 +99,17 @@ static constexpr int DEFAULT_PRESET = 0;
 // ---------------------------------------------------------------------------------------------
 // Tuning constants
 
-static constexpr real F_LO0 = 16.0f, F_LO1 = 24.0f;        // partials fade in above 16..24 Hz
-static constexpr real F_HI0 = 14000.0f, F_HI1 = 20000.0f;  // and out between 14 and 20 kHz
-static constexpr real STRIKE_REARM = 0.02f; // strike strength below this ends a strike
-static constexpr real STRIKE_LEVEL = 1.6f;  // amplitude of a full strike (times preset and partial levels)
-static constexpr real DAMP_SIGMA = 46.0f;   // damper decay rate (1/s, T60 0.15 s), times the damper parameter
-static constexpr real SIGMA_MIN = 0.1f;     // slowest natural decay (T60 69 s): poles stay inside the unit circle
-static constexpr real BOW_GROW = 40.0f;     // max negative damping of the rub (1/s)
-static constexpr real BOW_DAMP = 6.0f;      // max extra damping by the rub above target, per unit pressure
-static constexpr real ENERGY_CAP = 9.0f;    // soft cap on a voice's mode energy (sum |z|^2)
-static constexpr real ENERGY_BAD = 1e4f;    // above this (or NaN) the voice is reset
-static constexpr real GATE_ENERGY = 1e-10f; // released voice below this goes idle
+static constexpr real F_LO0 = 16.0f, F_LO1 = 24.0f;       // partials fade in above 16..24 Hz
+static constexpr real F_HI0 = 14000.0f, F_HI1 = 20000.0f; // and out between 14 and 20 kHz
+static constexpr real STRIKE_REARM = 0.02f;               // strike strength below this ends a strike
+static constexpr real STRIKE_LEVEL = 1.6f;                // amplitude of a full strike (times preset and partial levels)
+static constexpr real DAMP_SIGMA = 46.0f;                 // damper decay rate (1/s, T60 0.15 s), times the damper parameter
+static constexpr real SIGMA_MIN = 0.1f;                   // slowest natural decay (T60 69 s): poles stay inside the unit circle
+static constexpr real BOW_GROW = 40.0f;                   // max negative damping of the rub (1/s)
+static constexpr real BOW_DAMP = 6.0f;                    // max extra damping by the rub above target, per unit pressure
+static constexpr real ENERGY_CAP = 9.0f;                  // soft cap on a voice's mode energy (sum |z|^2)
+static constexpr real ENERGY_BAD = 1e4f;                  // above this (or NaN) the voice is reset
+static constexpr real GATE_ENERGY = 1e-10f;               // released voice below this goes idle
 // master limiter threshold (host experiments: -DMODAL_LIMIT=...)
 #ifdef MODAL_LIMIT
 static constexpr real LIMIT = MODAL_LIMIT;
@@ -147,68 +130,68 @@ static constexpr real CLIP = 7.5f;
 // amplitudes only.
 
 struct Params {
-	float level;      // level: strike level (preset level matching)
-	float thresh;     // mallet: vpres where a strike starts
-	float span;       // mallet: vpres above thresh for a full strike (sensitivity)
-	float hard;       // mallet: hardness of the softest strike
-	float hardvel;    // mallet: hardness added by strike strength
-	float tilt;       // mallet: hardness change per unit tilt (at the strike)
-	float mute;       // mallet: fraction of the ringing a full strike stops
-	float upper;      // tone: level of all partials but the first, relative to the preset
-	float decay;      // decay: T60 scale
-	float keytrack;   // decay: T60 ~ f^-keytrack over the keyboard
-	float hfdamp;     // decay: extra damping of upper partials, per unit of frequency ratio
-	float damper;     // damper: strength on release (1 = vibraphone damper bar)
-	float lift;       // damper: key pressure above which the damper is fully lifted
-	float pedal;      // damper: how far the pedal lifts the damper (1 = fully)
-	float trem;       // trem: motor tremolo on/off (vibraphone)
-	float tremrate;   // trem: motor speed (Hz) without gyro
-	float tremdepth;  // trem: maximum amplitude modulation depth
-	float tremthr;    // trem: key pressure where the pressure tremolo starts
-	float rub;        // rub: rubbed level per unit pressure (wine glass; 0 = off)
-	float rubnoise;   // rub: noise share of the rubbed excitation
+	float level;     // level: strike level (preset level matching)
+	float thresh;    // mallet: vpres where a strike starts
+	float span;      // mallet: vpres above thresh for a full strike (sensitivity)
+	float hard;      // mallet: hardness of the softest strike
+	float hardvel;   // mallet: hardness added by strike strength
+	float tilt;      // mallet: hardness change per unit tilt (at the strike)
+	float mute;      // mallet: fraction of the ringing a full strike stops
+	float upper;     // tone: level of all partials but the first, relative to the preset
+	float decay;     // decay: T60 scale
+	float keytrack;  // decay: T60 ~ f^-keytrack over the keyboard
+	float hfdamp;    // decay: extra damping of upper partials, per unit of frequency ratio
+	float damper;    // damper: strength on release (1 = vibraphone damper bar)
+	float lift;      // damper: key pressure above which the damper is fully lifted
+	float pedal;     // damper: how far the pedal lifts the damper (1 = fully)
+	float trem;      // trem: motor tremolo on/off (vibraphone)
+	float tremrate;  // trem: motor speed (Hz) without gyro
+	float tremdepth; // trem: maximum amplitude modulation depth
+	float tremthr;   // trem: key pressure where the pressure tremolo starts
+	float rub;       // rub: rubbed level per unit pressure (wine glass; 0 = off)
+	float rubnoise;  // rub: noise share of the rubbed excitation
 };
 static constexpr int NUM_PARAMS = (int)(sizeof(Params) / sizeof(float));
 
 static constexpr strisy::ParamDesc param_desc[NUM_PARAMS] = {
-	{"level", "level", 0.1f, 3.0f, strisy::ParamKind::continuous},
-	{"thresh", "mallet", 0.005f, 0.2f, strisy::ParamKind::continuous},
-	{"span", "mallet", 0.2f, 1.5f, strisy::ParamKind::continuous},
-	{"hard", "mallet", 0.2f, 1.2f, strisy::ParamKind::continuous},
-	{"hardvel", "mallet", 0.0f, 1.0f, strisy::ParamKind::continuous},
-	{"tilt", "mallet", 0.0f, 0.5f, strisy::ParamKind::continuous},
-	{"mute", "mallet", 0.0f, 1.0f, strisy::ParamKind::continuous},
-	{"upper", "tone", 0.0f, 2.0f, strisy::ParamKind::continuous},
-	{"decay", "decay", 0.1f, 4.0f, strisy::ParamKind::continuous},
-	{"keytrack", "decay", 0.0f, 1.5f, strisy::ParamKind::continuous},
-	{"hfdamp", "decay", 0.0f, 1.0f, strisy::ParamKind::continuous},
-	{"damper", "damper", 0.0f, 2.0f, strisy::ParamKind::continuous},
-	{"lift", "damper", 0.02f, 0.5f, strisy::ParamKind::continuous},
-	{"pedal", "damper", 0.0f, 1.0f, strisy::ParamKind::continuous},
-	{"trem", "trem", 0.0f, 1.0f, strisy::ParamKind::toggle},
-	{"tremrate", "trem", 1.0f, 10.0f, strisy::ParamKind::continuous},
-	{"tremdepth", "trem", 0.0f, 1.0f, strisy::ParamKind::continuous},
-	{"tremthr", "trem", 0.2f, 1.2f, strisy::ParamKind::continuous},
-	{"rub", "rub", 0.0f, 1.0f, strisy::ParamKind::continuous},
-	{"rubnoise", "rub", 0.0f, 0.3f, strisy::ParamKind::continuous},
+    {"level", "level", 0.1f, 3.0f, strisy::ParamKind::continuous},
+    {"thresh", "mallet", 0.005f, 0.2f, strisy::ParamKind::continuous},
+    {"span", "mallet", 0.2f, 1.5f, strisy::ParamKind::continuous},
+    {"hard", "mallet", 0.2f, 1.2f, strisy::ParamKind::continuous},
+    {"hardvel", "mallet", 0.0f, 1.0f, strisy::ParamKind::continuous},
+    {"tilt", "mallet", 0.0f, 0.5f, strisy::ParamKind::continuous},
+    {"mute", "mallet", 0.0f, 1.0f, strisy::ParamKind::continuous},
+    {"upper", "tone", 0.0f, 2.0f, strisy::ParamKind::continuous},
+    {"decay", "decay", 0.1f, 4.0f, strisy::ParamKind::continuous},
+    {"keytrack", "decay", 0.0f, 1.5f, strisy::ParamKind::continuous},
+    {"hfdamp", "decay", 0.0f, 1.0f, strisy::ParamKind::continuous},
+    {"damper", "damper", 0.0f, 2.0f, strisy::ParamKind::continuous},
+    {"lift", "damper", 0.02f, 0.5f, strisy::ParamKind::continuous},
+    {"pedal", "damper", 0.0f, 1.0f, strisy::ParamKind::continuous},
+    {"trem", "trem", 0.0f, 1.0f, strisy::ParamKind::toggle},
+    {"tremrate", "trem", 1.0f, 10.0f, strisy::ParamKind::continuous},
+    {"tremdepth", "trem", 0.0f, 1.0f, strisy::ParamKind::continuous},
+    {"tremthr", "trem", 0.2f, 1.2f, strisy::ParamKind::continuous},
+    {"rub", "rub", 0.0f, 1.0f, strisy::ParamKind::continuous},
+    {"rubnoise", "rub", 0.0f, 0.3f, strisy::ParamKind::continuous},
 };
 
 struct VoiceState {
-	real re[NSLOT], im[NSLOT];       // mode states (slots NMODES.. are always 0)
-	real a[NMODES];                  // smoothed per-sample decay of each mode
+	real re[NSLOT], im[NSLOT]; // mode states (slots NMODES.. are always 0)
+	real a[NMODES];            // smoothed per-sample decay of each mode
 	// mode list of the current block: active slots (padded to a multiple of 4) and coefficients
 	real lc[NSLOT], ls[NSLOT], lb[NSLOT];
 	uint8_t lidx[NSLOT];
 	int nact;
-	uint32_t on_mask;               // slots active in the last block
+	uint32_t on_mask; // slots active in the last block
 	real note_prev;
-	real sdone;                     // strike strength already delivered in the current strike
-	real pbase;                     // pressure before the current rise
-	real trem;                      // smoothed tremolo depth (vibraphone)
-	real tgain;                     // tremolo gain at the end of the last block
+	real sdone; // strike strength already delivered in the current strike
+	real pbase; // pressure before the current rise
+	real trem;  // smoothed tremolo depth (vibraphone)
+	real tgain; // tremolo gain at the end of the last block
 	uint32_t rng;
 	int active;
-	int fade;                       // fade out over the next block and reset (preset change)
+	int fade; // fade out over the next block and reset (preset change)
 };
 
 struct Engine {
@@ -217,17 +200,17 @@ struct Engine {
 	int nvoices;
 	int preset;
 	const Preset* pr;
-	real sr, inv_sr, w_hz;          // w_hz = 2 pi / sr
-	Params prm;                     // live parameters
-	real inv_span, inv_lift;        // derived from prm
-	real sig_ref[NMODES];           // decay rates (1/s) of the preset's partials at note 60
-	real gyro;                      // smoothed gyro tremolo depth
+	real sr, inv_sr, w_hz;   // w_hz = 2 pi / sr
+	Params prm;              // live parameters
+	real inv_span, inv_lift; // derived from prm
+	real sig_ref[NMODES];    // decay rates (1/s) of the preset's partials at note 60
+	real gyro;               // smoothed gyro tremolo depth
 	real trem_phase;
 	real lim_gain, peak_prev;
 	real mix[BLOCK];
-	real delay[BLOCK];              // limiter lookahead
-	real x[BLOCK];                  // rub noise
-	real out[BLOCK];                // voice output
+	real delay[BLOCK]; // limiter lookahead
+	real x[BLOCK];     // rub noise
+	real out[BLOCK];   // voice output
 	VoiceState vs[MAX_VOICES];
 };
 
@@ -245,7 +228,7 @@ struct Engine {
 }
 // sin(2 pi p) for p in [0, 1)
 [[nodiscard]] static inline real sin_turn(real p) {
-	real x = 6.2831853f * p - 3.1415927f;   // [-pi, pi), sin(x + pi) = -sin(x)
+	real x = 6.2831853f * p - 3.1415927f; // [-pi, pi), sin(x + pi) = -sin(x)
 	if (x > 1.5707963f) x = 3.1415927f - x;
 	else if (x < -1.5707963f) x = -3.1415927f - x;
 	return -sin_poly(x);
@@ -254,16 +237,21 @@ struct Engine {
 [[nodiscard]] static inline real exp2_poly(real p) {
 	p = rmin(rmax(p, -100.0f), 100.0f);
 	int i = (int)p;
-	if ((real)i > p) i--;                       // floor
-	const real z = p - (real)i - 0.5f;          // [-0.5, 0.5)
-	const real y = 1.4142136f * (1.0f + z * (0.69314718f + z * (0.24022651f + z * (0.055504109f
-		+ z * (0.0096181291f + z * (0.0013333558f + z * 0.00015403530f))))));
-	union { uint32_t u; float f; } s = { (uint32_t)(i + 127) << 23 };
+	if ((real)i > p) i--;              // floor
+	const real z = p - (real)i - 0.5f; // [-0.5, 0.5)
+	const real y = 1.4142136f * (1.0f + z * (0.69314718f + z * (0.24022651f + z * (0.055504109f + z * (0.0096181291f + z * (0.0013333558f + z * 0.00015403530f))))));
+	union {
+		uint32_t u;
+		float f;
+	} s = {(uint32_t)(i + 127) << 23};
 	return y * s.f;
 }
 // 1/sqrt(x) for x > 0, relative error ~5e-6
 [[nodiscard]] static inline real rsqrt_fast(real x) {
-	union { float f; uint32_t i; } u = { x };
+	union {
+		float f;
+		uint32_t i;
+	} u = {x};
 	u.i = 0x5f375a86u - (u.i >> 1);
 	real y = u.f;
 	y = y * (1.5f - 0.5f * x * y * y);
@@ -273,7 +261,10 @@ struct Engine {
 [[nodiscard]] static inline real clampr(real x, real lo, real hi) { return rmin(rmax(x, lo), hi); }
 
 static inline void reset_voice(VoiceState& s) {
-	for (int k = 0; k < NSLOT; k++) { s.re[k] = 0.0f; s.im[k] = 0.0f; }
+	for (int k = 0; k < NSLOT; k++) {
+		s.re[k] = 0.0f;
+		s.im[k] = 0.0f;
+	}
 	for (int k = 0; k < NMODES; k++) s.a[k] = 0.0f;
 	s.nact = 0;
 	s.on_mask = 0;
@@ -336,12 +327,18 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 	e.sr = (real)sample_rate;
 	e.inv_sr = 1.0f / e.sr;
 	e.w_hz = 6.2831853f / e.sr;
-	e.gyro = 0.0f; e.trem_phase = 0.0f;
+	e.gyro = 0.0f;
+	e.trem_phase = 0.0f;
 	e.lim_gain = 1.0f;
 	e.peak_prev = 0.0f;
 	e.nvoices = nvoices < MAX_VOICES ? nvoices : MAX_VOICES;
 	e.g = {1.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 3.0f / 16};
-	for (int n = 0; n < BLOCK; n++) { e.mix[n] = 0.0f; e.delay[n] = 0.0f; e.x[n] = 0.0f; e.out[n] = 0.0f; }
+	for (int n = 0; n < BLOCK; n++) {
+		e.mix[n] = 0.0f;
+		e.delay[n] = 0.0f;
+		e.x[n] = 0.0f;
+		e.out[n] = 0.0f;
+	}
 	for (int v = 0; v < MAX_VOICES; v++) {
 		e.vc[v] = {69.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 		VoiceState& s = e.vs[v];
@@ -386,11 +383,20 @@ static inline void run_modes(VoiceState& s, const real* __restrict__ x, real* __
 			q1 = s1 * r1 + c1 * q1;
 			q2 = s2 * r2 + c2 * q2;
 			q3 = s3 * r3 + c3 * q3;
-			r0 = t0; r1 = t1; r2 = t2; r3 = t3;
+			r0 = t0;
+			r1 = t1;
+			r2 = t2;
+			r3 = t3;
 			out[n] += (q0 + q1) + (q2 + q3);
 		}
-		s.re[i0] = r0; s.im[i0] = q0; s.re[i1] = r1; s.im[i1] = q1;
-		s.re[i2] = r2; s.im[i2] = q2; s.re[i3] = r3; s.im[i3] = q3;
+		s.re[i0] = r0;
+		s.im[i0] = q0;
+		s.re[i1] = r1;
+		s.im[i1] = q1;
+		s.re[i2] = r2;
+		s.im[i2] = q2;
+		s.re[i3] = r3;
+		s.im[i3] = q3;
 	}
 }
 
@@ -420,12 +426,15 @@ static inline void process_voice(Engine& e, int v, real trem_lfo) {
 	} else if (s.fade || fabsf(c.note - s.note_prev) >= 1.0f) {
 		// new note (or preset) on a sounding voice: fade the old one out over this block with its
 		// old partials (about -45 dB), then start fresh next block (a pending strike comes then)
-		for (int m = 0; m < s.nact; m++) { s.lc[m] *= 0.85f; s.ls[m] *= 0.85f; }
+		for (int m = 0; m < s.nact; m++) {
+			s.lc[m] *= 0.85f;
+			s.ls[m] *= 0.85f;
+		}
 		run_modes<false>(s, e.x, out);
 		for (int n = 0; n < BLOCK; n++) e.mix[n] += out[n];
 		reset_voice(s);
 		s.note_prev = c.note;
-		s.pbase = 0.0f;   // a new note may strike even when the voice was taken from a held key
+		s.pbase = 0.0f; // a new note may strike even when the voice was taken from a held key
 		return;
 	}
 	s.note_prev = c.note;
@@ -468,9 +477,13 @@ static inline void process_voice(Engine& e, int v, real trem_lfo) {
 		const Partial& pt = P.p[k];
 		const real f = f0 * pt.ratio;
 		const real fade = rmin(clampr((f - F_LO0) * (1.0f / (F_LO1 - F_LO0)), 0.0f, 1.0f),
-		                       clampr((F_HI1 - f) * (1.0f / (F_HI1 - F_HI0)), 0.0f, 1.0f));
+		    clampr((F_HI1 - f) * (1.0f / (F_HI1 - F_HI0)), 0.0f, 1.0f));
 		if (!(fade > 0.0f)) {
-			if (was_on & (1u << k)) { s.re[k] = 0.0f; s.im[k] = 0.0f; s.a[k] = 0.0f; }
+			if (was_on & (1u << k)) {
+				s.re[k] = 0.0f;
+				s.im[k] = 0.0f;
+				s.a[k] = 0.0f;
+			}
 			continue;
 		}
 		mask |= 1u << k;
@@ -479,20 +492,31 @@ static inline void process_voice(Engine& e, int v, real trem_lfo) {
 			// hardness^hexp as 2^(hexp*log2(hard)) would need a log; hexp is small, use repeated
 			// products of the (<= 1.3) hardness with a fractional remainder blended linearly
 			real hp = 1.0f, ex = pt.hexp;
-			while (ex >= 1.0f) { hp *= lhard; ex -= 1.0f; }
+			while (ex >= 1.0f) {
+				hp *= lhard;
+				ex -= 1.0f;
+			}
 			hp *= 1.0f + ex * (lhard - 1.0f);
 			const real amp = dlev * (k > 0 ? pt.amp * Q.upper : pt.amp) * hp * fade;
 			re = re * keep + amp;
 			im = im * keep;
-			s.re[k] = re; s.im[k] = im;
+			s.re[k] = re;
+			s.im[k] = im;
 		}
 		// rotation: set by the note only
 		const real wk = f * e.w_hz;
 		real cw, sw;
-		if (wk > 1.5707963f) { const real x = 3.1415927f - wk; cw = -cos_poly(x); sw = sin_poly(x); }
-		else { cw = cos_poly(wk); sw = sin_poly(wk); }
-		const real g = 1.5f - 0.5f * (cw * cw + sw * sw);   // unit magnitude
-		cw *= g; sw *= g;
+		if (wk > 1.5707963f) {
+			const real x = 3.1415927f - wk;
+			cw = -cos_poly(x);
+			sw = sin_poly(x);
+		} else {
+			cw = cos_poly(wk);
+			sw = sin_poly(wk);
+		}
+		const real g = 1.5f - 0.5f * (cw * cw + sw * sw); // unit magnitude
+		cw *= g;
+		sw *= g;
 		// decay: natural (per partial, over the keyboard), damper (stronger for high partials), rub
 		real sigma = rmax(e.sig_ref[k] * pitch_decay, SIGMA_MIN) + damp * (1.0f + f * (1.0f / 3000.0f));
 		real b = 0.0f;
@@ -510,7 +534,7 @@ static inline void process_voice(Engine& e, int v, real trem_lfo) {
 		const real at = clampr(sigma * e.inv_sr, -0.001f, 0.03f);
 		const real a = (was_on & (1u << k)) ? s.a[k] + 0.25f * (at - s.a[k]) : at;
 		s.a[k] = a;
-		const real r = 1.0f + a * (-1.0f + a * (0.5f - a * (1.0f / 6.0f)));   // exp(-a)
+		const real r = 1.0f + a * (-1.0f + a * (0.5f - a * (1.0f / 6.0f))); // exp(-a)
 		s.lidx[m] = (uint8_t)k;
 		s.lc[m] = r * cw;
 		s.ls[m] = r * sw;
@@ -518,9 +542,11 @@ static inline void process_voice(Engine& e, int v, real trem_lfo) {
 		m++;
 	}
 	s.on_mask = mask;
-	for (int p = 0; m < NSLOT && (m & 3) != 0; p++, m++) {   // pad with dummy modes
+	for (int p = 0; m < NSLOT && (m & 3) != 0; p++, m++) { // pad with dummy modes
 		s.lidx[m] = (uint8_t)(NMODES + p);
-		s.lc[m] = 0.0f; s.ls[m] = 0.0f; s.lb[m] = 0.0f;
+		s.lc[m] = 0.0f;
+		s.ls[m] = 0.0f;
+		s.lb[m] = 0.0f;
 	}
 	s.nact = m;
 
@@ -551,24 +577,33 @@ static inline void process_voice(Engine& e, int v, real trem_lfo) {
 	for (int k = 0; k < NMODES; k++) {
 		const real m2 = s.re[k] * s.re[k] + s.im[k] * s.im[k];
 		// flush partials that decayed below -200 dB before they reach denormals
-		if (m2 < 1e-20f) { s.re[k] = 0.0f; s.im[k] = 0.0f; }
+		if (m2 < 1e-20f) {
+			s.re[k] = 0.0f;
+			s.im[k] = 0.0f;
+		}
 		energy += m2;
 	}
-	if (!(energy < ENERGY_BAD)) {   // NaN, Inf or runaway: drop this block and reset the voice
+	if (!(energy < ENERGY_BAD)) { // NaN, Inf or runaway: drop this block and reset the voice
 		reset_voice(s);
 		s.active = 0;
 		return;
 	}
 	if (energy > ENERGY_CAP) {
-		const real gsc = 3.0f * rsqrt_fast(energy);   // sqrt(ENERGY_CAP / energy)
-		for (int k = 0; k < NMODES; k++) { s.re[k] *= gsc; s.im[k] *= gsc; }
+		const real gsc = 3.0f * rsqrt_fast(energy); // sqrt(ENERGY_CAP / energy)
+		for (int k = 0; k < NMODES; k++) {
+			s.re[k] *= gsc;
+			s.im[k] *= gsc;
+		}
 	}
 	// tremolo gain (depth 0.6 at most; amplitude only, never pitch), interpolated over the block
 	const real g1 = 1.0f - Q.tremdepth * s.trem * (0.5f + 0.5f * trem_lfo);
 	if (g1 != 1.0f || s.tgain != 1.0f) {
 		const real dg = (g1 - s.tgain) * (1.0f / BLOCK);
 		real g = s.tgain;
-		for (int n = 0; n < BLOCK; n++) { g += dg; e.mix[n] += out[n] * g; }
+		for (int n = 0; n < BLOCK; n++) {
+			g += dg;
+			e.mix[n] += out[n] * g;
+		}
 	} else {
 		for (int n = 0; n < BLOCK; n++) e.mix[n] += out[n];
 	}
@@ -605,9 +640,16 @@ static inline void process(Engine& e, real* __restrict__ output) {
 		sabs += a;
 		peak = rmax(peak, a);
 	}
-	if (!(sabs < 1e9f)) {   // non-finite: silence the block and reset everything
-		for (int n = 0; n < BLOCK; n++) { output[n] = 0.0f; e.mix[n] = 0.0f; e.delay[n] = 0.0f; }
-		for (int v = 0; v < e.nvoices; v++) { reset_voice(e.vs[v]); e.vs[v].active = 0; }
+	if (!(sabs < 1e9f)) { // non-finite: silence the block and reset everything
+		for (int n = 0; n < BLOCK; n++) {
+			output[n] = 0.0f;
+			e.mix[n] = 0.0f;
+			e.delay[n] = 0.0f;
+		}
+		for (int v = 0; v < e.nvoices; v++) {
+			reset_voice(e.vs[v]);
+			e.vs[v].active = 0;
+		}
 		e.lim_gain = 1.0f;
 		e.peak_prev = 0.0f;
 		return;

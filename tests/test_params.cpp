@@ -11,7 +11,7 @@
 
 #include "doctest/doctest.h"
 #include "harness_util.h"
-#include "striso_engines.h"  // generated: every voice engine, STRISO_TEST_ENGINES(X, XP)
+#include "striso_engines.h" // generated: every voice engine, STRISO_TEST_ENGINES(X, XP)
 #include "striso_dsp/fx.h"
 
 namespace {
@@ -24,7 +24,10 @@ constexpr float kFuzzPeakBound = 64.0f;
 
 struct Rng {
 	uint32_t s;
-	float next() { s = s * 1664525u + 1013904223u; return static_cast<float>(s >> 8) * (1.0f / 16777216.0f); }
+	float next() {
+		s = s * 1664525u + 1013904223u;
+		return static_cast<float>(s >> 8) * (1.0f / 16777216.0f);
+	}
 	float range(float lo, float hi) { return lo + next() * (hi - lo); }
 };
 
@@ -44,7 +47,7 @@ void fuzz_controls(Rng& r, strisy::VoiceControls* vc, strisy::GlobalControls& g,
 	for (int v = 0; v < nv; v++) {
 		strisy::VoiceControls& c = vc[v];
 		const float u = r.next();
-		if (u < 0.03f) {  // press / release
+		if (u < 0.03f) { // press / release
 			const bool on = c.pres <= 0.0f;
 			c.pres = on ? r.range(0.05f, 1.3f) : 0.0f;
 			c.vpres = on ? r.range(0.0f, 1.0f) : -r.range(0.0f, 1.0f);
@@ -79,7 +82,7 @@ template <class E> void check_table(const char* engine) {
 		REQUIRE(d->name != nullptr);
 		CHECK(std::strlen(d->name) > 0);
 		CHECK(d->group != nullptr);
-		CHECK(names.insert(d->name).second);  // unique
+		CHECK(names.insert(d->name).second); // unique
 		CHECK(d->min <= d->max);
 		CHECK(static_cast<int>(d->kind) <= 2);
 		CHECK(P::ptr(e, i) != nullptr);
@@ -98,7 +101,7 @@ void fuzz_engine(const char* engine, int preset, uint32_t seed, Init init, SetPr
 	Rng r{seed};
 	long bad = 0;
 	float peak = 0.0f;
-	const int blocks = 4 * kSampleRate / 32;  // 4 s
+	const int blocks = 4 * kSampleRate / 32; // 4 s
 	for (int b = 0; b < blocks; b++) {
 		fuzz_controls(r, e.vc, e.g, kVoices);
 		if (P::count > 0) {
@@ -122,7 +125,7 @@ void fuzz_engine(const char* engine, int preset, uint32_t seed, Init init, SetPr
 	MESSAGE(std::string(engine) << " preset " << preset << ": fuzz peak " << peak);
 }
 
-}  // namespace
+} // namespace
 
 TEST_CASE("parameter tables are sane") {
 #define STRISO_CHECK_TABLE(ns) check_table<ns::Engine>(#ns);
@@ -132,16 +135,20 @@ TEST_CASE("parameter tables are sane") {
 
 TEST_CASE("live parameter fuzz: every engine and preset stays finite and bounded") {
 	const auto no_preset = [](auto&, int) {};
-#define STRISO_FUZZ(ns) SUBCASE(#ns) {                                                         \
-		fuzz_engine<ns::Engine>(#ns, -1, 1, [](ns::Engine& e) { ns::init(e, kSampleRate, kVoices); }, \
-		                        no_preset, [](ns::Engine& e, float* o) { ns::process(e, o); });    \
+#define STRISO_FUZZ(ns) \
+	SUBCASE(#ns) { \
+		fuzz_engine<ns::Engine>( \
+		    #ns, -1, 1, [](ns::Engine& e) { ns::init(e, kSampleRate, kVoices); }, \
+		    no_preset, [](ns::Engine& e, float* o) { ns::process(e, o); }); \
 	}
-#define STRISO_FUZZ_PRESETS(ns) SUBCASE(#ns) {                                                 \
-		for (int p = 0; p < ns::NUM_PRESETS; p++)                                                  \
-			fuzz_engine<ns::Engine>(#ns, p, 1u + static_cast<uint32_t>(p),                         \
-			                        [](ns::Engine& e) { ns::init(e, kSampleRate, kVoices); },      \
-			                        [](ns::Engine& e, int q) { ns::set_preset(e, q); },            \
-			                        [](ns::Engine& e, float* o) { ns::process(e, o); });           \
+#define STRISO_FUZZ_PRESETS(ns) \
+	SUBCASE(#ns) { \
+		for (int p = 0; p < ns::NUM_PRESETS; p++) \
+			fuzz_engine<ns::Engine>( \
+			    #ns, p, 1u + static_cast<uint32_t>(p), \
+			    [](ns::Engine& e) { ns::init(e, kSampleRate, kVoices); }, \
+			    [](ns::Engine& e, int q) { ns::set_preset(e, q); }, \
+			    [](ns::Engine& e, float* o) { ns::process(e, o); }); \
 	}
 	STRISO_TEST_ENGINES(STRISO_FUZZ, STRISO_FUZZ_PRESETS)
 }
@@ -160,7 +167,7 @@ TEST_CASE("live parameter fuzz: master effects stay finite and bounded") {
 			harness::param_write(e, i, fuzz_value(r, *P::desc(i)));
 		}
 		float in[32], l[32], rr[32];
-		const bool loud = (b / 200) % 2 == 0;  // bursts of loud noise, then silence (tails)
+		const bool loud = (b / 200) % 2 == 0; // bursts of loud noise, then silence (tails)
 		for (float& x : in) x = loud ? r.range(-4.0f, 4.0f) : 0.0f;
 		fx::process(e, in, l, rr);
 		for (int n = 0; n < 32; n++) {

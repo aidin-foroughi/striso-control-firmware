@@ -56,9 +56,9 @@ namespace fx {
 
 using real = float;
 static constexpr int BLOCK = strisy::BLOCK;
-static constexpr int HB = BLOCK / 2;          // half-rate samples per block
-static constexpr int LSEG = 16;               // limiter segment = look-ahead
-static constexpr int PH_CTRL = 8;             // phaser coefficient update interval
+static constexpr int HB = BLOCK / 2; // half-rate samples per block
+static constexpr int LSEG = 16;      // limiter segment = look-ahead
+static constexpr int PH_CTRL = 8;    // phaser coefficient update interval
 
 using strisy::rmax;
 using strisy::rmin;
@@ -66,11 +66,11 @@ using strisy::rmin;
 // ---------------------------------------------------------------------------------------------
 // Buffers
 
-static constexpr int CH_LEN = 1024, CH_MASK = CH_LEN - 1;          // chorus, full rate (in Engine)
-static constexpr int DL_LEN = 32768, DL_MASK = DL_LEN - 1;         // delay, half rate, int16
-static constexpr int PD_LEN = 4096, PD_MASK = PD_LEN - 1;          // reverb pre-delay, half rate
-static constexpr int RV_LEN = 16384, RV_MASK = RV_LEN - 1;         // reverb ring, half rate
-static constexpr float DL_SCALE = 4096.0f;                        // int16 full scale = +-8
+static constexpr int CH_LEN = 1024, CH_MASK = CH_LEN - 1;  // chorus, full rate (in Engine)
+static constexpr int DL_LEN = 32768, DL_MASK = DL_LEN - 1; // delay, half rate, int16
+static constexpr int PD_LEN = 4096, PD_MASK = PD_LEN - 1;  // reverb pre-delay, half rate
+static constexpr int RV_LEN = 16384, RV_MASK = RV_LEN - 1; // reverb ring, half rate
+static constexpr float DL_SCALE = 4096.0f;                 // int16 full scale = +-8
 
 static int16_t dl_buf[DL_LEN] __attribute__((aligned(32), section(".ram1_clear")));
 static float pd_buf[PD_LEN] __attribute__((aligned(32), section(".ram1_clear")));
@@ -80,13 +80,34 @@ static float rv_buf[RV_LEN] __attribute__((aligned(32)));
 // Parameters
 
 enum {
-	P_DRIVE, P_TILT,
-	P_PH_MIX, P_PH_RATE, P_PH_DEPTH, P_PH_FB, P_PH_FREQ,
-	P_CH_MIX, P_CH_RATE, P_CH_DEPTH, P_CH_ENS,
-	P_TR_DEPTH, P_TR_RATE, P_TR_STEREO,
-	P_DL_MIX, P_DL_TIME, P_DL_FB, P_DL_TONE, P_DL_PP,
-	P_RV_MIX, P_RV_PRE, P_RV_DECAY, P_RV_DAMP, P_RV_LOWCUT, P_RV_MOD,
-	P_LEVEL, P_WIDTH, P_BYPASS,
+	P_DRIVE,
+	P_TILT,
+	P_PH_MIX,
+	P_PH_RATE,
+	P_PH_DEPTH,
+	P_PH_FB,
+	P_PH_FREQ,
+	P_CH_MIX,
+	P_CH_RATE,
+	P_CH_DEPTH,
+	P_CH_ENS,
+	P_TR_DEPTH,
+	P_TR_RATE,
+	P_TR_STEREO,
+	P_DL_MIX,
+	P_DL_TIME,
+	P_DL_FB,
+	P_DL_TONE,
+	P_DL_PP,
+	P_RV_MIX,
+	P_RV_PRE,
+	P_RV_DECAY,
+	P_RV_DAMP,
+	P_RV_LOWCUT,
+	P_RV_MOD,
+	P_LEVEL,
+	P_WIDTH,
+	P_BYPASS,
 	NPARAM
 };
 
@@ -99,40 +120,40 @@ struct ParamInfo {
 static constexpr float NO_OFF = -1e9f;
 
 static constexpr ParamInfo PARAMS[NPARAM] = {
-	{{"drive",    "drive",  0.0f,   1.0f, strisy::ParamKind::continuous},    0.0f,   0.0f, 1},   // saturation amount
-	{{"tilt",     "drive", -1.0f,   1.0f, strisy::ParamKind::continuous},    0.0f,   0.0f, 1},   // tilt EQ around 700 Hz, +-6 dB
-	{{"phmix",    "phaser", 0.0f,   1.0f, strisy::ParamKind::continuous},    0.0f,   0.0f, 1},   // 1 = classic 50/50 (deepest notches)
-	{{"phrate",   "phaser", 0.05f,  8.0f, strisy::ParamKind::continuous},    0.5f, NO_OFF, 0},   // Hz
-	{{"phdepth",  "phaser", 0.0f,   1.0f, strisy::ParamKind::continuous},    0.7f, NO_OFF, 1},   // sweep +-1.5 octaves at 1
-	{{"phfb",     "phaser", 0.0f,   0.85f, strisy::ParamKind::continuous},   0.3f, NO_OFF, 1},   // feedback (resonance)
-	{{"phfreq",   "phaser", 100.0f, 4000.0f, strisy::ParamKind::continuous}, 600.0f, NO_OFF, 1}, // sweep centre, Hz
-	{{"chmix",    "chorus", 0.0f,   1.0f, strisy::ParamKind::continuous},    0.25f,  0.0f, 1},   // wet amount
-	{{"chrate",   "chorus", 0.05f,  5.0f, strisy::ParamKind::continuous},    0.3f, NO_OFF, 0},   // Hz
-	{{"chdepth",  "chorus", 0.0f,   1.0f, strisy::ParamKind::continuous},    0.25f, NO_OFF, 1},  // 0..3 ms modulation
-	{{"chens",    "chorus", 0.0f,   1.0f, strisy::ParamKind::continuous},    0.0f, NO_OFF, 1},   // fast 6 Hz ensemble shimmer
-	{{"trdepth",  "trem",   0.0f,   1.0f, strisy::ParamKind::continuous},    0.0f,   0.0f, 1},
-	{{"trrate",   "trem",   0.5f,  12.0f, strisy::ParamKind::continuous},    4.5f, NO_OFF, 0},   // Hz
-	{{"trstereo", "trem",   0.0f,   1.0f, strisy::ParamKind::continuous},    1.0f, NO_OFF, 1},   // 0 tremolo, 1 auto-pan
-	{{"dlmix",    "delay",  0.0f,   1.0f, strisy::ParamKind::continuous},    0.0f,   0.0f, 1},   // echo level
-	{{"dltime",   "delay", 20.0f, 650.0f, strisy::ParamKind::continuous},  330.0f, NO_OFF, 0},   // ms per repeat
-	{{"dlfb",     "delay",  0.0f,   0.95f, strisy::ParamKind::continuous},   0.35f, NO_OFF, 1},  // feedback per repeat
-	{{"dltone",   "delay",  0.0f,   1.0f, strisy::ParamKind::continuous},    0.5f, NO_OFF, 1},   // feedback low-pass 1..12 kHz
-	{{"dlpp",     "delay",  0.0f,   1.0f, strisy::ParamKind::continuous},    1.0f, NO_OFF, 1},   // 0 mono echo, 1 ping-pong
-	{{"rvmix",    "reverb", 0.0f,   1.0f, strisy::ParamKind::continuous},    0.15f,  0.0f, 1},   // reverb level
-	{{"rvpre",    "reverb", 0.0f, 150.0f, strisy::ParamKind::continuous},   12.0f, NO_OFF, 0},   // pre-delay, ms
-	{{"rvdecay",  "reverb", 0.2f,  15.0f, strisy::ParamKind::continuous},    2.0f, NO_OFF, 1},   // RT60, s
-	{{"rvdamp",   "reverb", 0.0f,   1.0f, strisy::ParamKind::continuous},    0.45f, NO_OFF, 1},  // tank damping 12 kHz..375 Hz
-	{{"rvlowcut", "reverb", 20.0f, 600.0f, strisy::ParamKind::continuous},  150.0f, NO_OFF, 1},  // input low cut, Hz
-	{{"rvmod",    "reverb", 0.0f,   1.0f, strisy::ParamKind::continuous},    0.5f, NO_OFF, 1},   // tank modulation
-	{{"level",    "out",    0.0f,   2.0f, strisy::ParamKind::continuous},    1.0f,   1.0f, 1},   // output gain
-	{{"width",    "out",    0.0f,   2.0f, strisy::ParamKind::continuous},    1.0f,   1.0f, 1},   // stereo width
-	{{"bypass",   "out",    0.0f,   1.0f, strisy::ParamKind::toggle},    0.0f, NO_OFF, 0},
+    {{"drive", "drive", 0.0f, 1.0f, strisy::ParamKind::continuous}, 0.0f, 0.0f, 1},            // saturation amount
+    {{"tilt", "drive", -1.0f, 1.0f, strisy::ParamKind::continuous}, 0.0f, 0.0f, 1},            // tilt EQ around 700 Hz, +-6 dB
+    {{"phmix", "phaser", 0.0f, 1.0f, strisy::ParamKind::continuous}, 0.0f, 0.0f, 1},           // 1 = classic 50/50 (deepest notches)
+    {{"phrate", "phaser", 0.05f, 8.0f, strisy::ParamKind::continuous}, 0.5f, NO_OFF, 0},       // Hz
+    {{"phdepth", "phaser", 0.0f, 1.0f, strisy::ParamKind::continuous}, 0.7f, NO_OFF, 1},       // sweep +-1.5 octaves at 1
+    {{"phfb", "phaser", 0.0f, 0.85f, strisy::ParamKind::continuous}, 0.3f, NO_OFF, 1},         // feedback (resonance)
+    {{"phfreq", "phaser", 100.0f, 4000.0f, strisy::ParamKind::continuous}, 600.0f, NO_OFF, 1}, // sweep centre, Hz
+    {{"chmix", "chorus", 0.0f, 1.0f, strisy::ParamKind::continuous}, 0.25f, 0.0f, 1},          // wet amount
+    {{"chrate", "chorus", 0.05f, 5.0f, strisy::ParamKind::continuous}, 0.3f, NO_OFF, 0},       // Hz
+    {{"chdepth", "chorus", 0.0f, 1.0f, strisy::ParamKind::continuous}, 0.25f, NO_OFF, 1},      // 0..3 ms modulation
+    {{"chens", "chorus", 0.0f, 1.0f, strisy::ParamKind::continuous}, 0.0f, NO_OFF, 1},         // fast 6 Hz ensemble shimmer
+    {{"trdepth", "trem", 0.0f, 1.0f, strisy::ParamKind::continuous}, 0.0f, 0.0f, 1},
+    {{"trrate", "trem", 0.5f, 12.0f, strisy::ParamKind::continuous}, 4.5f, NO_OFF, 0},         // Hz
+    {{"trstereo", "trem", 0.0f, 1.0f, strisy::ParamKind::continuous}, 1.0f, NO_OFF, 1},        // 0 tremolo, 1 auto-pan
+    {{"dlmix", "delay", 0.0f, 1.0f, strisy::ParamKind::continuous}, 0.0f, 0.0f, 1},            // echo level
+    {{"dltime", "delay", 20.0f, 650.0f, strisy::ParamKind::continuous}, 330.0f, NO_OFF, 0},    // ms per repeat
+    {{"dlfb", "delay", 0.0f, 0.95f, strisy::ParamKind::continuous}, 0.35f, NO_OFF, 1},         // feedback per repeat
+    {{"dltone", "delay", 0.0f, 1.0f, strisy::ParamKind::continuous}, 0.5f, NO_OFF, 1},         // feedback low-pass 1..12 kHz
+    {{"dlpp", "delay", 0.0f, 1.0f, strisy::ParamKind::continuous}, 1.0f, NO_OFF, 1},           // 0 mono echo, 1 ping-pong
+    {{"rvmix", "reverb", 0.0f, 1.0f, strisy::ParamKind::continuous}, 0.15f, 0.0f, 1},          // reverb level
+    {{"rvpre", "reverb", 0.0f, 150.0f, strisy::ParamKind::continuous}, 12.0f, NO_OFF, 0},      // pre-delay, ms
+    {{"rvdecay", "reverb", 0.2f, 15.0f, strisy::ParamKind::continuous}, 2.0f, NO_OFF, 1},      // RT60, s
+    {{"rvdamp", "reverb", 0.0f, 1.0f, strisy::ParamKind::continuous}, 0.45f, NO_OFF, 1},       // tank damping 12 kHz..375 Hz
+    {{"rvlowcut", "reverb", 20.0f, 600.0f, strisy::ParamKind::continuous}, 150.0f, NO_OFF, 1}, // input low cut, Hz
+    {{"rvmod", "reverb", 0.0f, 1.0f, strisy::ParamKind::continuous}, 0.5f, NO_OFF, 1},         // tank modulation
+    {{"level", "out", 0.0f, 2.0f, strisy::ParamKind::continuous}, 1.0f, 1.0f, 1},              // output gain
+    {{"width", "out", 0.0f, 2.0f, strisy::ParamKind::continuous}, 1.0f, 1.0f, 1},              // stereo width
+    {{"bypass", "out", 0.0f, 1.0f, strisy::ParamKind::toggle}, 0.0f, NO_OFF, 0},
 };
 
 // ---------------------------------------------------------------------------------------------
 // Math helpers (no libm)
 
-[[nodiscard]] static inline float clampf(float x, float lo, float hi) { return rmin(rmax(x, lo), hi); }  // NaN -> lo
+[[nodiscard]] static inline float clampf(float x, float lo, float hi) { return rmin(rmax(x, lo), hi); } // NaN -> lo
 
 [[nodiscard]] static inline float floorf_(float x) {
 	float t = (float)(int)x;
@@ -145,14 +166,17 @@ static constexpr ParamInfo PARAMS[NPARAM] = {
 	const float fl = floorf_(x);
 	const float f = x - fl;
 	const float p = 1.0f + f * (0.69314718f + f * (0.24022651f + f * (0.05550411f + f * (0.00961813f + f * (0.00133336f + f * 0.00015404f)))));
-	union { float f; int32_t i; } u;
+	union {
+		float f;
+		int32_t i;
+	} u;
 	u.i = ((int32_t)fl + 127) << 23;
 	return p * u.f;
 }
 
 // sin(2 pi x) for any |x| < 2^22, error < 4e-6
 [[nodiscard]] static inline float sin2pi(float x) {
-	x -= floorf_(x + 0.5f);              // [-0.5, 0.5)
+	x -= floorf_(x + 0.5f); // [-0.5, 0.5)
 	const float ax = fabsf(x);
 	float u = ax > 0.25f ? 0.5f - ax : ax; // sin(pi - a) = sin(a)
 	u = x < 0.0f ? -u : u;
@@ -163,7 +187,10 @@ static constexpr ParamInfo PARAMS[NPARAM] = {
 // sqrt(x) for 0 <= x < 1e18 (control rate): bit-level estimate + 3 Newton steps, rel. error < 1e-6
 [[nodiscard]] static inline float sqrt_(float x) {
 	x = rmax(x, 0.0f);
-	union { float f; int32_t i; } u;
+	union {
+		float f;
+		int32_t i;
+	} u;
 	u.f = x;
 	u.i = 0x1fbd1df5 + (u.i >> 1);
 	float y = u.f;
@@ -173,7 +200,7 @@ static constexpr ParamInfo PARAMS[NPARAM] = {
 
 // one-pole low-pass coefficient for cutoff fc at rate sr: 1 - exp(-2 pi fc / sr)
 [[nodiscard]] static inline float onepole(float fc, float sr) {
-	return 1.0f - exp2_(-9.0647202f * fc / sr);   // 2 pi / ln 2
+	return 1.0f - exp2_(-9.0647202f * fc / sr); // 2 pi / ln 2
 }
 
 // 4-point cubic Hermite interpolation between y1 (f = 0) and y2 (f = 1)
@@ -198,7 +225,9 @@ static constexpr ParamInfo PARAMS[NPARAM] = {
 // stopband from 14.6 kHz at -74.5 dB.
 
 static constexpr float HB_C[6] = {0.0682040760f, 0.2402703580f, 0.4486762359f, 0.6411223671f, 0.7999975637f, 0.9344822355f};
-struct HbState { float x[6], y[6]; };
+struct HbState {
+	float x[6], y[6];
+};
 
 // 2:1 decimation of BLOCK samples into HB samples
 static inline void hb_down(HbState& h, const float* __restrict__ in, float* __restrict__ out) {
@@ -206,16 +235,44 @@ static inline void hb_down(HbState& h, const float* __restrict__ in, float* __re
 	float y0 = h.y[0], y1 = h.y[1], y2 = h.y[2], y3 = h.y[3], y4 = h.y[4], y5 = h.y[5];
 	for (int j = 0; j < HB; j++) {
 		float s0 = in[2 * j + 1], s1 = in[2 * j], t;
-		t = x0; x0 = s0; s0 = (s0 - y0) * HB_C[0] + t; y0 = s0;
-		t = x1; x1 = s1; s1 = (s1 - y1) * HB_C[1] + t; y1 = s1;
-		t = x2; x2 = s0; s0 = (s0 - y2) * HB_C[2] + t; y2 = s0;
-		t = x3; x3 = s1; s1 = (s1 - y3) * HB_C[3] + t; y3 = s1;
-		t = x4; x4 = s0; s0 = (s0 - y4) * HB_C[4] + t; y4 = s0;
-		t = x5; x5 = s1; s1 = (s1 - y5) * HB_C[5] + t; y5 = s1;
+		t = x0;
+		x0 = s0;
+		s0 = (s0 - y0) * HB_C[0] + t;
+		y0 = s0;
+		t = x1;
+		x1 = s1;
+		s1 = (s1 - y1) * HB_C[1] + t;
+		y1 = s1;
+		t = x2;
+		x2 = s0;
+		s0 = (s0 - y2) * HB_C[2] + t;
+		y2 = s0;
+		t = x3;
+		x3 = s1;
+		s1 = (s1 - y3) * HB_C[3] + t;
+		y3 = s1;
+		t = x4;
+		x4 = s0;
+		s0 = (s0 - y4) * HB_C[4] + t;
+		y4 = s0;
+		t = x5;
+		x5 = s1;
+		s1 = (s1 - y5) * HB_C[5] + t;
+		y5 = s1;
 		out[j] = 0.5f * (s0 + s1);
 	}
-	h.x[0] = x0; h.x[1] = x1; h.x[2] = x2; h.x[3] = x3; h.x[4] = x4; h.x[5] = x5;
-	h.y[0] = y0; h.y[1] = y1; h.y[2] = y2; h.y[3] = y3; h.y[4] = y4; h.y[5] = y5;
+	h.x[0] = x0;
+	h.x[1] = x1;
+	h.x[2] = x2;
+	h.x[3] = x3;
+	h.x[4] = x4;
+	h.x[5] = x5;
+	h.y[0] = y0;
+	h.y[1] = y1;
+	h.y[2] = y2;
+	h.y[3] = y3;
+	h.y[4] = y4;
+	h.y[5] = y5;
 }
 
 // 1:2 interpolation of HB samples, added into BLOCK samples
@@ -224,17 +281,45 @@ static inline void hb_up_add(HbState& h, const float* __restrict__ in, float* __
 	float y0 = h.y[0], y1 = h.y[1], y2 = h.y[2], y3 = h.y[3], y4 = h.y[4], y5 = h.y[5];
 	for (int j = 0; j < HB; j++) {
 		float s0 = in[j], s1 = in[j], t;
-		t = x0; x0 = s0; s0 = (s0 - y0) * HB_C[0] + t; y0 = s0;
-		t = x1; x1 = s1; s1 = (s1 - y1) * HB_C[1] + t; y1 = s1;
-		t = x2; x2 = s0; s0 = (s0 - y2) * HB_C[2] + t; y2 = s0;
-		t = x3; x3 = s1; s1 = (s1 - y3) * HB_C[3] + t; y3 = s1;
-		t = x4; x4 = s0; s0 = (s0 - y4) * HB_C[4] + t; y4 = s0;
-		t = x5; x5 = s1; s1 = (s1 - y5) * HB_C[5] + t; y5 = s1;
+		t = x0;
+		x0 = s0;
+		s0 = (s0 - y0) * HB_C[0] + t;
+		y0 = s0;
+		t = x1;
+		x1 = s1;
+		s1 = (s1 - y1) * HB_C[1] + t;
+		y1 = s1;
+		t = x2;
+		x2 = s0;
+		s0 = (s0 - y2) * HB_C[2] + t;
+		y2 = s0;
+		t = x3;
+		x3 = s1;
+		s1 = (s1 - y3) * HB_C[3] + t;
+		y3 = s1;
+		t = x4;
+		x4 = s0;
+		s0 = (s0 - y4) * HB_C[4] + t;
+		y4 = s0;
+		t = x5;
+		x5 = s1;
+		s1 = (s1 - y5) * HB_C[5] + t;
+		y5 = s1;
 		out[2 * j] += s0;
 		out[2 * j + 1] += s1;
 	}
-	h.x[0] = x0; h.x[1] = x1; h.x[2] = x2; h.x[3] = x3; h.x[4] = x4; h.x[5] = x5;
-	h.y[0] = y0; h.y[1] = y1; h.y[2] = y2; h.y[3] = y3; h.y[4] = y4; h.y[5] = y5;
+	h.x[0] = x0;
+	h.x[1] = x1;
+	h.x[2] = x2;
+	h.x[3] = x3;
+	h.x[4] = x4;
+	h.x[5] = x5;
+	h.y[0] = y0;
+	h.y[1] = y1;
+	h.y[2] = y2;
+	h.y[3] = y3;
+	h.y[4] = y4;
+	h.y[5] = y5;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -244,40 +329,52 @@ static inline void hb_up_add(HbState& h, const float* __restrict__ in, float* __
 // ring[p + off[k] + d].
 
 static constexpr float RV_SIZE = 0.87f;
-static constexpr int RV_EXC = 13;   // max modulation excursion of the tank allpasses (samples)
-static constexpr float RV_DEXC = 0.6f;   // relative excursion of the long delays
-enum { RV_AP1, RV_AP2, RV_AP3, RV_AP4, RV_LAP1, RV_LD1, RV_LAP2, RV_LD2, RV_RAP1, RV_RD1, RV_RAP2, RV_RD2, RV_NLINES };
+static constexpr int RV_EXC = 13;      // max modulation excursion of the tank allpasses (samples)
+static constexpr float RV_DEXC = 0.6f; // relative excursion of the long delays
+enum { RV_AP1,
+	RV_AP2,
+	RV_AP3,
+	RV_AP4,
+	RV_LAP1,
+	RV_LD1,
+	RV_LAP2,
+	RV_LD2,
+	RV_RAP1,
+	RV_RD1,
+	RV_RAP2,
+	RV_RD2,
+	RV_NLINES };
 static constexpr int16_t RV_LEN0[RV_NLINES] = {142, 107, 379, 277, 672, 4453, 1800, 3720, 908, 4217, 2656, 3163};
 // output taps: line, position at 29761 Hz, sign (the sign pattern is hardcoded in stage_reverb)
 static constexpr int RV_NTAPS = 7;
 static constexpr int16_t RV_TAPS_L[RV_NTAPS][3] = {
-	{RV_RD1, 266, 1}, {RV_RD1, 2974, 1}, {RV_RAP2, 1913, -1}, {RV_RD2, 1996, 1},
-	{RV_LD1, 1990, -1}, {RV_LAP2, 187, -1}, {RV_LD2, 1066, -1}};
+    {RV_RD1, 266, 1}, {RV_RD1, 2974, 1}, {RV_RAP2, 1913, -1}, {RV_RD2, 1996, 1},
+    {RV_LD1, 1990, -1}, {RV_LAP2, 187, -1}, {RV_LD2, 1066, -1}};
 static constexpr int16_t RV_TAPS_R[RV_NTAPS][3] = {
-	{RV_LD1, 353, 1}, {RV_LD1, 3627, 1}, {RV_LAP2, 1228, -1}, {RV_LD2, 2673, 1},
-	{RV_RD1, 2111, -1}, {RV_RAP2, 335, -1}, {RV_RD2, 121, -1}};
+    {RV_LD1, 353, 1}, {RV_LD1, 3627, 1}, {RV_LAP2, 1228, -1}, {RV_LD2, 2673, 1},
+    {RV_RD1, 2111, -1}, {RV_RAP2, 335, -1}, {RV_RD2, 121, -1}};
 // wet gain: Dattorro's 0.6 per tap, scaled so an undamped 2 s decay has an impulse response energy of ~1
 static constexpr float RV_OUT = 0.6f * 1.2f;
 
 // ---------------------------------------------------------------------------------------------
 
 struct Engine {
-	float p[NPARAM];        // live parameters (written between blocks)
-	float s[NPARAM];        // smoothed parameters (this block)
-	float sp[NPARAM];       // smoothed parameters of the previous block
-	float sr, sr2, inv_sr;  // sample rate, half rate, 1/sr
-	float smooth_a;         // per block smoothing coefficient
+	float p[NPARAM];       // live parameters (written between blocks)
+	float s[NPARAM];       // smoothed parameters (this block)
+	float sp[NPARAM];      // smoothed parameters of the previous block
+	float sr, sr2, inv_sr; // sample rate, half rate, 1/sr
+	float smooth_a;        // per block smoothing coefficient
 
 	// stage state: on = running this block
 	int on_drive, on_tilt, on_phaser, on_chorus, on_trem, on_delay, on_reverb, on_half;
-	int clr_dl, clr_pd, clr_rv;     // background clear cursor (-1: clean)
+	int clr_dl, clr_pd, clr_rv; // background clear cursor (-1: clean)
 	uint32_t guard_trips;
 
-	float M[BLOCK];                 // mono working buffer
-	float L[LSEG + BLOCK], R[LSEG + BLOCK];   // stereo working buffer behind the limiter look-ahead
+	float M[BLOCK];                         // mono working buffer
+	float L[LSEG + BLOCK], R[LSEG + BLOCK]; // stereo working buffer behind the limiter look-ahead
 
 	// drive / tilt
-	float dr_k, dr_mk, dr_b, dr_yb, dr_w;   // block-end values (ramped from these)
+	float dr_k, dr_mk, dr_b, dr_yb, dr_w; // block-end values (ramped from these)
 	float dr_dcx, dr_dcy, dr_dc_r;
 	float tl_lp, tl_c, tl_gl, tl_gh;
 
@@ -305,9 +402,9 @@ struct Engine {
 	// reverb
 	uint32_t rv_p, pd_w;
 	int rv_off[RV_NLINES], rv_len[RV_NLINES];
-	int rv_tl[RV_NTAPS], rv_tr[RV_NTAPS];   // tap ring offsets (off + position)
+	int rv_tl[RV_NTAPS], rv_tr[RV_NTAPS]; // tap ring offsets (off + position)
 	float pd_T, rv_lc, rv_dl, rv_dr, rv_in;
-	float rv_k[7];          // tank coefficients of the previous block (ramped per sample)
+	float rv_k[7]; // tank coefficients of the previous block (ramped per sample)
 	float rv_ph[2], rv_m[4];
 	float rv_exc;
 
@@ -325,17 +422,21 @@ static FX_NOINLINE void stage_drive(Engine& e) {
 	const float r = 1.0f / BLOCK;
 	if (e.on_drive) {
 		const float d = e.s[P_DRIVE];
-		const float w1 = rmin(d * 5.0f, 1.0f);              // fade in the saturated path
-		const float k1 = 0.2f * exp2_(3.3f * d);             // knee (|u| = 1.5) at x = 7.5 .. 0.76
-		const float b1 = 0.3f * d;                           // asymmetry: even harmonics
+		const float w1 = rmin(d * 5.0f, 1.0f);   // fade in the saturated path
+		const float k1 = 0.2f * exp2_(3.3f * d); // knee (|u| = 1.5) at x = 7.5 .. 0.76
+		const float b1 = 0.3f * d;               // asymmetry: even harmonics
 		const float yb1 = b1 - 0.14814815f * b1 * b1 * b1;
-		const float mk1 = (1.0f + 0.3f * d) / k1;            // makeup
+		const float mk1 = (1.0f + 0.3f * d) / k1; // makeup
 		float k = e.dr_k, mk = e.dr_mk, b = e.dr_b, yb = e.dr_yb, w = e.dr_w;
 		const float dk = (k1 - k) * r, dmk = (mk1 - mk) * r, db = (b1 - b) * r, dyb = (yb1 - yb) * r, dw = (w1 - w) * r;
 		float dcx = e.dr_dcx, dcy = e.dr_dcy;
 		const float R = e.dr_dc_r;
 		for (int n = 0; n < BLOCK; n++) {
-			k += dk; mk += dmk; b += db; yb += dyb; w += dw;
+			k += dk;
+			mk += dmk;
+			b += db;
+			yb += dyb;
+			w += dw;
 			const float x = M[n];
 			const float u = clampf(k * x + b, -1.5f, 1.5f);
 			const float y = ((u - 0.14814815f * u * u * u) - yb) * mk;
@@ -345,8 +446,13 @@ static FX_NOINLINE void stage_drive(Engine& e) {
 			dcx = dlt;
 			M[n] = x + w * dcy;
 		}
-		e.dr_k = k1; e.dr_mk = mk1; e.dr_b = b1; e.dr_yb = yb1; e.dr_w = w1;
-		e.dr_dcx = dcx; e.dr_dcy = dcy;
+		e.dr_k = k1;
+		e.dr_mk = mk1;
+		e.dr_b = b1;
+		e.dr_yb = yb1;
+		e.dr_w = w1;
+		e.dr_dcx = dcx;
+		e.dr_dcy = dcy;
 	}
 	if (e.on_tilt) {
 		const float t = e.s[P_TILT];
@@ -354,12 +460,15 @@ static FX_NOINLINE void stage_drive(Engine& e) {
 		float gl = e.tl_gl, gh = e.tl_gh, lp = e.tl_lp;
 		const float dgl = (gl1 - gl) * r, dgh = (gh1 - gh) * r, c = e.tl_c;
 		for (int n = 0; n < BLOCK; n++) {
-			gl += dgl; gh += dgh;
+			gl += dgl;
+			gh += dgh;
 			const float x = M[n];
 			lp += c * (x - lp);
 			M[n] = gh * x + (gl - gh) * lp;
 		}
-		e.tl_gl = gl1; e.tl_gh = gh1; e.tl_lp = lp;
+		e.tl_gl = gl1;
+		e.tl_gh = gh1;
+		e.tl_lp = lp;
 	}
 }
 
@@ -398,16 +507,25 @@ static FX_NOINLINE void stage_phaser(Engine& e) {
 			const float x = M[n];
 			const float u = gin * x + fb * y;
 			float t;
-			t = a * u + s0; s0 = u - a * t;
-			y = a * t + s1; s1 = t - a * y;
-			t = a * y + s2; s2 = y - a * t;
-			y = a * t + s3; s3 = t - a * y;
+			t = a * u + s0;
+			s0 = u - a * t;
+			y = a * t + s1;
+			s1 = t - a * y;
+			t = a * y + s2;
+			s2 = y - a * t;
+			y = a * t + s3;
+			s3 = t - a * y;
 			M[n] = (1.0f + 0.35f * m) * (x + 0.5f * m * (y - x));
 		}
 		a = a1;
 	}
-	e.ph_phase = ph; e.ph_a = a; e.ph_y = y;
-	e.ph_s[0] = s0; e.ph_s[1] = s1; e.ph_s[2] = s2; e.ph_s[3] = s3;
+	e.ph_phase = ph;
+	e.ph_a = a;
+	e.ph_y = y;
+	e.ph_s[0] = s0;
+	e.ph_s[1] = s1;
+	e.ph_s[2] = s2;
+	e.ph_s[3] = s3;
 }
 
 static inline void chorus_delays(const Engine& e, float* d) {
@@ -448,7 +566,12 @@ static FX_NOINLINE void stage_chorus(Engine& e, float* __restrict__ L, float* __
 	e.ch_in = fin1;
 	uint32_t w = e.ch_w;
 	for (int n = 0; n < BLOCK; n++) {
-		da += dda; db += ddb; dc += ddc; gd += dgd; gw += dgw; fin += dfin;
+		da += dda;
+		db += ddb;
+		dc += ddc;
+		gd += dgd;
+		gw += dgw;
+		fin += dfin;
 		const float x = M[n];
 		hp += hc * (x - hp);
 		buf[w & CH_MASK] = fin * (x - hp);
@@ -467,7 +590,9 @@ static FX_NOINLINE void stage_chorus(Engine& e, float* __restrict__ L, float* __
 	}
 	e.ch_w = w;
 	e.ch_hp = hp;
-	e.ch_d[0] = d1[0]; e.ch_d[1] = d1[1]; e.ch_d[2] = d1[2];
+	e.ch_d[0] = d1[0];
+	e.ch_d[1] = d1[1];
+	e.ch_d[2] = d1[2];
 }
 
 // gain = sqrt(1 - depth (1 - lfo) / 2): the power follows the LFO, so with stereo = 1 the sum of
@@ -486,11 +611,13 @@ static FX_NOINLINE void stage_trem(Engine& e, float* __restrict__ L, float* __re
 	float gl = e.tr_gl, gr = e.tr_gr;
 	const float dgl = (gl1 - gl) * (1.0f / BLOCK), dgr = (gr1 - gr) * (1.0f / BLOCK);
 	for (int n = 0; n < BLOCK; n++) {
-		gl += dgl; gr += dgr;
+		gl += dgl;
+		gr += dgr;
 		L[n] *= gl;
 		R[n] *= gr;
 	}
-	e.tr_gl = gl1; e.tr_gr = gr1;
+	e.tr_gl = gl1;
+	e.tr_gr = gr1;
 }
 
 // delay line read at fractional delay d (>= 2) behind write index w (sample at w = newest)
@@ -501,7 +628,7 @@ static FX_NOINLINE void stage_trem(Engine& e, float* __restrict__ L, float* __re
 	return hermite((float)buf[(b + 1) & DL_MASK], (float)buf[b & DL_MASK], (float)buf[(b - 1) & DL_MASK], (float)buf[(b - 2) & DL_MASK], f);
 }
 
-static constexpr float DL_XF_STEP = 1.0f / 48.0f;   // crossfade over 48 blocks (31 ms)
+static constexpr float DL_XF_STEP = 1.0f / 48.0f; // crossfade over 48 blocks (31 ms)
 
 // feedback low-pass coefficient: 1 kHz .. 12 kHz, fully open at 1
 [[nodiscard]] static inline float dl_tone_coef(const Engine& e, float tone) {
@@ -533,7 +660,8 @@ static FX_NOINLINE void stage_delay(Engine& e) {
 	const float a1 = sin2pi(th), b1 = sin2pi(0.25f - th);
 	float a = e.dl_a, b = e.dl_b;
 	const float dA = (a1 - a) * r, dB = (b1 - b) * r;
-	e.dl_a = a1; e.dl_b = b1;
+	e.dl_a = a1;
+	e.dl_b = b1;
 	float hp = e.dl_hp, lp = e.dl_lp;
 	const float hc = e.dl_hp_c;
 	uint32_t w = e.dl_w;
@@ -551,7 +679,14 @@ static FX_NOINLINE void stage_delay(Engine& e) {
 		const float dx = (x1 - x0) * r;
 		const float Tn = e.dl_T, To = e.dl_Told;
 		for (int j = 0; j < HB; j++) {
-			x += dx; m += dm; a += dA; b += dB; fb += dfb; fb2 += dfb2; tc += dtc; fin += dfin;
+			x += dx;
+			m += dm;
+			a += dA;
+			b += dB;
+			fb += dfb;
+			fb2 += dfb2;
+			tc += dtc;
+			fin += dfin;
 			const float ao = dl_read(buf, w, To), bo = dl_read(buf, w, 2.0f * To);
 			const float an = dl_read(buf, w, Tn), bn = dl_read(buf, w, 2.0f * Tn);
 			const float tA = ao + x * (an - ao), tB = bo + x * (bn - bo);
@@ -572,7 +707,14 @@ static FX_NOINLINE void stage_delay(Engine& e) {
 		float T = T0;
 		const float dT = (T1 - T0) * r;
 		for (int j = 0; j < HB; j++) {
-			T += dT; m += dm; a += dA; b += dB; fb += dfb; fb2 += dfb2; tc += dtc; fin += dfin;
+			T += dT;
+			m += dm;
+			a += dA;
+			b += dB;
+			fb += dfb;
+			fb2 += dfb2;
+			tc += dtc;
+			fin += dfin;
 			const float tA = dl_read(buf, w, T), tB = dl_read(buf, w, 2.0f * T);
 			hp += hc * (tB - hp);
 			lp += tc * ((tB - hp) - lp);
@@ -585,7 +727,8 @@ static FX_NOINLINE void stage_delay(Engine& e) {
 		}
 		e.dl_T = T1;
 	}
-	e.dl_hp = hp; e.dl_lp = lp;
+	e.dl_hp = hp;
+	e.dl_lp = lp;
 	e.dl_w = w;
 }
 
@@ -594,7 +737,7 @@ static FX_NOINLINE void stage_delay(Engine& e) {
 static inline void rv_coefs(const Engine& e, float* k) {
 	const float sr2 = e.sr2;
 	const int* len = e.rv_len;
-	const float lg = -9.9657843f / (e.s[P_RV_DECAY] * sr2);   // log2 of the gain per sample
+	const float lg = -9.9657843f / (e.s[P_RV_DECAY] * sr2); // log2 of the gain per sample
 	k[0] = exp2_(lg * (float)(len[RV_LAP1] + len[RV_LD1]));
 	k[1] = exp2_(lg * (float)(len[RV_LAP2] + len[RV_LD2]));
 	k[2] = exp2_(lg * (float)(len[RV_RAP1] + len[RV_RD1]));
@@ -629,8 +772,10 @@ static FX_NOINLINE void stage_reverb(Engine& e) {
 	const float fin1 = rmin(fin + FADE_STEP, 1.0f), dfin = (fin1 - fin) * r;
 	e.rv_in = fin1;
 	// modulation LFOs (0.62 and 0.77 Hz), interpolated over the block
-	e.rv_ph[0] += 0.62f * HB / sr2; e.rv_ph[0] -= (float)(int)e.rv_ph[0];
-	e.rv_ph[1] += 0.77f * HB / sr2; e.rv_ph[1] -= (float)(int)e.rv_ph[1];
+	e.rv_ph[0] += 0.62f * HB / sr2;
+	e.rv_ph[0] -= (float)(int)e.rv_ph[0];
+	e.rv_ph[1] += 0.77f * HB / sr2;
+	e.rv_ph[1] -= (float)(int)e.rv_ph[1];
 	const float exc = e.s[P_RV_MOD] * (float)RV_EXC;
 	const float mL1 = (float)len[RV_LAP1] + exc * sin2pi(e.rv_ph[0]);
 	const float mR1 = (float)len[RV_RAP1] + exc * sin2pi(e.rv_ph[1] + 0.25f);
@@ -639,7 +784,10 @@ static FX_NOINLINE void stage_reverb(Engine& e) {
 	const float nR1 = (float)len[RV_RD1] + RV_DEXC * exc * sin2pi(e.rv_ph[0] + 0.85f);
 	float mL = e.rv_m[0], mR = e.rv_m[1], nL = e.rv_m[2], nR = e.rv_m[3];
 	const float dmL = (mL1 - mL) * r, dmR = (mR1 - mR) * r, dnL = (nL1 - nL) * r, dnR = (nR1 - nR) * r;
-	e.rv_m[0] = mL1; e.rv_m[1] = mR1; e.rv_m[2] = nL1; e.rv_m[3] = nR1;
+	e.rv_m[0] = mL1;
+	e.rv_m[1] = mR1;
+	e.rv_m[2] = nL1;
+	e.rv_m[3] = nR1;
 	const float g0 = e.sp[P_RV_MIX] * RV_OUT, g1 = e.s[P_RV_MIX] * RV_OUT;
 	float g = g0;
 	const float dg = (g1 - g0) * r;
@@ -657,8 +805,20 @@ static FX_NOINLINE void stage_reverb(Engine& e) {
 	float* __restrict__ wr = e.wr;
 #define RV(o) ring[(p + (uint32_t)(o)) & RV_MASK]
 	for (int j = 0; j < HB; j++) {
-		P += dP; mL += dmL; mR += dmR; nL += dnL; nR += dnR; g += dg; fin += dfin;
-		gL1 += dgL1; gL2 += dgL2; gR1 += dgR1; gR2 += dgR2; dd2 += ddd2; damp += ddamp; lc_c += dlc;
+		P += dP;
+		mL += dmL;
+		mR += dmR;
+		nL += dnL;
+		nR += dnR;
+		g += dg;
+		fin += dfin;
+		gL1 += dgL1;
+		gL2 += dgL2;
+		gR1 += dgR1;
+		gR2 += dgR2;
+		dd2 += ddd2;
+		damp += ddamp;
+		lc_c += dlc;
 		// input: mono + echo, pre-delay (linear interpolation), low cut
 		pd[pw & PD_MASK] = fin * (h[j] + 0.5f * (wl[j] + wr[j]));
 		const int pi = (int)P;
@@ -670,10 +830,22 @@ static FX_NOINLINE void stage_reverb(Engine& e) {
 		x -= lc;
 		// input diffusion
 		float z, v;
-		z = RV(o0 + l0); v = x - 0.75f * z; RV(o0) = v; x = z + 0.75f * v;
-		z = RV(o1 + l1); v = x - 0.75f * z; RV(o1) = v; x = z + 0.75f * v;
-		z = RV(o2 + l2); v = x - 0.625f * z; RV(o2) = v; x = z + 0.625f * v;
-		z = RV(o3 + l3); v = x - 0.625f * z; RV(o3) = v; x = z + 0.625f * v;
+		z = RV(o0 + l0);
+		v = x - 0.75f * z;
+		RV(o0) = v;
+		x = z + 0.75f * v;
+		z = RV(o1 + l1);
+		v = x - 0.75f * z;
+		RV(o1) = v;
+		x = z + 0.75f * v;
+		z = RV(o2 + l2);
+		v = x - 0.625f * z;
+		RV(o2) = v;
+		x = z + 0.625f * v;
+		z = RV(o3 + l3);
+		v = x - 0.625f * z;
+		RV(o3) = v;
+		x = z + 0.625f * v;
 		// tank outputs from the previous trip around
 		const float fromL = RV(oLE + lLE), fromR = RV(oRE + lRE);
 		// left half: modulated allpass, delay, damping, decay, allpass, delay
@@ -683,7 +855,9 @@ static FX_NOINLINE void stage_reverb(Engine& e) {
 			const float f = mL - (float)di;
 			const uint32_t bb = p + (uint32_t)(oLA + di);
 			z = hermite(ring[(bb - 1) & RV_MASK], ring[bb & RV_MASK], ring[(bb + 1) & RV_MASK], ring[(bb + 2) & RV_MASK], f);
-			v = a + 0.7f * z; RV(oLA) = v; a = z - 0.7f * v;
+			v = a + 0.7f * z;
+			RV(oLA) = v;
+			a = z - 0.7f * v;
 			RV(oLD) = a;
 			const int ni = (int)nL;
 			const float nf = nL - (float)ni;
@@ -691,7 +865,10 @@ static FX_NOINLINE void stage_reverb(Engine& e) {
 			const float c = hermite(ring[(nb - 1) & RV_MASK], ring[nb & RV_MASK], ring[(nb + 1) & RV_MASK], ring[(nb + 2) & RV_MASK], nf);
 			dl = c + damp * (dl - c);
 			a = gL1 * dl;
-			z = RV(oLB + lLB); v = a - dd2 * z; RV(oLB) = v; a = z + dd2 * v;
+			z = RV(oLB + lLB);
+			v = a - dd2 * z;
+			RV(oLB) = v;
+			a = z + dd2 * v;
 			RV(oLE) = a;
 		}
 		// right half
@@ -701,7 +878,9 @@ static FX_NOINLINE void stage_reverb(Engine& e) {
 			const float f = mR - (float)di;
 			const uint32_t bb = p + (uint32_t)(oRA + di);
 			z = hermite(ring[(bb - 1) & RV_MASK], ring[bb & RV_MASK], ring[(bb + 1) & RV_MASK], ring[(bb + 2) & RV_MASK], f);
-			v = a + 0.7f * z; RV(oRA) = v; a = z - 0.7f * v;
+			v = a + 0.7f * z;
+			RV(oRA) = v;
+			a = z - 0.7f * v;
 			RV(oRD) = a;
 			const int ni = (int)nR;
 			const float nf = nR - (float)ni;
@@ -709,7 +888,10 @@ static FX_NOINLINE void stage_reverb(Engine& e) {
 			const float c = hermite(ring[(nb - 1) & RV_MASK], ring[nb & RV_MASK], ring[(nb + 1) & RV_MASK], ring[(nb + 2) & RV_MASK], nf);
 			dr = c + damp * (dr - c);
 			a = gR1 * dr;
-			z = RV(oRB + lRB); v = a - dd2 * z; RV(oRB) = v; a = z + dd2 * v;
+			z = RV(oRB + lRB);
+			v = a - dd2 * z;
+			RV(oRB) = v;
+			a = z + dd2 * v;
 			RV(oRE) = a;
 		}
 		// output taps, signs + + - + - - - (both channels)
@@ -722,8 +904,11 @@ static FX_NOINLINE void stage_reverb(Engine& e) {
 		wr[j] += g * yr;
 	}
 #undef RV
-	e.rv_p = p; e.pd_w = pw;
-	e.rv_lc = lc; e.rv_dl = dl; e.rv_dr = dr;
+	e.rv_p = p;
+	e.pd_w = pw;
+	e.rv_lc = lc;
+	e.rv_dl = dl;
+	e.rv_dr = dr;
 }
 
 static FX_NOINLINE void stage_half(Engine& e, float* __restrict__ L, float* __restrict__ R) {
@@ -757,7 +942,8 @@ static FX_NOINLINE bool stage_out(Engine& e, real* __restrict__ out_l, real* __r
 		float w = w0, v = v0;
 		const float dw = (w1 - w0) * r, dv = (v1 - v0) * r;
 		for (int n = 0; n < BLOCK; n++) {
-			w += dw; v += dv;
+			w += dw;
+			v += dv;
 			const float a = 0.5f * v * (1.0f + w), b = 0.5f * v * (1.0f - w);
 			const float l = L[n], rr = R[n];
 			L[n] = a * l + b * rr;
@@ -788,14 +974,20 @@ static FX_NOINLINE bool stage_out(Engine& e, real* __restrict__ out_l, real* __r
 	float gn = B0;
 	float dgn = (B1 - B0) * (1.0f / LSEG);
 	for (int n = 0; n < BLOCK; n++) {
-		if (n == LSEG) { gn = B1; dgn = (B2 - B1) * (1.0f / LSEG); }
+		if (n == LSEG) {
+			gn = B1;
+			dgn = (B2 - B1) * (1.0f / LSEG);
+		}
 		gn += dgn;
 		out_l[n] = clampf(gn * Lb[n], -4.5f, 4.5f);
 		out_r[n] = clampf(gn * Rb[n], -4.5f, 4.5f);
 	}
 	e.lim_g0 = g2;
 	e.lim_B = B2;
-	for (int n = 0; n < LSEG; n++) { e.L[n] = e.L[BLOCK + n]; e.R[n] = e.R[BLOCK + n]; }
+	for (int n = 0; n < LSEG; n++) {
+		e.L[n] = e.L[BLOCK + n];
+		e.R[n] = e.R[BLOCK + n];
+	}
 	return true;
 }
 
@@ -815,17 +1007,31 @@ static inline void reset_states(Engine& e) {
 	for (int n = 0; n < LSEG + BLOCK; n++) e.L[n] = e.R[n] = 0.0f;
 	for (int i = 0; i < CH_LEN; i++) e.ch_buf[i] = 0.0f;
 	e.lim_g0 = e.lim_B = 1.0f;
-	e.ph_phase = 0.0f; e.ch_ps = 0.0f; e.ch_pf = 0.0f; e.tr_phase = 0.0f;
-	e.rv_ph[0] = 0.0f; e.rv_ph[1] = 0.5f;
-	e.ch_w = 0; e.dl_w = 0; e.rv_p = 0; e.pd_w = 0;
+	e.ph_phase = 0.0f;
+	e.ch_ps = 0.0f;
+	e.ch_pf = 0.0f;
+	e.tr_phase = 0.0f;
+	e.rv_ph[0] = 0.0f;
+	e.rv_ph[1] = 0.5f;
+	e.ch_w = 0;
+	e.dl_w = 0;
+	e.rv_p = 0;
+	e.pd_w = 0;
 }
 
 // a stage is turned on: start from a clean state at the current parameter values (no ramps)
 static inline void start_drive(Engine& e) {
-	e.dr_k = 0.2f; e.dr_mk = 5.0f; e.dr_b = 0.0f; e.dr_yb = 0.0f; e.dr_w = 0.0f;
+	e.dr_k = 0.2f;
+	e.dr_mk = 5.0f;
+	e.dr_b = 0.0f;
+	e.dr_yb = 0.0f;
+	e.dr_w = 0.0f;
 	e.dr_dcx = e.dr_dcy = 0.0f;
 }
-static inline void start_tilt(Engine& e) { e.tl_gl = e.tl_gh = 1.0f; e.tl_lp = 0.0f; }
+static inline void start_tilt(Engine& e) {
+	e.tl_gl = e.tl_gh = 1.0f;
+	e.tl_lp = 0.0f;
+}
 static inline void start_phaser(Engine& e) {
 	e.ph_a = phaser_coef(e, e.ph_phase);
 	e.ph_y = 0.0f;
@@ -845,7 +1051,8 @@ static inline void start_delay(Engine& e) {
 	e.dl_in = 0.0f;
 	e.dl_tc = dl_tone_coef(e, e.s[P_DL_TONE]);
 	const float th = 0.125f * (1.0f + e.s[P_DL_PP]);
-	e.dl_a = sin2pi(th); e.dl_b = sin2pi(0.25f - th);
+	e.dl_a = sin2pi(th);
+	e.dl_b = sin2pi(0.25f - th);
 	e.clr_dl = -1;
 }
 static inline void start_reverb(Engine& e) {
@@ -860,14 +1067,16 @@ static inline void start_reverb(Engine& e) {
 	e.clr_pd = e.clr_rv = -1;
 }
 static inline void start_half(Engine& e) {
-	e.hb_dn = HbState(); e.hb_upl = HbState(); e.hb_upr = HbState();
+	e.hb_dn = HbState();
+	e.hb_upl = HbState();
+	e.hb_upr = HbState();
 }
 
 // background clearing of a stopped stage's memory, a chunk per block
 static inline void clear_step(Engine& e) {
 	const int CHUNK = 1024;
 	if (e.clr_dl >= 0) {
-		uint32_t* b = (uint32_t*)dl_buf;   // two samples per word
+		uint32_t* b = (uint32_t*)dl_buf; // two samples per word
 		const int end = e.clr_dl + CHUNK < DL_LEN / 2 ? e.clr_dl + CHUNK : DL_LEN / 2;
 		for (int i = e.clr_dl; i < end; i++) b[i] = 0;
 		e.clr_dl = end < DL_LEN / 2 ? end : -1;
@@ -913,9 +1122,18 @@ static inline void update_stages(Engine& e) {
 	if (dl && !e.on_delay) start_delay(e);
 	if (rv && !e.on_reverb) start_reverb(e);
 	if (!dl && e.on_delay) e.clr_dl = 0;
-	if (!rv && e.on_reverb) { e.clr_rv = 0; e.clr_pd = 0; }
-	e.on_drive = dr; e.on_tilt = tl; e.on_phaser = ph; e.on_chorus = ch; e.on_trem = tr;
-	e.on_delay = dl; e.on_reverb = rv; e.on_half = dl || rv;
+	if (!rv && e.on_reverb) {
+		e.clr_rv = 0;
+		e.clr_pd = 0;
+	}
+	e.on_drive = dr;
+	e.on_tilt = tl;
+	e.on_phaser = ph;
+	e.on_chorus = ch;
+	e.on_trem = tr;
+	e.on_delay = dl;
+	e.on_reverb = rv;
+	e.on_half = dl || rv;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -926,8 +1144,8 @@ static inline void init(Engine& e, int sample_rate) {
 	e.sr = sr;
 	e.sr2 = 0.5f * sr;
 	e.inv_sr = 1.0f / sr;
-	e.smooth_a = 1.0f - exp2_(-1.4426950f * BLOCK / (0.02f * sr));          // 20 ms
-	e.lim_rel = 1.0f - exp2_(-1.4426950f * LSEG / (0.15f * sr));            // 150 ms release
+	e.smooth_a = 1.0f - exp2_(-1.4426950f * BLOCK / (0.02f * sr)); // 20 ms
+	e.lim_rel = 1.0f - exp2_(-1.4426950f * LSEG / (0.15f * sr));   // 150 ms release
 	e.dr_dc_r = 1.0f - 6.2831853f * 8.0f / sr;
 	e.tl_c = onepole(700.0f, sr);
 	e.ch_hp_c = onepole(120.0f, sr);
@@ -961,7 +1179,7 @@ static inline void process(Engine& e, const real* __restrict__ in, real* __restr
 	update_stages(e);
 	float* L = e.L + LSEG;
 	float* R = e.R + LSEG;
-	for (int n = 0; n < BLOCK; n++) e.M[n] = clampf(in[n], -16.0f, 16.0f);   // also maps NaN to a number
+	for (int n = 0; n < BLOCK; n++) e.M[n] = clampf(in[n], -16.0f, 16.0f); // also maps NaN to a number
 	if (e.on_drive || e.on_tilt) stage_drive(e);
 	if (e.on_phaser) stage_phaser(e);
 	stage_chorus(e, L, R);
@@ -985,7 +1203,7 @@ template <> struct EngineParams<fx::Engine> {
 	static constexpr int count = fx::NPARAM;
 	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &fx::PARAMS[i].d : 0; }
 	static float* ptr(fx::Engine& e, int i) { return (i >= 0 && i < count) ? &e.p[i] : 0; }
-	static void changed(fx::Engine&, int) {}   // process() clamps and smooths every block
+	static void changed(fx::Engine&, int) {} // process() clamps and smooths every block
 };
 }
 

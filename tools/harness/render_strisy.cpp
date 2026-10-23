@@ -71,7 +71,10 @@ int main(int argc, char** argv) {
 	for (int a = 1; a < argc; a++) {
 		const std::string s = argv[a];
 		auto next = [&]() -> const char* {
-			if (a + 1 >= argc) { std::fprintf(stderr, "%s needs a value\n", s.c_str()); std::exit(2); }
+			if (a + 1 >= argc) {
+				std::fprintf(stderr, "%s needs a value\n", s.c_str());
+				std::exit(2);
+			}
 			return argv[++a];
 		};
 		if (s == "--preset") preset = std::atoi(next());
@@ -84,23 +87,39 @@ int main(int argc, char** argv) {
 		else if (s == "--silent-after") silent_after = std::atof(next());
 		else if (s == "--expect") expect = next();
 		else if (s == "--golden-name") golden_name = next();
-		else if (s.size() > 1 && s[0] == '-' && s[1] == '-') { std::fprintf(stderr, "unknown option %s\n", s.c_str()); return 2; }
-		else if (positional == 0) { out_path = argv[a]; positional++; }
-		else if (positional == 1) { seconds = std::atof(argv[a]); positional++; }
+		else if (s.size() > 1 && s[0] == '-' && s[1] == '-') {
+			std::fprintf(stderr, "unknown option %s\n", s.c_str());
+			return 2;
+		} else if (positional == 0) {
+			out_path = argv[a];
+			positional++;
+		} else if (positional == 1) {
+			seconds = std::atof(argv[a]);
+			positional++;
+		}
 	}
-	if (nv < 1 || nv > NVOICES_MAX || nv > eng::MAX_VOICES) { std::fprintf(stderr, "--nv out of range\n"); return 2; }
+	if (nv < 1 || nv > NVOICES_MAX || nv > eng::MAX_VOICES) {
+		std::fprintf(stderr, "--nv out of range\n");
+		return 2;
+	}
 
 	std::vector<harness::RecEvent> events;
 	if (rec) {
 		events = harness::load_recording(rec, nv);
-		if (events.empty()) { std::fprintf(stderr, "no key events in %s\n", rec); return 2; }
+		if (events.empty()) {
+			std::fprintf(stderr, "no key events in %s\n", rec);
+			return 2;
+		}
 		if (seconds < 0) seconds = events.back().t + 2.0;
 	}
 	if (seconds < 0) seconds = 17.5;
 
 	static eng::Engine e;
 	eng::init(e, SAMPLERATE, nv);
-	if (!set_preset_checked(e, preset)) { std::fprintf(stderr, "no preset %d for this engine\n", preset); return 2; }
+	if (!set_preset_checked(e, preset)) {
+		std::fprintf(stderr, "no preset %d for this engine\n", preset);
+		return 2;
+	}
 	static fx::Engine fxe;
 	if (use_fx) fx::init(fxe, SAMPLERATE);
 
@@ -160,11 +179,17 @@ int main(int argc, char** argv) {
 	if (bad) std::fprintf(stderr, "!! %zu NON-FINITE OUTPUT SAMPLES\n", bad);
 	if (out_path) {
 		FILE* f = std::fopen(out_path, "wb");
-		if (!f) { std::perror(out_path); return 1; }
+		if (!f) {
+			std::perror(out_path);
+			return 1;
+		}
 		std::fwrite(out.data(), sizeof(float), out.size(), f);
 		std::fclose(f);
 	}
-	if (wav && !harness::write_wav(wav, out, channels, SAMPLERATE)) { std::perror(wav); return 1; }
+	if (wav && !harness::write_wav(wav, out, channels, SAMPLERATE)) {
+		std::perror(wav);
+		return 1;
+	}
 	const uint64_t h = harness::hash_samples(out);
 	std::fprintf(stderr, "%d voices, %.1f s audio, host compute %.3f s, peak %.3f\n", nv, seconds, compute_s, peak);
 	std::printf("hash %016llx\n", static_cast<unsigned long long>(h));
@@ -172,18 +197,30 @@ int main(int argc, char** argv) {
 	int fail = 0;
 	if (check) {
 		if (bad) fail = 1;
-		if (peak > max_peak) { std::fprintf(stderr, "!! peak %.3f over %.3f\n", peak, max_peak); fail = 1; }
+		if (peak > max_peak) {
+			std::fprintf(stderr, "!! peak %.3f over %.3f\n", peak, max_peak);
+			fail = 1;
+		}
 		if (silent_after >= 0) {
 			const int active = eng::active_voices(e);
-			if (loud_tail) { std::fprintf(stderr, "!! %zu samples above 1e-4 after %.2f s\n", loud_tail, silent_after); fail = 1; }
-			if (active) { std::fprintf(stderr, "!! %d voices still active at the end\n", active); fail = 1; }
+			if (loud_tail) {
+				std::fprintf(stderr, "!! %zu samples above 1e-4 after %.2f s\n", loud_tail, silent_after);
+				fail = 1;
+			}
+			if (active) {
+				std::fprintf(stderr, "!! %d voices still active at the end\n", active);
+				fail = 1;
+			}
 		}
 	}
 	const char* golden_out = std::getenv("STRISO_GOLDEN_OUT");
 	if (golden_name && golden_out && *golden_out) {
 		const std::string path = std::string(golden_out) + "/" + golden_name + ".hash";
 		FILE* f = std::fopen(path.c_str(), "w");
-		if (!f) { std::perror(path.c_str()); return 1; }
+		if (!f) {
+			std::perror(path.c_str());
+			return 1;
+		}
 		std::fprintf(f, "%s %016llx\n", golden_name, static_cast<unsigned long long>(h));
 		std::fclose(f);
 		expect = nullptr;
@@ -191,7 +228,10 @@ int main(int argc, char** argv) {
 	if (expect) {
 		char hs[32];
 		std::snprintf(hs, sizeof hs, "%016llx", static_cast<unsigned long long>(h));
-		if (std::strcmp(hs, expect) != 0) { std::fprintf(stderr, "!! render hash %s, expected %s (golden render changed)\n", hs, expect); fail = 1; }
+		if (std::strcmp(hs, expect) != 0) {
+			std::fprintf(stderr, "!! render hash %s, expected %s (golden render changed)\n", hs, expect);
+			fail = 1;
+		}
 	}
 	return fail;
 }

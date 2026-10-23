@@ -26,27 +26,27 @@
 
 namespace striso::tuning {
 
-inline constexpr int KEY_COUNT = 61;     // playing keys (n = 0..60)
-inline constexpr int BUTTON_COUNT = 68;  // + the aux buttons, in the key scanner's order
+inline constexpr int KEY_COUNT = 61;    // playing keys (n = 0..60)
+inline constexpr int BUTTON_COUNT = 68; // + the aux buttons, in the key scanner's order
 
 // The isomorphic layout: a button's pitch is octave * coord0 + fifth * coord1 from the centre D.
 // In key numbers (config_store.c): n = 17 * coord0 + 10 * coord1 + 30.
 inline constexpr int coord0[BUTTON_COUNT] = {
-	6, 5, 5, 4, 4, 3,  2,  2,  1,  1,  0,  0, -1, -2, -2, -3, -3,
-	5, 4, 4, 3, 3, 2,  1,  1,  0,  0, -1, -1, -2, -3, -3, -4, -4,
-	4, 3, 3, 2, 2, 1,  0,  0, -1, -1, -2, -2, -3, -4, -4, -5, -5,
-	3, 2, 2, 1, 1, 0, -1, -1, -2, -2, -3, -3, -4, -5, -5, -6, -6};
+    6, 5, 5, 4, 4, 3, 2, 2, 1, 1, 0, 0, -1, -2, -2, -3, -3,
+    5, 4, 4, 3, 3, 2, 1, 1, 0, 0, -1, -1, -2, -3, -3, -4, -4,
+    4, 3, 3, 2, 2, 1, 0, 0, -1, -1, -2, -2, -3, -4, -4, -5, -5,
+    3, 2, 2, 1, 1, 0, -1, -1, -2, -2, -3, -3, -4, -5, -5, -6, -6};
 inline constexpr int coord1[BUTTON_COUNT] = {
-	-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8,
-	-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8,
-	-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8,
-	-8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8};
+    -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+    -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+    -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8,
+    -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8};
 
 struct Tuning {
-	float octave = 12.0f;  // notegen0
-	float fifth = 7.0f;    // notegen1
-	float offset = 0.0f;   // note_offset
-	float base = 62.0f;    // start_note_offset
+	float octave = 12.0f; // notegen0
+	float fifth = 7.0f;   // notegen1
+	float offset = 0.0f;  // note_offset
+	float base = 62.0f;   // start_note_offset
 };
 
 // the pitch of a button, as synth_control.cpp computes buttons[].note at note on:
@@ -55,6 +55,6 @@ struct Tuning {
 	return t.base + key_offset + t.octave * static_cast<float>(c0) + t.fifth * static_cast<float>(c1) + t.offset;
 }
 
-}  // namespace striso::tuning
+} // namespace striso::tuning
 
 #endif

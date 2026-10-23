@@ -68,8 +68,8 @@ static constexpr int CTRL = 8;
 #endif
 static constexpr int NCTRL = BLOCK / CTRL;
 static_assert(BLOCK % CTRL == 0, "STRISY_CTRL must divide the block size");
-static constexpr int NCV = 9;    // interpolated control values per voice
-static constexpr int PHASE_FRAC = 19;  // fixed-point oscillator phase: 13 integer bits (period <= 4096 plus jumps)
+static constexpr int NCV = 9;         // interpolated control values per voice
+static constexpr int PHASE_FRAC = 19; // fixed-point oscillator phase: 13 integer bits (period <= 4096 plus jumps)
 
 // ---------------------------------------------------------------------------------------------
 // Approximations from fast.lib / fastpow.h, kept identical so the sound matches synth.dsp
@@ -77,7 +77,10 @@ static constexpr int PHASE_FRAC = 19;  // fixed-point oscillator phase: 13 integ
 [[nodiscard]] static inline float fastpow2(float p) {
 	int w = p;
 	float z = p - w;
-	union { uint32_t i; float f; } v = { static_cast<uint32_t>((1 << 23) * (p + 121.2740575f + 27.7280233f / (4.84252568f - z) - 1.49012907f * z)) };
+	union {
+		uint32_t i;
+		float f;
+	} v = {static_cast<uint32_t>((1 << 23) * (p + 121.2740575f + 27.7280233f / (4.84252568f - z) - 1.49012907f * z))};
 	return v.f;
 }
 
@@ -93,8 +96,12 @@ static constexpr int PHASE_FRAC = 19;  // fixed-point oscillator phase: 13 integ
 // written as v1 = a*ic1 + ga*(v0-ic2), v2 = ic2 + ga*ic1 + g2a*(v0-ic2).
 // Outputs: lowpass v2, bandpass v1 (peak gain Q), fast.lib BPF k*v1, highpass v0 - k*v1 - v2.
 
-struct SvfCoef { real a, ga, g2a, k; };
-struct SvfState { real ic1, ic2; };
+struct SvfCoef {
+	real a, ga, g2a, k;
+};
+struct SvfState {
+	real ic1, ic2;
+};
 
 [[nodiscard]] static inline SvfCoef svf_from_g(real g, real Q) {
 	real k = 1.0f / Q;
@@ -118,8 +125,9 @@ struct SvfState { real ic1, ic2; };
 [[nodiscard]] static inline real rmax(real a, real b) { return sizeof(real) == sizeof(float) ? (real)fmaxf((float)a, (float)b) : (real)fmax(a, b); }
 [[nodiscard]] static inline real rmin(real a, real b) { return sizeof(real) == sizeof(float) ? (real)fminf((float)a, (float)b) : (real)fmin(a, b); }
 
-#define SVF_TICK(v0, st_ic1, st_ic2, c, v1, v2) do { \
-		real e_ = (v0) - st_ic2; \
+#define SVF_TICK(v0, st_ic1, st_ic2, c, v1, v2) \
+	do { \
+		real e_ = (v0)-st_ic2; \
 		v1 = (c).a * st_ic1 + (c).ga * e_; \
 		v2 = st_ic2 + (c).ga * st_ic1 + (c).g2a * e_; \
 		st_ic1 = 2.0f * v1 - st_ic1; \
@@ -148,14 +156,14 @@ static constexpr real GATE_LEVEL = 1e-6f;
 // so the engine can recompute derived values. Values are clamped to [min, max] before writing.
 // What a parameter's values mean; the number is what the USB console reports (tools/striso.py).
 enum class ParamKind : uint8_t {
-	continuous = 0,  // any value in [min, max]
-	steps = 1,       // integers (writes are rounded)
-	toggle = 2,      // on/off: min or max
+	continuous = 0, // any value in [min, max]
+	steps = 1,      // integers (writes are rounded)
+	toggle = 2,     // on/off: min or max
 };
 
 struct ParamDesc {
-	const char* name;   // short id, e.g. "cutoff"
-	const char* group;  // UI group, e.g. "filter"
+	const char* name;  // short id, e.g. "cutoff"
+	const char* group; // UI group, e.g. "filter"
 	float min, max;
 	ParamKind kind;
 };
@@ -178,33 +186,33 @@ struct GlobalControls {
 };
 
 struct VoiceState {
-	real phase;                 // oscillator phase (OSC_FAUST)
-	uint32_t phase_fx;           // oscillator phase, fixed point with PHASE_FRAC fraction bits
+	real phase;        // oscillator phase (OSC_FAUST)
+	uint32_t phase_fx; // oscillator phase, fixed point with PHASE_FRAC fraction bits
 	real note_prev;
-	real env;                   // velocity envelope (envdecay)
-	SvfState by;                 // tilt smoothing lowpass
-	SvfState lv;                 // level smoothing lowpass
-	SvfState lp;                 // main lowpass
-	SvfState bp;                 // tilt band-pass formant
-	SvfState body[3];            // rotation body filters (TDF-II states s1, s2)
-	real ctrl_prev[NCV];         // last control point of the previous block
+	real env;            // velocity envelope (envdecay)
+	SvfState by;         // tilt smoothing lowpass
+	SvfState lv;         // level smoothing lowpass
+	SvfState lp;         // main lowpass
+	SvfState bp;         // tilt band-pass formant
+	SvfState body[3];    // rotation body filters (TDF-II states s1, s2)
+	real ctrl_prev[NCV]; // last control point of the previous block
 	int active;
 };
 
 // per-voice intermediate values between the control pass and the audio pass
 struct Scratch {
-	real osc[BLOCK];                             // oscillator output
-	real cby[NCTRL], clevel[NCTRL];              // control rate tilt and level
-	real ctrl[NCTRL][NCV];                       // control rate values before interpolation
+	real osc[BLOCK];                // oscillator output
+	real cby[NCTRL], clevel[NCTRL]; // control rate tilt and level
+	real ctrl[NCTRL][NCV];          // control rate values before interpolation
 };
 
 struct Engine {
-	real pi_sr;                 // pi / SR
-	real c_period, c_inc;       // oscillator constants as in the Faust code
-	real acc_fac, half_fac;     // envdecay factors
+	real pi_sr;             // pi / SR
+	real c_period, c_inc;   // oscillator constants as in the Faust code
+	real acc_fac, half_fac; // envdecay factors
 	SvfCoef acc1, acc2, by_lp, lv_lp, master_hp;
-	SvfCoef bp_rest;             // tilt band-pass coefficients without positive tilt
-	real K_body[3][2];          // body filter K for negative/positive rotation
+	SvfCoef bp_rest;   // tilt band-pass coefficients without positive tilt
+	real K_body[3][2]; // body filter K for negative/positive rotation
 	SvfState acc_s[2];
 	real vdacc_env;
 	SvfState hp_s;
@@ -212,14 +220,14 @@ struct Engine {
 	GlobalControls g;
 	VoiceControls vc[MAX_VOICES];
 	VoiceState vs[MAX_VOICES];
-	real vdacc[BLOCK];          // shared accelerometer shake signal for the current block
+	real vdacc[BLOCK]; // shared accelerometer shake signal for the current block
 	real mix[BLOCK];
 	Scratch scratch;
 #ifdef STRISY_TEST_SIGNAL
 	uint32_t test_n;
 	real test[BLOCK];
 #endif
-	float table[TABLESIZE];      // noise wavetable
+	float table[TABLESIZE]; // noise wavetable
 };
 
 [[nodiscard]] static inline real K_f0(const Engine& e, real f0) { return tan0(e.pi_sr * f0); }
@@ -236,10 +244,10 @@ static inline void fill_noise_table(float* table) {
 static inline void init(Engine& e, int sample_rate, int nvoices) {
 	real sr = (real)sample_rate;
 	e.pi_sr = 3.1415926535897931f / sr;
-	e.c_period = 0.061156102924877762f * sr;   // 0.5*SR/8.1757989 as in the Faust code
+	e.c_period = 0.061156102924877762f * sr; // 0.5*SR/8.1757989 as in the Faust code
 	e.c_inc = 8.1757989159999997f / sr;
 	e.acc_fac = powf(0.5f, 1.0f / (sr * accDecay));
-	e.half_fac = 0.7f / 64.0f / sr;              // halftime2fac_fast with decaytime's 64/note folded in
+	e.half_fac = 0.7f / 64.0f / sr; // halftime2fac_fast with decaytime's 64/note folded in
 	e.acc1 = svf_from_g(K_f0(e, 40), 1.31f);
 	e.acc2 = svf_from_g(K_f0(e, 40), 0.54f);
 	// tilt and level smoothers run at the control rate
@@ -258,7 +266,7 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 		e.vc[v] = {69.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 		e.vs[v] = VoiceState();
 #ifdef STRISY_TEST_INIT_PHASE
-		e.vs[v].phase = STRISY_TEST_INIT_PHASE;  // harness: same sound, different noise realization
+		e.vs[v].phase = STRISY_TEST_INIT_PHASE; // harness: same sound, different noise realization
 		e.vs[v].phase_fx = (uint32_t)(STRISY_TEST_INIT_PHASE * (1u << PHASE_FRAC));
 #endif
 	}
@@ -320,7 +328,7 @@ static inline void process_voice(Engine& e, int v) {
 	const real dmin = 16.0f * pres < 0.5f * (pres + 1.0f) ? 16.0f * pres : 0.5f * (pres + 1.0f);
 	const real dped = 0.2f * e.g.pedal + 0.01f;
 	const real env_fac = 1.0f - e.half_fac * (c.note / (dmin > dped ? dmin : dped));
-	const real env_fac0 = fabsf(c.note - s.note_prev) < 1.0f ? env_fac : 0.0f;  // resetni on note jump
+	const real env_fac0 = fabsf(c.note - s.note_prev) < 1.0f ? env_fac : 0.0f; // resetni on note jump
 	const real by_in = c.but_y;
 	const real rot[3] = {e.g.rot_y, e.g.rot_x, e.g.rot_z};
 	// body filters: fast.lib BPF(K, Q) as transposed direct form II, 4 operations per sample
@@ -351,7 +359,7 @@ static inline void process_voice(Engine& e, int v) {
 	// tan -> division -> filter) and the core mostly waits. Here the recursive parts (smoothers,
 	// envelope, oscillator phase, filters) are short chains, and the heavy coefficient math has no
 	// sample-to-sample dependency at all, so it is unrolled and interleaved. Same arithmetic as one loop.
-	STRISY_PROF_MARK(1);  // voice setup (and skipped voices)
+	STRISY_PROF_MARK(1); // voice setup (and skipped voices)
 	Scratch& w = e.scratch;
 	real env = s.env;
 	// 1a: control recursions at the control rate (every CTRL samples): tilt smoothing, velocity
@@ -360,15 +368,15 @@ static inline void process_voice(Engine& e, int v) {
 	// max(v*fac, e0*fac^CTRL) for v >= 0.
 	{
 		real fac_pow = 1.0f;
-		for (int j = 1; j < CTRL; j++) fac_pow *= env_fac;  // fac^(CTRL-1)
-		const real facR = fac_pow * env_fac;                  // fac^CTRL
+		for (int j = 1; j < CTRL; j++) fac_pow *= env_fac; // fac^(CTRL-1)
+		const real facR = fac_pow * env_fac;               // fac^CTRL
 		const real vf = vplev * env_fac;
 		real by1 = s.by.ic1, by2 = s.by.ic2, lv1 = s.lv.ic1, lv2 = s.lv.ic2;
 		for (int k = 0; k < NCTRL; k++) {
 			real t1, but_y, level;
 			SVF_TICK(by_in, by1, by2, byc, t1, but_y);
 			if (k == 0) {
-				env = rmax(vplev, env) * env_fac0;          // first sample of the block: resetni
+				env = rmax(vplev, env) * env_fac0; // first sample of the block: resetni
 				if (CTRL > 1) env = rmax(vf, env * fac_pow);
 			} else {
 				env = rmax(vf, env * facR);
@@ -377,9 +385,10 @@ static inline void process_voice(Engine& e, int v) {
 			w.cby[k] = but_y;
 			w.clevel[k] = level;
 		}
-		s.by = {by1, by2}; s.lv = {lv1, lv2};
+		s.by = {by1, by2};
+		s.lv = {lv1, lv2};
 	}
-	STRISY_PROF_MARK(2);  // 1a control recursions
+	STRISY_PROF_MARK(2); // 1a control recursions
 	// 1b: cutoffs and filter coefficients at the control points, independent per point
 	bool any_pos_tilt = false;
 #pragma GCC unroll 4
@@ -394,7 +403,9 @@ static inline void process_voice(Engine& e, int v) {
 		real f2lev = rmax(but_y, 0.0f) * but_y * pres;
 		real dg = 1.0f - 0.5f * negy;
 		real* cv = w.ctrl[k];
-		cv[0] = lc.a; cv[1] = lc.ga; cv[2] = lc.g2a;
+		cv[0] = lc.a;
+		cv[1] = lc.ga;
+		cv[2] = lc.g2a;
 		cv[6] = (dg * dg) * level;
 		cv[7] = (filt2level * f2lev) * level;
 		cv[8] = level;
@@ -409,25 +420,32 @@ static inline void process_voice(Engine& e, int v) {
 			real f2lev = rmax(but_y, 0.0f) * but_y * pres;
 			SvfCoef bcf = svf_pade(pi_sr * (filt2Freq * f2lev + minFreq), filt2Q);
 			real* cv = w.ctrl[k];
-			cv[3] = bcf.a; cv[4] = bcf.ga; cv[5] = bcf.g2a;
+			cv[3] = bcf.a;
+			cv[4] = bcf.ga;
+			cv[5] = bcf.g2a;
 		}
 	} else {
 		for (int k = 0; k < NCTRL; k++) {
 			real* cv = w.ctrl[k];
-			cv[3] = e.bp_rest.a; cv[4] = e.bp_rest.ga; cv[5] = e.bp_rest.g2a;
+			cv[3] = e.bp_rest.a;
+			cv[4] = e.bp_rest.ga;
+			cv[5] = e.bp_rest.g2a;
 		}
 	}
-	STRISY_PROF_MARK(7);  // 1b coefficients
-	{	// 2a: periodic noise oscillator
+	STRISY_PROF_MARK(7); // 1b coefficients
+	{                    // 2a: periodic noise oscillator
 		if constexpr (OSC_FAUST) {
 			// same float expressions as the Faust code (bit-identical), for comparisons in the harness
 			real phase = s.phase;
 			for (int n = 0; n < BLOCK; n++) {
 				phase = inc + (phase - (real)(period * ((inc + phase) > fperiod)));
 				int i0 = (int)phase;
-				int i1 = i0 + 1;  // (i0 + 1) % period; the slow path only runs right after a big pitch jump
-				if (i1 >= period) { i1 -= period; if (i1 >= period) i1 %= period; }
-				i0 &= TABLESIZE - 1;  // phase == period == 4096 can only happen for notes below ~12 Hz
+				int i1 = i0 + 1; // (i0 + 1) % period; the slow path only runs right after a big pitch jump
+				if (i1 >= period) {
+					i1 -= period;
+					if (i1 >= period) i1 %= period;
+				}
+				i0 &= TABLESIZE - 1; // phase == period == 4096 can only happen for notes below ~12 Hz
 				real t0 = table[i0];
 				w.osc[n] = t0 + (phase - (real)i0) * (table[i1] - t0);
 			}
@@ -443,8 +461,11 @@ static inline void process_voice(Engine& e, int v) {
 				phase += inc_fx;
 				if (phase > period_fx) phase -= period_fx;
 				int i0 = (int)(phase >> PHASE_FRAC);
-				int i1 = i0 + 1;  // (i0 + 1) % period; the slow path only runs right after a big pitch jump
-				if (i1 >= period) { i1 -= period; if (i1 >= period) i1 %= period; }
+				int i1 = i0 + 1; // (i0 + 1) % period; the slow path only runs right after a big pitch jump
+				if (i1 >= period) {
+					i1 -= period;
+					if (i1 >= period) i1 %= period;
+				}
 				i0 &= TABLESIZE - 1;
 				real t0 = table[i0];
 				real frac = (real)(int32_t)(phase & ((1u << PHASE_FRAC) - 1)) * (1.0f / (1u << PHASE_FRAC));
@@ -456,12 +477,12 @@ static inline void process_voice(Engine& e, int v) {
 		for (int n = 0; n < BLOCK; n++) w.osc[n] = test[n];
 #endif
 	}
-	STRISY_PROF_MARK(4);  // 2a oscillator
+	STRISY_PROF_MARK(4); // 2a oscillator
 	// The control values are interpolated linearly to audio rate inside the filter loops, starting
 	// from the previous block's last control point; the last sample of each interval gets the
 	// control value itself (with CTRL = 1 there is no interpolation). The filters are split over
 	// two loops so each keeps its states, coefficients and increments in the 32 FPU registers.
-	{	// 2b: main lowpass and tilt band-pass
+	{ // 2b: main lowpass and tilt band-pass
 		real lp1 = s.lp.ic1, lp2 = s.lp.ic2, bp1 = s.bp.ic1, bp2 = s.bp.ic2;
 		real la = s.ctrl_prev[0], lga = s.ctrl_prev[1], lg2a = s.ctrl_prev[2];
 		real ba = s.ctrl_prev[3], bga = s.ctrl_prev[4], bg2a = s.ctrl_prev[5];
@@ -475,9 +496,23 @@ static inline void process_voice(Engine& e, int v) {
 #pragma GCC unroll 8
 			for (int j = 0; j < CTRL; j++) {
 				if (j < CTRL - 1) {
-					la += dla; lga += dlga; lg2a += dlg2a; ba += dba; bga += dbga; bg2a += dbg2a; lg += dlg; bg += dbg;
+					la += dla;
+					lga += dlga;
+					lg2a += dlg2a;
+					ba += dba;
+					bga += dbga;
+					bg2a += dbg2a;
+					lg += dlg;
+					bg += dbg;
 				} else {
-					la = cur[0]; lga = cur[1]; lg2a = cur[2]; ba = cur[3]; bga = cur[4]; bg2a = cur[5]; lg = cur[6]; bg = cur[7];
+					la = cur[0];
+					lga = cur[1];
+					lg2a = cur[2];
+					ba = cur[3];
+					bga = cur[4];
+					bg2a = cur[5];
+					lg = cur[6];
+					bg = cur[7];
 				}
 				const int n = k * CTRL + j;
 				const real osc = w.osc[n];
@@ -489,12 +524,18 @@ static inline void process_voice(Engine& e, int v) {
 				mix[n] += lo * lg + bo * bg;
 			}
 		}
-		s.lp = {lp1, lp2}; s.bp = {bp1, bp2};
-		s.ctrl_prev[0] = la; s.ctrl_prev[1] = lga; s.ctrl_prev[2] = lg2a;
-		s.ctrl_prev[3] = ba; s.ctrl_prev[4] = bga; s.ctrl_prev[5] = bg2a;
-		s.ctrl_prev[6] = lg; s.ctrl_prev[7] = bg;
+		s.lp = {lp1, lp2};
+		s.bp = {bp1, bp2};
+		s.ctrl_prev[0] = la;
+		s.ctrl_prev[1] = lga;
+		s.ctrl_prev[2] = lg2a;
+		s.ctrl_prev[3] = ba;
+		s.ctrl_prev[4] = bga;
+		s.ctrl_prev[5] = bg2a;
+		s.ctrl_prev[6] = lg;
+		s.ctrl_prev[7] = bg;
 	}
-	STRISY_PROF_MARK(3);  // 2b lowpass + band-pass
+	STRISY_PROF_MARK(3); // 2b lowpass + band-pass
 	// 2c: body filters driven by rotation, scaled by level. With no rotation at all (e.g. motion
 	// sensor off) their gains are exactly 0, so the loop is skipped; the filter states freeze and the
 	// level interpolation start point jumps to the last control value.
@@ -512,16 +553,24 @@ static inline void process_voice(Engine& e, int v) {
 				lv = j < CTRL - 1 ? lv + dlv : cur;
 				const int n = k * CTRL + j;
 				const real osc = w.osc[n];
-				real r0 = bb0[0] * osc + q01; q01 = q02 - ba1[0] * r0; q02 = -bb0[0] * osc - ba2[0] * r0;
-				real r1 = bb0[1] * osc + q11; q11 = q12 - ba1[1] * r1; q12 = -bb0[1] * osc - ba2[1] * r1;
-				real r2 = bb0[2] * osc + q21; q21 = q22 - ba1[2] * r2; q22 = -bb0[2] * osc - ba2[2] * r2;
+				real r0 = bb0[0] * osc + q01;
+				q01 = q02 - ba1[0] * r0;
+				q02 = -bb0[0] * osc - ba2[0] * r0;
+				real r1 = bb0[1] * osc + q11;
+				q11 = q12 - ba1[1] * r1;
+				q12 = -bb0[1] * osc - ba2[1] * r1;
+				real r2 = bb0[2] * osc + q21;
+				q21 = q22 - ba1[2] * r2;
+				q22 = -bb0[2] * osc - ba2[2] * r2;
 				mix[n] += (bgain[0] * r0 + bgain[1] * r1 + bgain[2] * r2) * lv;
 			}
 		}
-		s.body[0] = {q01, q02}; s.body[1] = {q11, q12}; s.body[2] = {q21, q22};
+		s.body[0] = {q01, q02};
+		s.body[1] = {q11, q12};
+		s.body[2] = {q21, q22};
 		s.ctrl_prev[8] = lv;
 	}
-	STRISY_PROF_MARK(5);  // 2c body filters
+	STRISY_PROF_MARK(5); // 2c body filters
 	s.note_prev = c.note;
 	s.env = env;
 	if constexpr (GATING) {
@@ -544,7 +593,7 @@ static inline void process_voice(Engine& e, int v) {
 static inline void process(Engine& e, real* __restrict__ output) {
 	STRISY_PROF_START();
 	process_global(e);
-	STRISY_PROF_MARK(0);  // global
+	STRISY_PROF_MARK(0); // global
 	for (int n = 0; n < BLOCK; n++) e.mix[n] = 0.0f;
 	for (int v = 0; v < e.nvoices; v++) process_voice(e, v);
 	const SvfCoef h = e.master_hp;
@@ -555,7 +604,7 @@ static inline void process(Engine& e, real* __restrict__ output) {
 		output[n] = x - h.k * v1 - v2;
 	}
 	e.hp_s = {h1, h2};
-	STRISY_PROF_MARK(6);  // master (and last voice tail)
+	STRISY_PROF_MARK(6); // master (and last voice tail)
 }
 
 } // namespace strisy

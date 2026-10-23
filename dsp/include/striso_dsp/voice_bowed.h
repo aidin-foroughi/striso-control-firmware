@@ -60,11 +60,11 @@ namespace bowed {
 using real = float;
 static constexpr int BLOCK = strisy::BLOCK;
 static constexpr int MAX_VOICES = 10;
-static constexpr int NECK_LEN = 2048;    // >= longest string loop (note 18: 2060 samples, clamped)
-static constexpr int BRIDGE_LEN = 512;   // >= max bow distance from the bridge (beta <= 0.22: 450)
+static constexpr int NECK_LEN = 2048;  // >= longest string loop (note 18: 2060 samples, clamped)
+static constexpr int BRIDGE_LEN = 512; // >= max bow distance from the bridge (beta <= 0.22: 450)
 static constexpr uint32_t NECK_MASK = NECK_LEN - 1, BRIDGE_MASK = BRIDGE_LEN - 1;
-static constexpr int NB = 5;             // body modes
-static constexpr int ENS_LEN = 2048;     // section delay (42 ms)
+static constexpr int NB = 5;         // body modes
+static constexpr int ENS_LEN = 2048; // section delay (42 ms)
 static constexpr uint32_t ENS_MASK = ENS_LEN - 1;
 
 // delay lines in AHB SRAM1/2 (ram1): 100 KB for 10 voices
@@ -89,52 +89,52 @@ using strisy::rmin;
 // Sound design parameters (all floats: they are the live parameters, see EngineParams below)
 
 struct Params {
-	real gain;            // output level
+	real gain; // output level
 	// bow
 	real force_lo, force_hi; // bow force/speed ratio (x beta, "kappa") at light and full pressure
-	real force_over;      // grit when pressing beyond 1 (0 = none; beyond 1 is louder, fuller, brighter)
-	real speed_curve;     // bow speed from pressure: P * (1 - c + c * P)
-	real rosin;           // bow noise (jitter of the static friction)
+	real force_over;         // grit when pressing beyond 1 (0 = none; beyond 1 is louder, fuller, brighter)
+	real speed_curve;        // bow speed from pressure: P * (1 - c + c * P)
+	real rosin;              // bow noise (jitter of the static friction)
 	// bow position
-	real pos;             // bow-bridge distance / string length at flat tilt and medium pressure
-	real pos_tilt;        // octaves of position per unit tilt (forward = bridge)
-	real pos_press;       // octaves towards the fingerboard from full to light pressure
-	real tilt_dead;       // tilt dead zone: the forward tilt of a fast press doesn't move the bow
+	real pos;       // bow-bridge distance / string length at flat tilt and medium pressure
+	real pos_tilt;  // octaves of position per unit tilt (forward = bridge)
+	real pos_press; // octaves towards the fingerboard from full to light pressure
+	real tilt_dead; // tilt dead zone: the forward tilt of a fast press doesn't move the bow
 	// string
-	real damp;            // string decay time (s) at note 40 (halves every 2 octaves)
-	real bright;          // corner sharpness (string loss filters): > 1 brighter
+	real damp;             // string decay time (s) at note 40 (halves every 2 octaves)
+	real bright;           // corner sharpness (string loss filters): > 1 brighter
 	real tone_lo, tone_hi; // tone shelf above 1.3 kHz at light / full pressure
 	// body
-	real body_size;       // body mode frequencies x (violin 1)
-	real body_track;      // 0: fixed body, 1: the body shrinks for low notes (any register)
-	real body_amt;        // resonant body level
-	real body_q;          // body resonance sharpness x
-	real hill;            // bridge hill (2-3 kHz brilliance of a violin body)
-	real direct;          // unfiltered string in the output
+	real body_size;  // body mode frequencies x (violin 1)
+	real body_track; // 0: fixed body, 1: the body shrinks for low notes (any register)
+	real body_amt;   // resonant body level
+	real body_q;     // body resonance sharpness x
+	real hill;       // bridge hill (2-3 kHz brilliance of a violin body)
+	real direct;     // unfiltered string in the output
 	// accent (strike)
-	real acc_force;       // firmer bow at a strike (limited to the top of the clean range)
-	real acc_time;        // accent decay (s)
-	real acc_noise;       // extra bow noise at a strike
-	real acc_bright;      // extra brightness at a strike
+	real acc_force;  // firmer bow at a strike (limited to the top of the clean range)
+	real acc_time;   // accent decay (s)
+	real acc_noise;  // extra bow noise at a strike
+	real acc_bright; // extra brightness at a strike
 	// release
-	real rel;             // ring time (s) after a slow release (the bow stops on the string)
-	real rel_ped;         // + pedal^2 * this
-	real rel_lift;        // x (1 + this * lift) after a quick lift-off
+	real rel;      // ring time (s) after a slow release (the bow stops on the string)
+	real rel_ped;  // + pedal^2 * this
+	real rel_lift; // x (1 + this * lift) after a quick lift-off
 	// vibrato (automatic, delayed)
-	real vib;             // depth (cents)
+	real vib; // depth (cents)
 	real vib_hz;
-	real vib_delay;       // seconds after the note start until full depth
+	real vib_delay; // seconds after the note start until full depth
 	// motion
-	real trem;            // shake -> bow speed modulation (strong shakes reverse the bow)
-	real body_rot;        // rotation -> body mode shift (octaves)
+	real trem;     // shake -> bow speed modulation (strong shakes reverse the bow)
+	real body_rot; // rotation -> body mode shift (octaves)
 	// section
-	real ens;             // level of the two extra players (0 = solo)
-	real ens_detune;      // their pitch wander (cents)
-	real ens_spread;      // their timing spread (ms)
+	real ens;        // level of the two extra players (0 = solo)
+	real ens_detune; // their pitch wander (cents)
+	real ens_spread; // their timing spread (ms)
 	// pizzicato
-	real pizz;            // 1: plucked instead of bowed
-	real pizz_decay;      // ring time (s) at note 60 while held
-	real pizz_bright;     // pluck sharpness
+	real pizz;        // 1: plucked instead of bowed
+	real pizz_decay;  // ring time (s) at note 60 while held
+	real pizz_bright; // pluck sharpness
 };
 
 static constexpr int NPARAMS = sizeof(Params) / sizeof(real);
@@ -143,16 +143,43 @@ static_assert(sizeof(Params) == NPARAMS * sizeof(real), "Params must hold only f
 [[nodiscard]] static inline Params violin_params() {
 	Params p;
 	p.gain = 1.0f;
-	p.force_lo = 0.75f; p.force_hi = 0.95f; p.force_over = 1.0f; p.speed_curve = 0.7f; p.rosin = 0.01f;
-	p.pos = 0.11f; p.pos_tilt = 1.0f; p.pos_press = 0.5f; p.tilt_dead = 0.35f;
-	p.damp = 4.0f; p.bright = 1.0f; p.tone_lo = 0.3f; p.tone_hi = 1.2f;
-	p.body_size = 1.0f; p.body_track = 0.0f; p.body_amt = 1.0f; p.body_q = 1.0f; p.hill = 0.75f; p.direct = 0.3f;
-	p.acc_force = 0.0f; p.acc_time = 0.02f; p.acc_noise = 0.04f; p.acc_bright = 0.4f;
-	p.rel = 0.1f; p.rel_ped = 3.0f; p.rel_lift = 0.0f;
-	p.vib = 0.0f; p.vib_hz = 5.5f; p.vib_delay = 0.35f;
-	p.trem = 1.3f; p.body_rot = 0.7f;
-	p.ens = 0.0f; p.ens_detune = 7.0f; p.ens_spread = 18.0f;
-	p.pizz = 0.0f; p.pizz_decay = 1.0f; p.pizz_bright = 1.0f;
+	p.force_lo = 0.75f;
+	p.force_hi = 0.95f;
+	p.force_over = 1.0f;
+	p.speed_curve = 0.7f;
+	p.rosin = 0.01f;
+	p.pos = 0.11f;
+	p.pos_tilt = 1.0f;
+	p.pos_press = 0.5f;
+	p.tilt_dead = 0.35f;
+	p.damp = 4.0f;
+	p.bright = 1.0f;
+	p.tone_lo = 0.3f;
+	p.tone_hi = 1.2f;
+	p.body_size = 1.0f;
+	p.body_track = 0.0f;
+	p.body_amt = 1.0f;
+	p.body_q = 1.0f;
+	p.hill = 0.75f;
+	p.direct = 0.3f;
+	p.acc_force = 0.0f;
+	p.acc_time = 0.02f;
+	p.acc_noise = 0.04f;
+	p.acc_bright = 0.4f;
+	p.rel = 0.1f;
+	p.rel_ped = 3.0f;
+	p.rel_lift = 0.0f;
+	p.vib = 0.0f;
+	p.vib_hz = 5.5f;
+	p.vib_delay = 0.35f;
+	p.trem = 1.3f;
+	p.body_rot = 0.7f;
+	p.ens = 0.0f;
+	p.ens_detune = 7.0f;
+	p.ens_spread = 18.0f;
+	p.pizz = 0.0f;
+	p.pizz_decay = 1.0f;
+	p.pizz_bright = 1.0f;
 	return p;
 }
 
@@ -160,55 +187,94 @@ static constexpr int NUM_PRESETS = 9;
 
 [[nodiscard]] static inline const char* preset_name(int i) {
 	static constexpr const char* names[NUM_PRESETS] = {
-		"violin", "viola", "cello", "bass", "section", "ponticello", "flautando", "sordino", "pizzicato"};
+	    "violin", "viola", "cello", "bass", "section", "ponticello", "flautando", "sordino", "pizzicato"};
 	return (i >= 0 && i < NUM_PRESETS) ? names[i] : names[0];
 }
 
 [[nodiscard]] static inline Params preset_params(int i) {
 	Params p = violin_params();
 	switch (i) {
-	case 1:  // viola: a bigger body a fifth lower, darker and more nasal
+	case 1: // viola: a bigger body a fifth lower, darker and more nasal
 		p.gain = 1.17f;
-		p.body_size = 0.8f; p.hill = 0.55f; p.body_amt = 1.15f;
-		p.bright = 0.85f; p.tone_hi = 1.0f; p.damp = 4.5f;
+		p.body_size = 0.8f;
+		p.hill = 0.55f;
+		p.body_amt = 1.15f;
+		p.bright = 0.85f;
+		p.tone_hi = 1.0f;
+		p.damp = 4.5f;
 		break;
-	case 2:  // cello: low body resonances, warm and round, longer ring
+	case 2: // cello: low body resonances, warm and round, longer ring
 		p.gain = 1.41f;
-		p.body_size = 0.45f; p.hill = 0.6f; p.body_amt = 1.1f; p.direct = 0.25f;
-		p.bright = 0.8f; p.tone_hi = 1.0f; p.damp = 5.0f;
+		p.body_size = 0.45f;
+		p.hill = 0.6f;
+		p.body_amt = 1.1f;
+		p.direct = 0.25f;
+		p.bright = 0.8f;
+		p.tone_hi = 1.0f;
+		p.damp = 5.0f;
 		break;
-	case 3:  // double bass: big body, dark, a little more rosin, long ring
+	case 3: // double bass: big body, dark, a little more rosin, long ring
 		p.gain = 1.35f;
-		p.body_size = 0.3f; p.hill = 0.45f; p.body_amt = 1.1f; p.direct = 0.25f;
-		p.bright = 0.65f; p.tone_lo = 0.25f; p.tone_hi = 0.85f; p.damp = 6.0f;
-		p.rosin = 0.02f; p.acc_time = 0.02f;
+		p.body_size = 0.3f;
+		p.hill = 0.45f;
+		p.body_amt = 1.1f;
+		p.direct = 0.25f;
+		p.bright = 0.65f;
+		p.tone_lo = 0.25f;
+		p.tone_hi = 0.85f;
+		p.damp = 6.0f;
+		p.rosin = 0.02f;
+		p.acc_time = 0.02f;
 		break;
-	case 4:  // string section: three players, the body follows the register, gentle vibrato
+	case 4: // string section: three players, the body follows the register, gentle vibrato
 		p.gain = 1.5f;
-		p.body_track = 1.0f; p.ens = 0.8f; p.ens_detune = 7.0f; p.ens_spread = 18.0f;
-		p.vib = 12.0f; p.vib_hz = 5.2f; p.vib_delay = 0.4f;
+		p.body_track = 1.0f;
+		p.ens = 0.8f;
+		p.ens_detune = 7.0f;
+		p.ens_spread = 18.0f;
+		p.vib = 12.0f;
+		p.vib_hz = 5.2f;
+		p.vib_delay = 0.4f;
 		p.tone_hi = 1.1f;
 		break;
-	case 5:  // sul ponticello: bow at the bridge, glassy upper partials
+	case 5: // sul ponticello: bow at the bridge, glassy upper partials
 		p.gain = 0.76f;
-		p.pos = 0.075f; p.pos_tilt = 0.4f; p.pos_press = 0.2f;
-		p.tone_lo = 0.6f; p.tone_hi = 1.6f; p.hill = 1.2f; p.bright = 1.3f;
+		p.pos = 0.075f;
+		p.pos_tilt = 0.4f;
+		p.pos_press = 0.2f;
+		p.tone_lo = 0.6f;
+		p.tone_hi = 1.6f;
+		p.hill = 1.2f;
+		p.bright = 1.3f;
 		break;
-	case 6:  // flautando: light fast bow over the fingerboard, soft and airy
+	case 6: // flautando: light fast bow over the fingerboard, soft and airy
 		p.gain = 1.2f;
-		p.pos = 0.15f; p.pos_tilt = 0.25f; p.pos_press = 0.2f;
-		p.force_lo = 0.65f; p.force_hi = 0.85f;
-		p.tone_lo = 0.2f; p.tone_hi = 0.55f; p.bright = 0.7f; p.hill = 0.4f;
+		p.pos = 0.15f;
+		p.pos_tilt = 0.25f;
+		p.pos_press = 0.2f;
+		p.force_lo = 0.65f;
+		p.force_hi = 0.85f;
+		p.tone_lo = 0.2f;
+		p.tone_hi = 0.55f;
+		p.bright = 0.7f;
+		p.hill = 0.4f;
 		p.rosin = 0.02f;
 		break;
-	case 7:  // con sordino: mute on the bridge, veiled and soft-edged
+	case 7: // con sordino: mute on the bridge, veiled and soft-edged
 		p.gain = 1.95f;
-		p.hill = 0.12f; p.tone_lo = 0.2f; p.tone_hi = 0.6f; p.body_amt = 0.8f; p.direct = 0.12f;
+		p.hill = 0.12f;
+		p.tone_lo = 0.2f;
+		p.tone_hi = 0.6f;
+		p.body_amt = 0.8f;
+		p.direct = 0.12f;
 		p.bright = 0.85f;
 		break;
-	case 8:  // pizzicato: plucked, any register (the body follows the note)
+	case 8: // pizzicato: plucked, any register (the body follows the note)
 		p.gain = 0.6f;
-		p.pizz = 1.0f; p.body_track = 1.0f; p.pizz_decay = 1.5f; p.pizz_bright = 0.5f;
+		p.pizz = 1.0f;
+		p.body_track = 1.0f;
+		p.pizz_decay = 1.5f;
+		p.pizz_bright = 0.5f;
 		p.rel = 0.08f;
 		break;
 	default:
@@ -225,46 +291,48 @@ static constexpr int DEFAULT_PRESET = 0;
 #endif
 
 // fixed model constants
-static constexpr real BETA_REF = 0.11f;   // bow position the force window was measured at
-static constexpr real FRIC_A = 0.35f;     // dynamic / static friction
-static constexpr real FRIC_C = 0.3f;      // friction curve width (x bow speed)
-static constexpr real FRIC_CD = 0.7f;     // smooth friction for short strings (x force)
-static constexpr real EPS_LO = 0.012f, EPS_HI = 0.005f;  // corner rounding / period, light / full bow
-static constexpr real ONSET_T = 0.08f;    // firm bow at a note start for this long (s)
-static constexpr int SEED_BUDGET = 5200;  // seed writes per block (~2 of the lowest notes, ~35k cycles)
-static constexpr real ONSET_KK = 0.0f;    // (v5's firm start: not needed with a seeded string)
-static constexpr real ONSET_EASE = 0.45f; // seeded start: force eased over the first two periods
-static constexpr real ONSET_TASTO = 2.5f; // ... fading out towards the fingerboard (x (bq - 1))
+static constexpr real BETA_REF = 0.11f;                 // bow position the force window was measured at
+static constexpr real FRIC_A = 0.35f;                   // dynamic / static friction
+static constexpr real FRIC_C = 0.3f;                    // friction curve width (x bow speed)
+static constexpr real FRIC_CD = 0.7f;                   // smooth friction for short strings (x force)
+static constexpr real EPS_LO = 0.012f, EPS_HI = 0.005f; // corner rounding / period, light / full bow
+static constexpr real ONSET_T = 0.08f;                  // firm bow at a note start for this long (s)
+static constexpr int SEED_BUDGET = 5200;                // seed writes per block (~2 of the lowest notes, ~35k cycles)
+static constexpr real ONSET_KK = 0.0f;                  // (v5's firm start: not needed with a seeded string)
+static constexpr real ONSET_EASE = 0.45f;               // seeded start: force eased over the first two periods
+static constexpr real ONSET_TASTO = 2.5f;               // ... fading out towards the fingerboard (x (bq - 1))
 
 struct VoiceState {
 	int active, quiet;
-	int slip;                 // bow state: slipping (1) or sticking (0)
-	int cnt;                  // samples since the last slip onset (pitch tracking)
-	int pzn;                  // pluck pulse samples left
-	int seeded;               // this note started from a seeded string
-	real corr;                // adaptive tuning correction, fraction of the period
-	real dcr;                 // DC reflection of the bridge
-	uint32_t w, seed;         // delay write position, noise generator
+	int slip;         // bow state: slipping (1) or sticking (0)
+	int cnt;          // samples since the last slip onset (pitch tracking)
+	int pzn;          // pluck pulse samples left
+	int seeded;       // this note started from a seeded string
+	real corr;        // adaptive tuning correction, fraction of the period
+	real dcr;         // DC reflection of the bridge
+	uint32_t w, seed; // delay write position, noise generator
 	real note_prev, note_body;
-	real pres_prev, vp_prev;  // raw controls of the previous block (pluck triggers)
-	real P;                   // smoothed pressure
-	real Ps;                  // slowly smoothed pressure (bow position, corner rounding)
-	real acc;                 // accent envelope from positive pressure velocity
-	real lift;                // quick release memory (negative pressure velocity)
-	real by;                  // smoothed but_y
-	real age;                 // seconds since the note started (vibrato delay)
-	real vib_ph;              // vibrato phase 0..1
-	real vb, ds, cw, nz, dn;  // per-sample ramped values at the end of the previous block
-	real y, ydc, yn;          // loss filter states (bridge, its DC path, finger)
-	real xprev;               // |D| of the previous sample
+	real pres_prev, vp_prev;        // raw controls of the previous block (pluck triggers)
+	real P;                         // smoothed pressure
+	real Ps;                        // slowly smoothed pressure (bow position, corner rounding)
+	real acc;                       // accent envelope from positive pressure velocity
+	real lift;                      // quick release memory (negative pressure velocity)
+	real by;                        // smoothed but_y
+	real age;                       // seconds since the note started (vibrato delay)
+	real vib_ph;                    // vibrato phase 0..1
+	real vb, ds, cw, nz, dn;        // per-sample ramped values at the end of the previous block
+	real y, ydc, yn;                // loss filter states (bridge, its DC path, finger)
+	real xprev;                     // |D| of the previous sample
 	real pza, pzc, pzs, pzcw, pzsw; // pluck pulse: amplitude, phasor, rotation
-	real hp, ts;              // DC blocker and tone shelf states
-	real shelf;               // tone shelf gain (ramped)
-	real gout;                // output gain = dynamics (ramped; held after a release)
-	real bd[NB][2];           // body resonator states
+	real hp, ts;                    // DC blocker and tone shelf states
+	real shelf;                     // tone shelf gain (ramped)
+	real gout;                      // output gain = dynamics (ramped; held after a release)
+	real bd[NB][2];                 // body resonator states
 };
 
-struct BodyCoef { real b0, a1, a2; };
+struct BodyCoef {
+	real b0, a1, a2;
+};
 
 struct Engine {
 	strisy::GlobalControls g;
@@ -272,17 +340,17 @@ struct Engine {
 	int nvoices;
 	int preset;
 	real sr, inv_sr, c_period, two_pi_sr, pi_sr, hp_k, dc_k, ts_k, block_dt;
-	real shake;               // smoothed accelerometer magnitude
-	Params p;                 // live parameters (written by the app / presets)
-	Params ps;                // smoothed copy used by the DSP
+	real shake; // smoothed accelerometer magnitude
+	Params p;   // live parameters (written by the app / presets)
+	Params ps;  // smoothed copy used by the DSP
 	// section
 	uint32_t ew;
-	real e_ph[2];             // delay modulation phases 0..1
-	real e_d[2];              // tap delays at the end of the previous block (samples)
-	real e_lvl;               // ramped section level
+	real e_ph[2]; // delay modulation phases 0..1
+	real e_d[2];  // tap delays at the end of the previous block (samples)
+	real e_lvl;   // ramped section level
 	VoiceState vs[MAX_VOICES];
-	real sbuf[BLOCK];         // string output of the current voice
-	int seed_budget;          // delay samples the note-on seeds may still write in this block
+	real sbuf[BLOCK]; // string output of the current voice
+	int seed_budget;  // delay samples the note-on seeds may still write in this block
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -291,7 +359,7 @@ struct Engine {
 // 2^x for x in [-60, 60]: fastpow2 is only accurate for positive arguments
 [[nodiscard]] static inline real exp2_fast(real x) {
 	x = rmin(rmax(x, -60.0f), 60.0f);
-	return strisy::fastpow2(x + 64.0f) * 5.421010862e-20f;  // 2^-64
+	return strisy::fastpow2(x + 64.0f) * 5.421010862e-20f; // 2^-64
 }
 
 // sin and cos for |x| <= pi/2 (as in voice_sine.h)
@@ -322,7 +390,9 @@ struct Engine {
 [[nodiscard]] static inline float fsqrt(float x) {
 #if defined(__arm__) && defined(__ARM_FP)
 	float r;
-	__asm__("vsqrt.f32 %0, %1" : "=t"(r) : "t"(x));
+	__asm__("vsqrt.f32 %0, %1"
+	        : "=t"(r)
+	        : "t"(x));
 	return r;
 #else
 	return __builtin_sqrtf(x);
@@ -339,8 +409,8 @@ static inline void lagrange(real fr, real* h) {
 	h[3] = (1.0f / 6.0f) * ab * fm1;
 }
 
-[[nodiscard]] static inline bool bad(real x, real lim) { return !(fabsf(x) < lim); }  // also true for NaN
-[[nodiscard]] static inline real clampf(real x, real lo, real hi) { return rmin(rmax(x, lo), hi); }  // NaN -> lo
+[[nodiscard]] static inline bool bad(real x, real lim) { return !(fabsf(x) < lim); }                // also true for NaN
+[[nodiscard]] static inline real clampf(real x, real lo, real hi) { return rmin(rmax(x, lo), hi); } // NaN -> lo
 
 // body modes of a violin: frequency (Hz), Q, gain; the last one is the bridge hill
 static constexpr real body_f[NB] = {275.0f, 460.0f, 565.0f, 1150.0f, 2700.0f};
@@ -380,16 +450,17 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 	e.c_period = e.sr / 8.1757989156f;
 	e.two_pi_sr = 6.2831853f / e.sr;
 	e.pi_sr = 3.14159265f / e.sr;
-	e.hp_k = 6.2831853f * 25.0f / e.sr;  // DC blocker, 25 Hz
-	e.dc_k = 6.2831853f * 4.0f / e.sr;   // loss filter DC path, 4 Hz
-	e.ts_k = 6.2831853f * 1300.0f / e.sr;  // tone shelf corner
+	e.hp_k = 6.2831853f * 25.0f / e.sr;   // DC blocker, 25 Hz
+	e.dc_k = 6.2831853f * 4.0f / e.sr;    // loss filter DC path, 4 Hz
+	e.ts_k = 6.2831853f * 1300.0f / e.sr; // tone shelf corner
 	e.shake = 1.0f;
 	e.nvoices = nvoices < MAX_VOICES ? nvoices : MAX_VOICES;
 	e.g = {1.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 3.0f / 16};
 	set_preset(e, DEFAULT_PRESET);
 	e.ps = e.p;
 	e.ew = 0;
-	e.e_ph[0] = 0.0f; e.e_ph[1] = 0.43f;
+	e.e_ph[0] = 0.0f;
+	e.e_ph[1] = 0.43f;
 	e.e_d[0] = e.e_d[1] = 600.0f;
 	e.e_lvl = e.p.ens;
 	for (int i = 0; i < ENS_LEN; i++) ens_buf[i] = 0.0f;
@@ -412,7 +483,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	const strisy::VoiceControls c = e.vc[v];
 	const Params& p = e.ps;
 	const bool pizz = p.pizz >= 0.5f;
-	const real pres = clampf(c.pres, 0.0f, 2.0f);  // (also maps NaN to 0)
+	const real pres = clampf(c.pres, 0.0f, 2.0f); // (also maps NaN to 0)
 	// pressure velocity only counts while the key is held: after a release the firmware leaves the
 	// last value in place (a stale positive value must not keep accents, noise or plucks alive)
 	const real vp = pres > 0.0f ? clampf(c.vpres, -1.5f, 1.5f) : rmin(clampf(c.vpres, -1.5f, 1.5f), 0.0f);
@@ -433,7 +504,10 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	const bool jump = fabsf(note0 - s.note_prev) >= 1.0f;
 	s.note_prev = c.note;
 	const bool onset = pres > 0.0f && s.pres_prev <= 0.0f;
-	if (onset || jump) { s.age = 0.0f; s.seeded = onset && !pizz && e.seed_budget > 0; }
+	if (onset || jump) {
+		s.age = 0.0f;
+		s.seeded = onset && !pizz && e.seed_budget > 0;
+	}
 	s.age = rmin(s.age + e.block_dt, 100.0f);
 
 	// --- block rate control
@@ -467,7 +541,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 		s.by += 0.15f * ((yin < 0.0f ? -ya : ya) - s.by);
 	}
 	if (jump) s.note_body = note0;
-	s.note_body += 0.005f * (note0 - s.note_body);           // slow: vibrato doesn't move the body
+	s.note_body += 0.005f * (note0 - s.note_body); // slow: vibrato doesn't move the body
 
 	// automatic vibrato, fading in after vib_delay
 	s.vib_ph += clampf(p.vib_hz, 0.0f, 12.0f) * e.block_dt;
@@ -478,15 +552,14 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	const real p2 = strisy::fastpow2(note * (1.0f / 12.0f));
 	const real f0 = 8.1757989156f * p2;
 	const real L = rmin(e.c_period / p2, (real)(NECK_LEN - 8));
-	const real w0 = e.two_pi_sr * f0;                         // <= 0.86 rad
+	const real w0 = e.two_pi_sr * f0; // <= 0.86 rad
 	// bow position: tilt forward = towards the bridge (sul ponticello), back = sul tasto;
 	// a light bow drifts towards the fingerboard (flautando), a heavy one towards the bridge
 	const real eb = clampf(-p.pos_tilt * s.by + p.pos_press * (0.5f - s.Ps), -0.75f, 0.9f);
 	// 0.055 .. 0.2, at least 2 samples from the bridge (the highest notes)
 	// (and on the longest strings not too close to it: the motion gets irregular there)
 	// (pizzicato: plucked over the end of the fingerboard, 0.15 .. 0.3, tilt forward = nearer the bridge)
-	const real beta = pizz ? clampf(0.21f * exp2_fast(-0.5f * s.by), rmax(4.0f / L, 0.15f), 0.3f)
-		: clampf(rmax(clampf(p.pos, 0.05f, 0.2f) * exp2_fast(eb), rmax(2.2f / L, 0.03f + 6e-5f * L)), 0.055f, 0.2f);
+	const real beta = pizz ? clampf(0.21f * exp2_fast(-0.5f * s.by), rmax(4.0f / L, 0.15f), 0.3f) : clampf(rmax(clampf(p.pos, 0.05f, 0.2f) * exp2_fast(eb), rmax(2.2f / L, 0.03f + 6e-5f * L)), 0.055f, 0.2f);
 	// string losses: a heavier bow gives sharper corners (brighter)
 	// corner rounding time (one pole time constant) as a fraction of the period, like the
 	// finite bow width; the sampled loop needs no less than about a third of a sample
@@ -495,14 +568,13 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	// it would damp the high notes, where it is a large part of the period)
 	const real tau = rmax((pizz ? 0.3f * EPS_HI : EPS_LO + (EPS_HI - EPS_LO) * Pn) / clampf(p.bright, 0.3f, 3.0f) * L, pizz ? 0.05f : 0.3f);
 	const real pole = tau / (1.0f + tau);
-	const real t60s = pizz ? clampf(p.pizz_decay * exp2_fast((60.0f - note) * (1.0f / 36.0f)), 0.05f, 8.0f)
-	                       : clampf(p.damp * exp2_fast((40.0f - note) * (1.0f / 24.0f)), 0.3f, 8.0f);
+	const real t60s = pizz ? clampf(p.pizz_decay * exp2_fast((60.0f - note) * (1.0f / 36.0f)), 0.05f, 8.0f) : clampf(p.damp * exp2_fast((40.0f - note) * (1.0f / 24.0f)), 0.3f, 8.0f);
 	real t60 = t60s;
 	if (pres <= 0.0f) {
 		const real ped = clampf(e.g.pedal, 0.0f, 1.0f);
 		t60 = rmin(t60s, clampf(p.rel + p.rel_ped * ped * ped, 0.02f, 20.0f) * (1.0f + clampf(p.rel_lift, 0.0f, 20.0f) * rmin(s.lift, 1.0f)));
 	}
-	real gl = exp2_fast(-9.9657843f / (f0 * t60));     // loop gain per period for t60
+	real gl = exp2_fast(-9.9657843f / (f0 * t60)); // loop gain per period for t60
 	const real sw0 = sin_poly(w0), cw0 = cos_poly(w0);
 	// tuning: subtract the loss filters' phase delay at the fundamental
 	// (the finger, nut side, rounds the corners like the bridge: a second one pole lowpass there)
@@ -515,7 +587,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	if (jump) s.cnt = 0;
 	const real Lstr = rmax(L - dfilt - (pizz ? 0.0f : s.corr) * L, 3.4f);
 	real Db = rmin(rmax(beta * Lstr, 1.0f), rmin(Lstr - 2.2f, (real)(BRIDGE_LEN - 4)));
-	if (pizz) Db = (real)(int)(Db + 0.5f);  // whole samples: no interpolation loss on a free string
+	if (pizz) Db = (real)(int)(Db + 0.5f); // whole samples: no interpolation loss on a free string
 	const real Dn = Lstr - Db;
 	const int ib = (int)Db;
 	const real fb = Db - (real)ib;
@@ -524,8 +596,8 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	// (The loop's other resonances, the harmonics, lose more; the DC reflection stays at dcr.)
 	// While bowing these losses are part of the tuned motion.
 	if (pizz || pres <= 0.0f) {
-		const real h2 = (1.0f - pole) * (1.0f - pole) / (1.0f - 2.0f * pole * cw0 + pole * pole);  // |H(w0)|^2
-		const real hlin2 = 1.0f - 2.0f * fb * (1.0f - fb) * (1.0f - cw0);                           // linear interp.
+		const real h2 = (1.0f - pole) * (1.0f - pole) / (1.0f - 2.0f * pole * cw0 + pole * pole); // |H(w0)|^2
+		const real hlin2 = 1.0f - 2.0f * fb * (1.0f - fb) * (1.0f - cw0);                         // linear interp.
 		real hl[4];
 		const real dl = Dn - (real)(int)Dn;
 		lagrange(dl, hl);
@@ -533,7 +605,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 		const real c3 = c2 * cw0 - s2 * sw0, s3 = s2 * cw0 + c2 * sw0;
 		const real lre = hl[0] + hl[1] * cw0 + hl[2] * c2 + hl[3] * c3, lim = hl[1] * sw0 + hl[2] * s2 + hl[3] * s3;
 		const real loss = h2 * fsqrt(rmax(hlin2, 0.25f) * rmax(lre * lre + lim * lim, 0.25f));
-		gl = rmin(gl / rmax(loss, 0.5f), 0.9995f);  // (every reflection stays below 1)
+		gl = rmin(gl / rmax(loss, 0.5f), 0.9995f); // (every reflection stays below 1)
 	}
 	const real gp = gl * (1.0f - pole);
 
@@ -552,14 +624,14 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	const real amp_t = Pe * (1.0f - scur + scur * Pe);
 	const real amp = pizz ? 0.0f : (pres > 0.0f ? 1.0f : 0.0f);
 	const real acc = rmin(s.acc, 1.0f);
-	const real vb = amp * trem;  // (constant while bowing: the accent is force and output gain)
+	const real vb = amp * trem; // (constant while bowing: the accent is force and output gain)
 	// bow force: kappa = force/speed*beta. The Helmholtz motion needs kappa between a minimum that
 	// grows towards the bridge and a maximum ~1.1 (above it: raucous, scratchy). Light pressure
 	// sits above the minimum (soft, flautando), full pressure below the maximum (bright,
 	// focused), pressing beyond 1 or striking (accent) goes over it (scratch).
 	// (towards the fingerboard the upper limit drops a little too)
 	const real bq = fsqrt(BETA_REF / beta);
-	const real khi = clampf(p.force_hi, 0.3f, 1.6f) * rmin(bq * fsqrt(fsqrt(bq)), 1.0f);  // (ref/beta)^1.375
+	const real khi = clampf(p.force_hi, 0.3f, 1.6f) * rmin(bq * fsqrt(fsqrt(bq)), 1.0f); // (ref/beta)^1.375
 	const real kfl = rmin(clampf(p.force_lo, 0.3f, 1.6f) * bq, khi - 0.1f);
 	// grit (force_over): beyond pressure 1 the force rises gradually towards the raucous limit and
 	// the bow noise grows with it, so scratch fades in instead of switching on
@@ -575,7 +647,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	const real of = clampf(1.0f - s.age * (1.0f / ONSET_T), 0.0f, 1.0f) * clampf(ONSET_TASTO * (bq - 1.0f) + 1.0f, 0.0f, 1.0f);
 	const real kon = kap + rmax(khi * ONSET_KK - kap, 0.0f) * of;
 	real kacc = rmax(rmin(kap + 0.25f * clampf(p.acc_force, 0.0f, 3.0f) * acc, rmax(khi * 1.12f, kap)), kon);
-	{	// seeded start: the first corner arrives before the bow has built its usual stick force
+	{ // seeded start: the first corner arrives before the bow has built its usual stick force
 		// (the seed is the lossless motion): ease the force for the first ~2 periods so that
 		// corner releases the slip on time
 		const real ofe = s.seeded ? clampf(1.0f - s.age / (2.0f * L * e.inv_sr), 0.0f, 1.0f) : 0.0f;
@@ -587,8 +659,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	// Helmholtz motion clean on long strings, but on short ones (a few samples per slip) the jump
 	// snaps the slip onsets to the sample grid, which adds rough subharmonic sidebands: there,
 	// and near the bridge, the curve is made smooth enough to remove the jump.
-	const real soft = rmin(rmax((90.0f - L) * 0.02f, 0.0f), 1.0f)
-		* rmin(rmax(rmax((0.2f - beta) * 10.0f, (24.0f - L) * 0.125f), 0.0f), 1.0f);
+	const real soft = rmin(rmax((90.0f - L) * 0.02f, 0.0f), 1.0f) * rmin(rmax(rmax((0.2f - beta) * 10.0f, (24.0f - L) * 0.125f), 0.0f), 1.0f);
 	// the top octave (period < 15 samples) gets an even smoother curve: a gentler oscillator
 	// that stays at the loop's pitch instead of locking to the sample grid
 	const real soft2 = soft + rmin(rmax((15.0f - L) * 0.3f, 0.0f), 2.5f);
@@ -596,8 +667,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	const real cw = FRIC_C * rmax(L * (1.0f / 250.0f), 1.0f) * amp + FRIC_CD * soft2 * ds + 1e-7f;
 	// bow noise: jitter of the static friction. On long strings the stick phase approaches the
 	// release threshold slowly, so the same jitter shakes the slip timing (the pitch) much more
-	const real nz = rmin(clampf(p.rosin, 0.0f, 0.2f) * rmin(200.0f / L, 1.0f) + clampf(p.acc_noise, 0.0f, 1.0f) * acc
-		+ 0.15f * grit, 0.9f);
+	const real nz = rmin(clampf(p.rosin, 0.0f, 0.2f) * rmin(200.0f / L, 1.0f) + clampf(p.acc_noise, 0.0f, 1.0f) * acc + 0.15f * grit, 0.9f);
 
 	// pizzicato: pluck at a key press, a strike while held, or a new note while held
 	if (pizz && pres > 0.0f && (onset || jump || (vp > 0.6f && s.vp_prev <= 0.3f))) {
@@ -605,8 +675,10 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 		const real width = clampf(0.06f / clampf(p.pizz_bright, 0.2f, 5.0f) * L, rmin(6.0f, 0.8f * beta * L), rmin(300.0f, 0.8f * beta * L));
 		s.pzn = (int)width;
 		const real dw = 3.14159265f / (real)s.pzn;
-		s.pzcw = cos_poly(dw); s.pzsw = sin_poly(dw);
-		s.pzc = 1.0f; s.pzs = 0.0f;
+		s.pzcw = cos_poly(dw);
+		s.pzsw = sin_poly(dw);
+		s.pzc = 1.0f;
+		s.pzs = 0.0f;
 		// plucked velocity pulse: louder with a faster key press; the area grows as width^0.75, so
 		// the register balance stays even (low notes have wide, high notes narrow pulses)
 		s.pza = (0.35f + 0.65f * rmin(rmax(vp, 0.0f) + 0.4f * pres, 1.0f)) * 22.0f * fsqrt(fsqrt(dw)) / beta * BETA_REF;
@@ -617,8 +689,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	// tone shelf above the corner rounding: a light bow (flautando) and the fingerboard are
 	// dark, a heavy bow, the bridge (ponticello) and a strike are bright
 	const real tlo = clampf(p.tone_lo, 0.0f, 3.0f), thi = clampf(p.tone_hi, 0.0f, 3.0f);
-	const real shelf = rmin((tlo + (thi - tlo) * (pizz ? 0.6f : Pn * fsqrt(Pn))) * fsqrt(bq) * (1.0f + 0.5f * osat)
-		* (1.0f + clampf(p.acc_bright, 0.0f, 2.0f) * acc), 4.0f);
+	const real shelf = rmin((tlo + (thi - tlo) * (pizz ? 0.6f : Pn * fsqrt(Pn))) * fsqrt(bq) * (1.0f + 0.5f * osat) * (1.0f + clampf(p.acc_bright, 0.0f, 2.0f) * acc), 4.0f);
 
 	// body coefficients (band-passes, transposed direct form II, peak gain = mode gain)
 	BodyCoef bc[NB];
@@ -639,7 +710,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 
 	// --- string and bow, per sample
 	const real r = 1.0f / BLOCK;
-	if (jump || bow_onset) s.dn = Dn;  // new note: no glide through the jump
+	if (jump || bow_onset) s.dn = Dn; // new note: no glide through the jump
 	// Seed: a bowed note starts already in Helmholtz motion (no transient chaos from rest, which
 	// is where a scratchy start comes from). With the slip just ended (the stick phase starts
 	// now), the waves written into the two delay lines are sawtooths (Smith, McIntyre/Woodhouse):
@@ -666,20 +737,28 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 		// a(t0 - k) = -h + sl u, u = time since a's last jump (a jumps at t0): k, wrapped into (0, Ls]
 		real u = 0.0f;
 		for (int k = 1; k <= na; k++) {
-			u += 1.0f; if (u > Ls) u -= Ls;
+			u += 1.0f;
+			if (u > Ls) u -= Ls;
 			nb[(w0 - (uint32_t)k) & NECK_MASK] = -h + sl * u;
 		}
 		// b(t0 - k) = -h + sl (Ls - u), u = k - Dbe wrapped into (0, Ls] (b jumped at t0 - Dbe)
-		u = -Dbe; while (u <= 0.0f) u += Ls;  // (at most one pass: Dbe < Ls)
+		u = -Dbe;
+		while (u <= 0.0f) u += Ls; // (at most one pass: Dbe < Ls)
 		for (int k = 1; k <= nbr; k++) {
-			u += 1.0f; if (u > Ls) u -= Ls;
+			u += 1.0f;
+			if (u > Ls) u -= Ls;
 			bb[(w0 - (uint32_t)k) & BRIDGE_MASK] = -h + sl * (Ls - u);
 		}
 		s.y = gl * (-h + sl * (Db - (real)(ib + 1) + 1.0f));
 		s.yn = -h + sl * (real)((int)Dn + 1);
 		s.ydc = 0.0f;
-		s.slip = 0; s.xprev = 0.0f; s.cnt = 0;
-		s.vb = vb; s.ds = ds; s.cw = cw; s.nz = nz;
+		s.slip = 0;
+		s.xprev = 0.0f;
+		s.cnt = 0;
+		s.vb = vb;
+		s.ds = ds;
+		s.cw = cw;
+		s.nz = nz;
 		s.hp = 0.0f;
 	}
 	const real dvb = (vb - s.vb) * r, dds = (ds - s.ds) * r, dcw = (cw - s.cw) * r, dnz = (nz - s.nz) * r;
@@ -695,7 +774,10 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 		lagrange(s.dn + ddn - (real)ilr, ha);
 		lagrange(Dn - (real)ilr, hb);
 		const real rr = 1.0f / (BLOCK - 1);
-		for (int k = 0; k < 4; k++) { ldh[k] = (hb[k] - ha[k]) * rr; lh[k] = ha[k] - ldh[k]; }
+		for (int k = 0; k < 4; k++) {
+			ldh[k] = (hb[k] - ha[k]) * rr;
+			lh[k] = ha[k] - ldh[k];
+		}
 	}
 	float* __restrict__ nbuf = neck_buf[v];
 	float* __restrict__ bbuf = bridge_buf[v];
@@ -725,32 +807,37 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	real pzc = s.pzc, pzs = s.pzs;
 	const real pza = s.pza, pzcw = s.pzcw, pzsw = s.pzsw;
 	for (int n = 0; n < BLOCK; n++) {
-		vbn += dvb; dsn += dds; cwn += dcw; nzn += dnz; dn += ddn;
+		vbn += dvb;
+		dsn += dds;
+		cwn += dcw;
+		nzn += dnz;
+		dn += ddn;
 		// neck side: 3rd order Lagrange at delay dn (taps at i-1 .. i+2, d = fr + 1)
 		real nut_in;
 		if (lramp) {
-			lh[0] += ldh[0]; lh[1] += ldh[1]; lh[2] += ldh[2]; lh[3] += ldh[3];
+			lh[0] += ldh[0];
+			lh[1] += ldh[1];
+			lh[2] += ldh[2];
+			lh[3] += ldh[3];
 			BOWED_ASSERT(ilr >= 2 && ilr + 2 < NECK_LEN);
 			const uint32_t r0 = w - (uint32_t)(ilr - 1);
-			nut_in = lh[0] * nbuf[r0 & NECK_MASK] + lh[1] * nbuf[(r0 - 1) & NECK_MASK]
-				+ lh[2] * nbuf[(r0 - 2) & NECK_MASK] + lh[3] * nbuf[(r0 - 3) & NECK_MASK];
+			nut_in = lh[0] * nbuf[r0 & NECK_MASK] + lh[1] * nbuf[(r0 - 1) & NECK_MASK] + lh[2] * nbuf[(r0 - 2) & NECK_MASK] + lh[3] * nbuf[(r0 - 3) & NECK_MASK];
 		} else {
 			const int i = (int)dn;
 			real h[4];
 			lagrange(dn - (real)i, h);
 			BOWED_ASSERT(i >= 2 && i + 2 < NECK_LEN);
 			const uint32_t r0 = w - (uint32_t)(i - 1);
-			nut_in = h[0] * nbuf[r0 & NECK_MASK] + h[1] * nbuf[(r0 - 1) & NECK_MASK]
-				+ h[2] * nbuf[(r0 - 2) & NECK_MASK] + h[3] * nbuf[(r0 - 3) & NECK_MASK];
+			nut_in = h[0] * nbuf[r0 & NECK_MASK] + h[1] * nbuf[(r0 - 1) & NECK_MASK] + h[2] * nbuf[(r0 - 2) & NECK_MASK] + h[3] * nbuf[(r0 - 3) & NECK_MASK];
 		}
 		// bridge side: linear interpolation at the block-constant delay Db
 		BOWED_ASSERT(ib >= 1 && ib + 1 < BRIDGE_LEN);
 		const real b0 = bbuf[(w - (uint32_t)ib) & BRIDGE_MASK];
 		const real b1 = bbuf[(w - (uint32_t)ib - 1u) & BRIDGE_MASK];
 		const real br_in = b0 + fb * (b1 - b0);
-		y = gp * br_in + pole * y;                    // loss filter
-		ydc += dck * (br_in - ydc);                   // its DC gain is restored to 1 (rigid bridge at DC)
-		yn = polen * yn + polen1 * nut_in;             // finger
+		y = gp * br_in + pole * y;         // loss filter
+		ydc += dck * (br_in - ydc);        // its DC gain is restored to 1 (rigid bridge at DC)
+		yn = polen * yn + polen1 * nut_in; // finger
 		const real bref = dcg * ydc - y, nref = -yn;
 		const real delta = vbn - (bref + nref);
 		// friction with bow noise (jitter of the static friction)
@@ -764,9 +851,12 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 		const int slip_new = (x > dse) | (slip & (disc >= 0.0f) & (u > 0.0f));
 		cnt++;
 		real alpha = 1.0f;
-		if (slip_new & !slip) {  // slip onset: one per period in Helmholtz motion
+		if (slip_new & !slip) { // slip onset: one per period in Helmholtz motion
 			if (cnt > cmin) {
-				if (cnt >= clo && cnt <= chi) { tsum += cnt; tn++; }
+				if (cnt >= clo && cnt <= chi) {
+					tsum += cnt;
+					tn++;
+				}
 				cnt = 0;
 			}
 			// the slip starts somewhere between two samples: at the onset sample the force is
@@ -780,8 +870,8 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 		slip = slip_new;
 		xprev = x;
 		real f = slip ? delta + alpha * (fslip - delta) : (delta > 0.0f ? delta - ucap : delta + ucap);
-		if (pizz) f = 0.0f;  // no bow on the string
-		if (pzn > 0) {  // pluck pulse
+		if (pizz) f = 0.0f; // no bow on the string
+		if (pzn > 0) {      // pluck pulse
 			pzn--;
 			const real ns = pzs * pzcw + pzc * pzsw;
 			pzc = pzc * pzcw - pzs * pzsw;
@@ -794,16 +884,29 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 		w++;
 		gn += dgn;
 		sb[n] = br_in * gn;
-		peak = rmax(peak, fabsf(br_in - ydc));  // (the DC is not heard)
+		peak = rmax(peak, fabsf(br_in - ydc)); // (the DC is not heard)
 	}
-	s.w = w; s.seed = seed; s.y = y; s.slip = slip; s.cnt = cnt < 1000000 ? cnt : 1000000; s.ydc = ydc; s.yn = yn; s.xprev = xprev;
-	s.pzn = pzn; s.pzc = pzc; s.pzs = pzs;
+	s.w = w;
+	s.seed = seed;
+	s.y = y;
+	s.slip = slip;
+	s.cnt = cnt < 1000000 ? cnt : 1000000;
+	s.ydc = ydc;
+	s.yn = yn;
+	s.xprev = xprev;
+	s.pzn = pzn;
+	s.pzc = pzc;
+	s.pzs = pzs;
 	s.gout = gn;
-	if (!pizz && tn > 0 && kap * accf < 1.3f) {  // not in raucous motion
-		const real kad = rmin(0.25f, L * e.inv_sr * 25.0f);  // per period: T / 40 ms
+	if (!pizz && tn > 0 && kap * accf < 1.3f) {             // not in raucous motion
+		const real kad = rmin(0.25f, L * e.inv_sr * 25.0f); // per period: T / 40 ms
 		s.corr = rmin(rmax(s.corr + kad * ((real)tsum - (real)tn * L) / L, -0.02f), 0.04f);
 	}
-	s.vb = vbn; s.ds = dsn; s.cw = cwn; s.nz = nzn; s.dn = dn;
+	s.vb = vbn;
+	s.ds = dsn;
+	s.cw = cwn;
+	s.nz = nzn;
+	s.dn = dn;
 
 	// --- body, per sample. The output is scaled with beta so the bow position is a timbre
 	// control rather than a loudness one (the string velocity grows as 1/beta)
@@ -826,31 +929,59 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 			const real xin = ts + sh * (xdc - ts);
 			// band-passes: y = b0 x + s1, s1 = s2 - a1 y, s2 = -b0 x - a2 y
 			real acc_o = dir * xin, bx, yk;
-			bx = bc[0].b0 * xin; yk = bx + q01; q01 = q02 - bc[0].a1 * yk; q02 = -bx - bc[0].a2 * yk; acc_o += yk;
-			bx = bc[1].b0 * xin; yk = bx + q11; q11 = q12 - bc[1].a1 * yk; q12 = -bx - bc[1].a2 * yk; acc_o += yk;
-			bx = bc[2].b0 * xin; yk = bx + q21; q21 = q22 - bc[2].a1 * yk; q22 = -bx - bc[2].a2 * yk; acc_o += yk;
-			bx = bc[3].b0 * xin; yk = bx + q31; q31 = q32 - bc[3].a1 * yk; q32 = -bx - bc[3].a2 * yk; acc_o += yk;
-			bx = bc[4].b0 * xin; yk = bx + q41; q41 = q42 - bc[4].a1 * yk; q42 = -bx - bc[4].a2 * yk; acc_o += yk;
+			bx = bc[0].b0 * xin;
+			yk = bx + q01;
+			q01 = q02 - bc[0].a1 * yk;
+			q02 = -bx - bc[0].a2 * yk;
+			acc_o += yk;
+			bx = bc[1].b0 * xin;
+			yk = bx + q11;
+			q11 = q12 - bc[1].a1 * yk;
+			q12 = -bx - bc[1].a2 * yk;
+			acc_o += yk;
+			bx = bc[2].b0 * xin;
+			yk = bx + q21;
+			q21 = q22 - bc[2].a1 * yk;
+			q22 = -bx - bc[2].a2 * yk;
+			acc_o += yk;
+			bx = bc[3].b0 * xin;
+			yk = bx + q31;
+			q31 = q32 - bc[3].a1 * yk;
+			q32 = -bx - bc[3].a2 * yk;
+			acc_o += yk;
+			bx = bc[4].b0 * xin;
+			yk = bx + q41;
+			q41 = q42 - bc[4].a1 * yk;
+			q42 = -bx - bc[4].a2 * yk;
+			acc_o += yk;
 			const real o = gain * acc_o;
 			sb[n] = o;
 			opeak = rmax(opeak, fabsf(o));
 		}
-		s.hp = hp; s.ts = ts; s.shelf = sh;
-		s.bd[0][0] = q01; s.bd[0][1] = q02; s.bd[1][0] = q11; s.bd[1][1] = q12;
-		s.bd[2][0] = q21; s.bd[2][1] = q22; s.bd[3][0] = q31; s.bd[3][1] = q32;
-		s.bd[4][0] = q41; s.bd[4][1] = q42;
+		s.hp = hp;
+		s.ts = ts;
+		s.shelf = sh;
+		s.bd[0][0] = q01;
+		s.bd[0][1] = q02;
+		s.bd[1][0] = q11;
+		s.bd[1][1] = q12;
+		s.bd[2][0] = q21;
+		s.bd[2][1] = q22;
+		s.bd[3][0] = q31;
+		s.bd[3][1] = q32;
+		s.bd[4][0] = q41;
+		s.bd[4][1] = q42;
 		peak = rmax(peak, opeak);
 	}
 
 	// --- safety: non-finite or runaway state resets the voice (cannot happen in normal operation)
-	if (bad(y + s.ydc + s.yn, 1e3f) || bad(s.hp + s.ts + s.bd[0][0] + s.bd[1][0] + s.bd[2][0] + s.bd[3][0] + s.bd[4][0], 1e4f)
-		|| bad(peak, 1e3f) || bad(s.pzc + s.pzs, 4.0f)) {
+	if (bad(y + s.ydc + s.yn, 1e3f) || bad(s.hp + s.ts + s.bd[0][0] + s.bd[1][0] + s.bd[2][0] + s.bd[3][0] + s.bd[4][0], 1e4f) || bad(peak, 1e3f) || bad(s.pzc + s.pzs, 4.0f)) {
 		reset_voice(e, v);
 		return;
 	}
 	for (int n = 0; n < BLOCK; n++) out[n] += sb[n];
 	// --- gating: idle once released and the whole loop has decayed
-	if (pres <= 0.0f && peak < 1e-5f && pzn == 0) {  // -100 dB re full level
+	if (pres <= 0.0f && peak < 1e-5f && pzn == 0) { // -100 dB re full level
 		if (++s.quiet * BLOCK > (int)L + 2 * BLOCK) s.active = 0;
 	} else {
 		s.quiet = 0;
@@ -875,7 +1006,7 @@ static inline void process_section(Engine& e, real* __restrict__ output) {
 	const real lvl0 = e.e_lvl;
 	e.e_lvl += 0.2f * (target - e.e_lvl);
 	uint32_t w = e.ew;
-	if (lvl0 < 1e-4f && target <= 0.0f) {  // solo: keep the delay line filled, nothing else
+	if (lvl0 < 1e-4f && target <= 0.0f) { // solo: keep the delay line filled, nothing else
 		for (int n = 0; n < BLOCK; n++) ens_buf[(w + n) & ENS_MASK] = output[n];
 		e.ew = w + BLOCK;
 		return;
@@ -918,7 +1049,10 @@ static inline void process_section(Engine& e, real* __restrict__ output) {
 
 static inline void process(Engine& e, real* __restrict__ output) {
 #ifdef BOWED_TEST_SWITCH
-	{ static int nb = 0; if (++nb % BOWED_TEST_SWITCH == 0) set_preset(e, (e.preset + 1) % NUM_PRESETS); }
+	{
+		static int nb = 0;
+		if (++nb % BOWED_TEST_SWITCH == 0) set_preset(e, (e.preset + 1) % NUM_PRESETS);
+	}
 #endif
 #ifdef BOWED_TEST_HOOK
 	bowed_test_hook(e);
@@ -933,7 +1067,7 @@ static inline void process(Engine& e, real* __restrict__ output) {
 		const real* slow[5] = {&e.p.force_lo, &e.p.force_hi, &e.p.pos, &e.p.bright, &e.p.body_size};
 		for (int i = 0; i < NPARAMS; i++) {
 			real x = pp[i];
-			if (!(x == x)) x = ps[i];  // ignore NaN writes
+			if (!(x == x)) x = ps[i]; // ignore NaN writes
 			bool sl = false;
 			for (int j = 0; j < 5; j++) sl |= pp + i == slow[j];
 			ps[i] += (sl ? 0.006f : 0.03f) * (x - ps[i]);
@@ -959,8 +1093,9 @@ static inline void process(Engine& e, real* __restrict__ output) {
 		const real a = rmax(fabsf(x) - 4.0f, 0.0f) * 0.25f;
 		output[n] = x * (1.0f + 2.0f * a) / ((1.0f + a) * (1.0f + a));
 	}
-	if (bad(e.e_d[0] + e.e_d[1] + e.e_lvl, 1e5f)) {  // (cannot happen) reset the section
-		e.e_d[0] = e.e_d[1] = 600.0f; e.e_lvl = 0.0f;
+	if (bad(e.e_d[0] + e.e_d[1] + e.e_lvl, 1e5f)) { // (cannot happen) reset the section
+		e.e_d[0] = e.e_d[1] = 600.0f;
+		e.e_lvl = 0.0f;
 		for (int i = 0; i < ENS_LEN; i++) ens_buf[i] = 0.0f;
 	}
 }
@@ -968,46 +1103,49 @@ static inline void process(Engine& e, real* __restrict__ output) {
 // ---------------------------------------------------------------------------------------------
 // live parameter table
 
-struct ParamEntry { strisy::ParamDesc d; real Params::*m; };
+struct ParamEntry {
+	strisy::ParamDesc d;
+	real Params::*m;
+};
 static constexpr ParamEntry param_table[] = {
-	{{"gain", "level", 0.0f, 4.0f, strisy::ParamKind::continuous}, &Params::gain},
-	{{"force_lo", "bow", 0.3f, 1.6f, strisy::ParamKind::continuous}, &Params::force_lo},       // force/speed at light pressure
-	{{"force_hi", "bow", 0.3f, 1.6f, strisy::ParamKind::continuous}, &Params::force_hi},       // at full pressure (> 1.1: raucous)
-	{{"force_over", "bow", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::force_over},   // grit beyond pressure 1 (0: none)
-	{{"speed_curve", "bow", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::speed_curve}, // 0 linear .. 1 quadratic dynamics
-	{{"rosin", "bow", 0.0f, 0.2f, strisy::ParamKind::continuous}, &Params::rosin},             // bow noise texture
-	{{"pos", "position", 0.05f, 0.2f, strisy::ParamKind::continuous}, &Params::pos},           // bow position (fraction of string)
-	{{"pos_tilt", "position", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::pos_tilt},  // tilt range (octaves)
-	{{"pos_press", "position", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::pos_press},// light bow drifts to the fingerboard
-	{{"tilt_dead", "position", 0.0f, 0.8f, strisy::ParamKind::continuous}, &Params::tilt_dead},// tilt dead zone
-	{{"damp", "string", 0.5f, 10.0f, strisy::ParamKind::continuous}, &Params::damp},           // ring time (s) at note 40
-	{{"bright", "string", 0.3f, 3.0f, strisy::ParamKind::continuous}, &Params::bright},        // corner sharpness
-	{{"tone_lo", "string", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::tone_lo},      // treble at light pressure
-	{{"tone_hi", "string", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::tone_hi},      // treble at full pressure
-	{{"body_size", "body", 0.2f, 1.5f, strisy::ParamKind::continuous}, &Params::body_size},    // violin 1, viola .8, cello .45, bass .3
-	{{"body_track", "body", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::body_track},  // body follows the register
-	{{"body_amt", "body", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::body_amt},
-	{{"body_q", "body", 0.3f, 3.0f, strisy::ParamKind::continuous}, &Params::body_q},
-	{{"hill", "body", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::hill},              // bridge hill brilliance
-	{{"direct", "body", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::direct},
-	{{"acc_force", "accent", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::acc_force},  // strike: bite / scratch
-	{{"acc_time", "accent", 0.002f, 0.2f, strisy::ParamKind::continuous}, &Params::acc_time},
-	{{"acc_noise", "accent", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::acc_noise},
-	{{"acc_bright", "accent", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::acc_bright},
-	{{"rel", "release", 0.02f, 3.0f, strisy::ParamKind::continuous}, &Params::rel},            // ring after a slow release (s)
-	{{"rel_ped", "release", 0.0f, 10.0f, strisy::ParamKind::continuous}, &Params::rel_ped},    // + pedal
-	{{"rel_lift", "release", 0.0f, 20.0f, strisy::ParamKind::continuous}, &Params::rel_lift},  // x after a quick lift-off
-	{{"vibrato", "mod", 0.0f, 60.0f, strisy::ParamKind::continuous}, &Params::vib},            // automatic vibrato (cents)
-	{{"vib_hz", "mod", 2.0f, 9.0f, strisy::ParamKind::continuous}, &Params::vib_hz},
-	{{"vib_delay", "mod", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::vib_delay},
-	{{"tremolo", "mod", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::trem},            // shake -> bow
-	{{"body_rot", "mod", -2.0f, 2.0f, strisy::ParamKind::continuous}, &Params::body_rot},      // rotation -> body (octaves)
-	{{"ensemble", "section", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::ens},        // two more players
-	{{"ens_detune", "section", 0.0f, 25.0f, strisy::ParamKind::continuous}, &Params::ens_detune},
-	{{"ens_spread", "section", 2.0f, 25.0f, strisy::ParamKind::continuous}, &Params::ens_spread}, // timing spread (ms)
-	{{"pizz", "pizz", 0.0f, 1.0f, strisy::ParamKind::toggle}, &Params::pizz},              // plucked instead of bowed
-	{{"pizz_decay", "pizz", 0.1f, 5.0f, strisy::ParamKind::continuous}, &Params::pizz_decay},  // ring (s) at note 60
-	{{"pizz_bright", "pizz", 0.2f, 5.0f, strisy::ParamKind::continuous}, &Params::pizz_bright},
+    {{"gain", "level", 0.0f, 4.0f, strisy::ParamKind::continuous}, &Params::gain},
+    {{"force_lo", "bow", 0.3f, 1.6f, strisy::ParamKind::continuous}, &Params::force_lo},        // force/speed at light pressure
+    {{"force_hi", "bow", 0.3f, 1.6f, strisy::ParamKind::continuous}, &Params::force_hi},        // at full pressure (> 1.1: raucous)
+    {{"force_over", "bow", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::force_over},    // grit beyond pressure 1 (0: none)
+    {{"speed_curve", "bow", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::speed_curve},  // 0 linear .. 1 quadratic dynamics
+    {{"rosin", "bow", 0.0f, 0.2f, strisy::ParamKind::continuous}, &Params::rosin},              // bow noise texture
+    {{"pos", "position", 0.05f, 0.2f, strisy::ParamKind::continuous}, &Params::pos},            // bow position (fraction of string)
+    {{"pos_tilt", "position", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::pos_tilt},   // tilt range (octaves)
+    {{"pos_press", "position", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::pos_press}, // light bow drifts to the fingerboard
+    {{"tilt_dead", "position", 0.0f, 0.8f, strisy::ParamKind::continuous}, &Params::tilt_dead}, // tilt dead zone
+    {{"damp", "string", 0.5f, 10.0f, strisy::ParamKind::continuous}, &Params::damp},            // ring time (s) at note 40
+    {{"bright", "string", 0.3f, 3.0f, strisy::ParamKind::continuous}, &Params::bright},         // corner sharpness
+    {{"tone_lo", "string", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::tone_lo},       // treble at light pressure
+    {{"tone_hi", "string", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::tone_hi},       // treble at full pressure
+    {{"body_size", "body", 0.2f, 1.5f, strisy::ParamKind::continuous}, &Params::body_size},     // violin 1, viola .8, cello .45, bass .3
+    {{"body_track", "body", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::body_track},   // body follows the register
+    {{"body_amt", "body", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::body_amt},
+    {{"body_q", "body", 0.3f, 3.0f, strisy::ParamKind::continuous}, &Params::body_q},
+    {{"hill", "body", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::hill}, // bridge hill brilliance
+    {{"direct", "body", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::direct},
+    {{"acc_force", "accent", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::acc_force}, // strike: bite / scratch
+    {{"acc_time", "accent", 0.002f, 0.2f, strisy::ParamKind::continuous}, &Params::acc_time},
+    {{"acc_noise", "accent", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::acc_noise},
+    {{"acc_bright", "accent", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::acc_bright},
+    {{"rel", "release", 0.02f, 3.0f, strisy::ParamKind::continuous}, &Params::rel},           // ring after a slow release (s)
+    {{"rel_ped", "release", 0.0f, 10.0f, strisy::ParamKind::continuous}, &Params::rel_ped},   // + pedal
+    {{"rel_lift", "release", 0.0f, 20.0f, strisy::ParamKind::continuous}, &Params::rel_lift}, // x after a quick lift-off
+    {{"vibrato", "mod", 0.0f, 60.0f, strisy::ParamKind::continuous}, &Params::vib},           // automatic vibrato (cents)
+    {{"vib_hz", "mod", 2.0f, 9.0f, strisy::ParamKind::continuous}, &Params::vib_hz},
+    {{"vib_delay", "mod", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::vib_delay},
+    {{"tremolo", "mod", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::trem},       // shake -> bow
+    {{"body_rot", "mod", -2.0f, 2.0f, strisy::ParamKind::continuous}, &Params::body_rot}, // rotation -> body (octaves)
+    {{"ensemble", "section", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::ens},   // two more players
+    {{"ens_detune", "section", 0.0f, 25.0f, strisy::ParamKind::continuous}, &Params::ens_detune},
+    {{"ens_spread", "section", 2.0f, 25.0f, strisy::ParamKind::continuous}, &Params::ens_spread}, // timing spread (ms)
+    {{"pizz", "pizz", 0.0f, 1.0f, strisy::ParamKind::toggle}, &Params::pizz},                     // plucked instead of bowed
+    {{"pizz_decay", "pizz", 0.1f, 5.0f, strisy::ParamKind::continuous}, &Params::pizz_decay},     // ring (s) at note 60
+    {{"pizz_bright", "pizz", 0.2f, 5.0f, strisy::ParamKind::continuous}, &Params::pizz_bright},
 };
 static constexpr int NUM_LIVE_PARAMS = sizeof(param_table) / sizeof(param_table[0]);
 static_assert(NUM_LIVE_PARAMS == NPARAMS, "every Params field is exposed once");

@@ -53,7 +53,7 @@ int main(int argc, char** argv) {
 #ifdef TARGET_PROFILE
 	SYST_RVR = 0xffffffu;
 	SYST_CVR = 0;
-	SYST_CSR = 5;  // enabled, CPU clock, no interrupt
+	SYST_CSR = 5; // enabled, CPU clock, no interrupt
 #endif
 	FILE* f = std::fopen(argv[1], "wb");
 	if (!f) {
@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
 	}
 	static float out[64 * BLOCK];
 	int k = 0;
-	uint64_t hash = 1469598103934665603ull;  // FNV-1a 64 of the float bits, as harness_util.h
+	uint64_t hash = 1469598103934665603ull; // FNV-1a 64 of the float bits, as harness_util.h
 	float peak = 0.0f;
 	long nonfinite = 0;
 	const int nblocks = static_cast<int>(seconds * SAMPLERATE / BLOCK);
@@ -85,7 +85,10 @@ int main(int argc, char** argv) {
 			out[k * BLOCK + n] = x;
 			uint32_t u;
 			std::memcpy(&u, &x, 4);
-			for (int i = 0; i < 4; i++) { hash ^= (u >> (8 * i)) & 0xffu; hash *= 1099511628211ull; }
+			for (int i = 0; i < 4; i++) {
+				hash ^= (u >> (8 * i)) & 0xffu;
+				hash *= 1099511628211ull;
+			}
 			if (!std::isfinite(x)) nonfinite++;
 			else peak = std::fabs(x) > peak ? std::fabs(x) : peak;
 		}
@@ -96,10 +99,10 @@ int main(int argc, char** argv) {
 	}
 	std::fclose(f);
 	std::printf("hash %08lx%08lx peak %.3f nonfinite %ld\n", static_cast<unsigned long>(hash >> 32),
-	            static_cast<unsigned long>(hash & 0xffffffffu), static_cast<double>(peak), nonfinite);
+	    static_cast<unsigned long>(hash & 0xffffffffu), static_cast<double>(peak), nonfinite);
 #ifdef TARGET_PROFILE
 	std::printf("dsp_ticks %lu per_block %.1f\n", static_cast<unsigned long>(dsp_ticks),
-	            static_cast<double>(dsp_ticks) / nblocks);
+	    static_cast<double>(dsp_ticks) / nblocks);
 #endif
 	return 0;
 }

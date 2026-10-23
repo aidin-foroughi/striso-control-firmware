@@ -52,23 +52,42 @@ static void param_write(fx::Engine& e, int i, float value) {
 	strisy::EngineParams<fx::Engine>::changed(e, i);
 }
 
-struct Event { double t; int i; float v; };
-struct Ramp { int i; float a, b; double t0, t1; };
+struct Event {
+	double t;
+	int i;
+	float v;
+};
+struct Ramp {
+	int i;
+	float a, b;
+	double t0, t1;
+};
 
 static void write_wav(const char* path, const std::vector<float>& x, int channels) {
 	FILE* f = fopen(path, "wb");
-	if (!f) { perror(path); exit(1); }
+	if (!f) {
+		perror(path);
+		exit(1);
+	}
 	uint32_t n = (uint32_t)x.size();
 	uint32_t sr = SAMPLERATE, br = sr * 2 * channels, data = n * 2;
 	uint16_t ch = (uint16_t)channels, ba = (uint16_t)(2 * channels), bits = 16, fmt = 1;
 	uint32_t riff = 36 + data, fmtlen = 16;
-	fwrite("RIFF", 1, 4, f); fwrite(&riff, 4, 1, f); fwrite("WAVEfmt ", 1, 8, f);
-	fwrite(&fmtlen, 4, 1, f); fwrite(&fmt, 2, 1, f); fwrite(&ch, 2, 1, f); fwrite(&sr, 4, 1, f);
-	fwrite(&br, 4, 1, f); fwrite(&ba, 2, 1, f); fwrite(&bits, 2, 1, f);
-	fwrite("data", 1, 4, f); fwrite(&data, 4, 1, f);
+	fwrite("RIFF", 1, 4, f);
+	fwrite(&riff, 4, 1, f);
+	fwrite("WAVEfmt ", 1, 8, f);
+	fwrite(&fmtlen, 4, 1, f);
+	fwrite(&fmt, 2, 1, f);
+	fwrite(&ch, 2, 1, f);
+	fwrite(&sr, 4, 1, f);
+	fwrite(&br, 4, 1, f);
+	fwrite(&ba, 2, 1, f);
+	fwrite(&bits, 2, 1, f);
+	fwrite("data", 1, 4, f);
+	fwrite(&data, 4, 1, f);
 	std::vector<int16_t> s(n);
 	for (uint32_t k = 0; k < n; k++) {
-		float v = x[k] * 0.25f;   // board: (volume/127)^2 ~ 0.25, then hard clip
+		float v = x[k] * 0.25f; // board: (volume/127)^2 ~ 0.25, then hard clip
 		v = v > 1.0f ? 1.0f : (v < -1.0f ? -1.0f : v);
 		s[k] = (int16_t)lrintf(v * 32767.0f);
 	}
@@ -77,11 +96,17 @@ static void write_wav(const char* path, const std::vector<float>& x, int channel
 }
 
 static uint32_t rng_state = 1;
-static float frand() { rng_state = rng_state * 1664525u + 1013904223u; return (rng_state >> 8) * (1.0f / 16777216.0f); }
+static float frand() {
+	rng_state = rng_state * 1664525u + 1013904223u;
+	return (rng_state >> 8) * (1.0f / 16777216.0f);
+}
 
 int main(int argc, char** argv) {
-	_mm_setcsr(_mm_getcsr() | 0x8040);   // flush denormals (speed only; the board's FPU handles them in hardware)
-	if (argc < 2) { fprintf(stderr, "usage: fx_test out-prefix [key=value ...]\n"); return 1; }
+	_mm_setcsr(_mm_getcsr() | 0x8040); // flush denormals (speed only; the board's FPU handles them in hardware)
+	if (argc < 2) {
+		fprintf(stderr, "usage: fx_test out-prefix [key=value ...]\n");
+		return 1;
+	}
 	std::string out = argv[1];
 	std::string src = "voice";
 	double seconds = 17.5, tail = 0, freq = 1000, amp = 1, gain = 1;
@@ -94,7 +119,10 @@ int main(int argc, char** argv) {
 	for (int a = 2; a < argc; a++) {
 		std::string s = argv[a];
 		size_t eq = s.find('=');
-		if (eq == std::string::npos) { fprintf(stderr, "bad argument %s\n", s.c_str()); return 1; }
+		if (eq == std::string::npos) {
+			fprintf(stderr, "bad argument %s\n", s.c_str());
+			return 1;
+		}
 		std::string k = s.substr(0, eq), v = s.substr(eq + 1);
 		if (k == "src") src = v;
 		else if (k == "seconds") seconds = atof(v.c_str());
@@ -112,7 +140,10 @@ int main(int argc, char** argv) {
 		} else if (k.compare(0, 5, "ramp:") == 0) {
 			Ramp r;
 			r.i = param_index(k.substr(5).c_str());
-			if (sscanf(v.c_str(), "%f:%f:%lf:%lf", &r.a, &r.b, &r.t0, &r.t1) != 4) { fprintf(stderr, "bad ramp %s\n", s.c_str()); return 1; }
+			if (sscanf(v.c_str(), "%f:%f:%lf:%lf", &r.a, &r.b, &r.t0, &r.t1) != 4) {
+				fprintf(stderr, "bad ramp %s\n", s.c_str());
+				return 1;
+			}
 			ramps.push_back(r);
 		} else param_write(fe, param_index(k.c_str()), (float)atof(v.c_str()));
 	}
@@ -147,7 +178,10 @@ int main(int argc, char** argv) {
 				for (int i = 0; i < nv; i++) e.vc[i] = {v[i].note, v[i].pres, v[i].vpres, v[i].but_x, v[i].but_y};
 				e.g = {g[0], g[1], g[2], g[3], g[4], g[5], g[6], g[7]};
 			} else {
-				for (int i = 0; i < nv; i++) { e.vc[i].pres = 0; e.vc[i].vpres = 0; }
+				for (int i = 0; i < nv; i++) {
+					e.vc[i].pres = 0;
+					e.vc[i].vpres = 0;
+				}
 			}
 			eng::process(e, in);
 			for (int n = 0; n < BLOCK; n++) in[n] *= (float)gain;
@@ -157,21 +191,26 @@ int main(int argc, char** argv) {
 				float x = 0;
 				if (b < nin) {
 					if (src == "sine") x = (float)(amp * sin(2 * M_PI * freq * k / SAMPLERATE));
-					else if (src == "noise") { noise = noise * 1664525u + 1013904223u; x = (float)amp * ((int32_t)noise * (1.0f / 2147483648.0f)); }
-					else if (src == "impulse") x = k == (long)(0.05 * SAMPLERATE) ? (float)amp : 0.0f;   // after the input fade-in
+					else if (src == "noise") {
+						noise = noise * 1664525u + 1013904223u;
+						x = (float)amp * ((int32_t)noise * (1.0f / 2147483648.0f));
+					} else if (src == "impulse") x = k == (long)(0.05 * SAMPLERATE) ? (float)amp : 0.0f; // after the input fade-in
 				}
 				in[n] = x;
 			}
 		}
 		// parameter writes between blocks, as apply_params() does in the firmware
-		while (ev < events.size() && events[ev].t <= t) { param_write(fe, events[ev].i, events[ev].v); ev++; }
+		while (ev < events.size() && events[ev].t <= t) {
+			param_write(fe, events[ev].i, events[ev].v);
+			ev++;
+		}
 		for (const Ramp& r : ramps)
 			if (t >= r.t0 && t <= r.t1) param_write(fe, r.i, (float)(r.a + (r.b - r.a) * (t - r.t0) / (r.t1 - r.t0)));
 		if (random) {
 			// stress: 1..4 random writes per block, sometimes extremes, sometimes bypass
 			const int nw = 1 + (int)(frand() * 4);
 			for (int k = 0; k < nw; k++) {
-				const int i = (int)(frand() * (fx::NPARAM - 1));   // all but bypass
+				const int i = (int)(frand() * (fx::NPARAM - 1)); // all but bypass
 				const strisy::ParamDesc& d = fx::PARAMS[i].d;
 				float u = frand();
 				if (frand() < 0.2f) u = u < 0.5f ? 0.0f : 1.0f;
@@ -195,15 +234,20 @@ int main(int argc, char** argv) {
 	double pk = 0, pkd = 0, sl = 0, sr = 0, sd = 0;
 	for (size_t k = 0; k < dry.size(); k++) {
 		const float a = wet[2 * k], c = wet[2 * k + 1];
-		if (!std::isfinite(a) || !std::isfinite(c)) { bad++; continue; }
+		if (!std::isfinite(a) || !std::isfinite(c)) {
+			bad++;
+			continue;
+		}
 		pk = std::max(pk, (double)std::max(std::fabs(a), std::fabs(c)));
 		pkd = std::max(pkd, (double)std::fabs(dry[k]));
-		sl += a * a; sr += c * c; sd += dry[k] * dry[k];
+		sl += a * a;
+		sr += c * c;
+		sd += dry[k] * dry[k];
 	}
 	const double N = (double)dry.size();
 	if (bad) fprintf(stderr, "!! %zu NON-FINITE OUTPUT SAMPLES\n", bad);
 	printf("%s: %.1f s, dry peak %.3f rms %.3f | wet peak %.3f rms L %.3f R %.3f | guard trips %u | host fx %.2f us/block\n",
-	       out.c_str(), N / SAMPLERATE, pkd, sqrt(sd / N), pk, sqrt(sl / N), sqrt(sr / N), fe.guard_trips, 1e6 * fx_s / nblocks);
+	    out.c_str(), N / SAMPLERATE, pkd, sqrt(sd / N), pk, sqrt(sl / N), sqrt(sr / N), fe.guard_trips, 1e6 * fx_s / nblocks);
 	FILE* f = fopen((out + ".f32").c_str(), "wb");
 	fwrite(wet.data(), sizeof(float), wet.size(), f);
 	fclose(f);

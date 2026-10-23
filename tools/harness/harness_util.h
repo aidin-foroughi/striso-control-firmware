@@ -27,10 +27,18 @@ namespace harness {
 	const uint32_t sr = static_cast<uint32_t>(sample_rate), br = sr * 2 * static_cast<uint32_t>(channels), data = n * 2;
 	const uint16_t ch = static_cast<uint16_t>(channels), ba = static_cast<uint16_t>(2 * channels), bits = 16, fmt = 1;
 	const uint32_t riff = 36 + data, fmtlen = 16;
-	std::fwrite("RIFF", 1, 4, f); std::fwrite(&riff, 4, 1, f); std::fwrite("WAVEfmt ", 1, 8, f);
-	std::fwrite(&fmtlen, 4, 1, f); std::fwrite(&fmt, 2, 1, f); std::fwrite(&ch, 2, 1, f); std::fwrite(&sr, 4, 1, f);
-	std::fwrite(&br, 4, 1, f); std::fwrite(&ba, 2, 1, f); std::fwrite(&bits, 2, 1, f);
-	std::fwrite("data", 1, 4, f); std::fwrite(&data, 4, 1, f);
+	std::fwrite("RIFF", 1, 4, f);
+	std::fwrite(&riff, 4, 1, f);
+	std::fwrite("WAVEfmt ", 1, 8, f);
+	std::fwrite(&fmtlen, 4, 1, f);
+	std::fwrite(&fmt, 2, 1, f);
+	std::fwrite(&ch, 2, 1, f);
+	std::fwrite(&sr, 4, 1, f);
+	std::fwrite(&br, 4, 1, f);
+	std::fwrite(&ba, 2, 1, f);
+	std::fwrite(&bits, 2, 1, f);
+	std::fwrite("data", 1, 4, f);
+	std::fwrite(&data, 4, 1, f);
 	std::vector<int16_t> s(n);
 	for (uint32_t k = 0; k < n; k++) {
 		float v = x[k] * 0.25f;
@@ -47,7 +55,10 @@ namespace harness {
 	for (float v : x) {
 		uint32_t u;
 		std::memcpy(&u, &v, 4);
-		for (int k = 0; k < 4; k++) { h ^= (u >> (8 * k)) & 0xffu; h *= 1099511628211ull; }
+		for (int k = 0; k < 4; k++) {
+			h ^= (u >> (8 * k)) & 0xffu;
+			h *= 1099511628211ull;
+		}
 	}
 	return h;
 }
@@ -70,20 +81,29 @@ template <class E> inline void param_write(E& e, int i, float value) {
 // as tools/harness/out/bowed_rec.py did: note = 62 + 12*c0 + 7*c1 + bend*x^3 (bend 0.5),
 // voices by get_voice() (same button, else a free voice, else the earliest released one),
 // velo clipped at +-8191 in the stream reconstructed from the pressure slope.
-struct RecEvent { double t; int voice; float note, pres, vpres, but_x, but_y; };
+struct RecEvent {
+	double t;
+	int voice;
+	float note, pres, vpres, but_x, but_y;
+};
 
 [[nodiscard]] inline std::vector<RecEvent> load_recording(const char* path, int nvoices) {
 	static const int c0[68] = {6, 5, 5, 4, 4, 3, 2, 2, 1, 1, 0, 0, -1, -2, -2, -3, -3,
-	                           5, 4, 4, 3, 3, 2, 1, 1, 0, 0, -1, -1, -2, -3, -3, -4, -4,
-	                           4, 3, 3, 2, 2, 1, 0, 0, -1, -1, -2, -2, -3, -4, -4, -5, -5,
-	                           3, 2, 2, 1, 1, 0, -1, -1, -2, -2, -3, -3, -4, -5, -5, -6, -6};
-	struct Row { double t; int id; double pres, velo, x, y; };
+	    5, 4, 4, 3, 3, 2, 1, 1, 0, 0, -1, -1, -2, -3, -3, -4, -4,
+	    4, 3, 3, 2, 2, 1, 0, 0, -1, -1, -2, -2, -3, -4, -4, -5, -5,
+	    3, 2, 2, 1, 1, 0, -1, -1, -2, -2, -3, -3, -4, -5, -5, -6, -6};
+	struct Row {
+		double t;
+		int id;
+		double pres, velo, x, y;
+	};
 	std::vector<Row> rows;
 	FILE* f = std::fopen(path, "r");
 	if (!f) return {};
 	char line[256];
 	while (std::fgets(line, sizeof line, f)) {
-		double t; int src, id, p, v, x, y;
+		double t;
+		int src, id, p, v, x, y;
 		if (std::sscanf(line, "%lf,%d,%d,%d,%d,%d,%d", &t, &src, &id, &p, &v, &x, &y) == 7 && src == 0 && id >= 0 && id < 68)
 			rows.push_back({t, id, (double)p, (double)v, (double)x, (double)y});
 	}
@@ -102,11 +122,14 @@ struct RecEvent { double t; int voice; float note, pres, vpres, but_x, but_y; };
 	}
 	double num = 0, den = 0;
 	for (size_t j = 0; j < rows.size(); j++)
-		if (std::fabs(rows[j].velo) < 8000 && std::fabs(slope[j]) > 1e4 && rows[j].pres > 0) { num += rows[j].velo * slope[j]; den += slope[j] * slope[j]; }
+		if (std::fabs(rows[j].velo) < 8000 && std::fabs(slope[j]) > 1e4 && rows[j].pres > 0) {
+			num += rows[j].velo * slope[j];
+			den += slope[j] * slope[j];
+		}
 	const double k = num / std::max(den, 1e-9);
 	std::vector<int> voices(static_cast<size_t>(nvoices), -1);
 	std::vector<double> rel_time(static_cast<size_t>(nvoices), -1e9);
-	std::map<int, int> state;  // button -> voice while held
+	std::map<int, int> state; // button -> voice while held
 	std::vector<RecEvent> out;
 	const double t0 = rows[0].t;
 	for (size_t j = 0; j < rows.size(); j++) {
@@ -118,12 +141,17 @@ struct RecEvent { double t; int voice; float note, pres, vpres, but_x, but_y; };
 		const double note = 62 + 12 * c0[r.id] + 7 * ((r.id % 17) - 8) + 0.5 * bx * bx * bx;
 		if (p > 0 && !state.count(r.id)) {
 			int v = -1;
-			for (int n = 0; n < nvoices && v < 0; n++) if (voices[n] == r.id) v = n;
-			for (int n = 0; n < nvoices && v < 0; n++) if (voices[n] == -1) v = n;
+			for (int n = 0; n < nvoices && v < 0; n++)
+				if (voices[n] == r.id) v = n;
+			for (int n = 0; n < nvoices && v < 0; n++)
+				if (voices[n] == -1) v = n;
 			if (v < 0) {
 				double best = 1e300;
 				for (int n = 0; n < nvoices; n++)
-					if (!state.count(voices[n]) && rel_time[n] < best) { best = rel_time[n]; v = n; }
+					if (!state.count(voices[n]) && rel_time[n] < best) {
+						best = rel_time[n];
+						v = n;
+					}
 				if (v < 0) v = 0;
 				state.erase(voices[v]);
 			}
@@ -134,12 +162,15 @@ struct RecEvent { double t; int voice; float note, pres, vpres, but_x, but_y; };
 		if (it != state.end()) {
 			const int v = it->second;
 			out.push_back({r.t - t0, v, (float)note, (float)p, (float)vp, (float)bx, (float)by});
-			if (p <= 0) { state.erase(it); rel_time[v] = r.t; }
+			if (p <= 0) {
+				state.erase(it);
+				rel_time[v] = r.t;
+			}
 		}
 	}
 	return out;
 }
 
-}  // namespace harness
+} // namespace harness
 
 #endif

@@ -23,12 +23,12 @@
 #include "usb_audio_core.h"
 
 static ua_core_t ua;
-static volatile uint8_t ua_alt;      // alt setting of the AudioStreaming interface (0: idle)
-static volatile bool ua_stream;      // the synth thread feeds the ring
+static volatile uint8_t ua_alt; // alt setting of the AudioStreaming interface (0: idle)
+static volatile bool ua_stream; // the synth thread feeds the ring
 static volatile bool ua_tone_on;
 static uint8_t ua_pkt[UA_EP_SIZE] __attribute__((aligned(4)));
 static size_t ua_pkt_len;
-static uint8_t ua_freq_buf[4];       // SET_CUR sampling frequency data stage (ignored: 48 kHz only)
+static uint8_t ua_freq_buf[4]; // SET_CUR sampling frequency data stage (ignored: 48 kHz only)
 static const uint8_t ua_freq_48k[3] = {0x80, 0xBB, 0x00};
 static uint8_t ua_alt_reply;
 
@@ -39,17 +39,16 @@ static void ua_in_cb(USBDriver *usbp, usbep_t ep);
 
 static USBInEndpointState ep3instate;
 static const USBEndpointConfig ep3config = {
-  USB_EP_MODE_TYPE_ISOC,
-  NULL,
-  ua_in_cb,
-  NULL,
-  UA_EP_SIZE,
-  0x0000,
-  &ep3instate,
-  NULL,
-  1,
-  NULL
-};
+    USB_EP_MODE_TYPE_ISOC,
+    NULL,
+    ua_in_cb,
+    NULL,
+    UA_EP_SIZE,
+    0x0000,
+    &ep3instate,
+    NULL,
+    1,
+    NULL};
 
 // --- synth thread side ------------------------------------------------------------------------
 
@@ -90,7 +89,8 @@ static void ua_in_cb(USBDriver *usbp, usbep_t ep) {
   // the packet still pending
   const bool missed = (usbp->otg->ie[ep].DIEPTSIZ & DIEPTSIZ_PKTCNT_MASK) != 0U;
   osalSysLockFromISR();
-  if (missed) st_missed++; else st_sent++;
+  if (missed) st_missed++;
+  else st_sent++;
   if (ua_alt != 0U && usbp->state == USB_ACTIVE && !usbGetTransmitStatusI(usbp, ep)) {
     ua_transmitI(usbp, !missed);
   }
@@ -142,7 +142,7 @@ static void ua_set_alt(uint8_t alt) {
     ua_pkt_len = 0;
     ua_stream = true;
   } else {
-    ua_stream = false;   // an armed packet completes or is flushed, and is not re-armed
+    ua_stream = false; // an armed packet completes or is flushed, and is not re-armed
   }
   osalSysUnlockFromISR();
 }
@@ -160,7 +160,7 @@ bool usb_audio_requests_hook(USBDriver *usbp) {
   if (rtype == (USB_RTYPE_TYPE_STD | USB_RTYPE_RECIPIENT_INTERFACE) &&
       (index == UA_AC_INTERFACE || index == UA_AS_INTERFACE)) {
     if (req == USB_REQ_SET_INTERFACE) {
-      if (value > (index == UA_AS_INTERFACE ? UA_ALT_16BIT : 0)) return false;   // stall
+      if (value > (index == UA_AS_INTERFACE ? UA_ALT_16BIT : 0)) return false; // stall
       if (index == UA_AS_INTERFACE) ua_set_alt((uint8_t)value);
       usbSetupTransfer(usbp, NULL, 0, NULL);
       return true;
@@ -176,11 +176,11 @@ bool usb_audio_requests_hook(USBDriver *usbp) {
   if (rtype == (USB_RTYPE_TYPE_CLASS | USB_RTYPE_RECIPIENT_ENDPOINT) &&
       index == (0x80 | UA_EP) && (value >> 8) == 0x01 /* SAMPLING_FREQ_CONTROL */) {
     const size_t n = length < 3 ? length : 3;
-    if (req == 0x01) {                               // SET_CUR: accept (only 48 kHz exists)
+    if (req == 0x01) { // SET_CUR: accept (only 48 kHz exists)
       usbSetupTransfer(usbp, ua_freq_buf, n, NULL);
       return true;
     }
-    if (req >= 0x81 && req <= 0x84) {                // GET_CUR, GET_MIN, GET_MAX, GET_RES
+    if (req >= 0x81 && req <= 0x84) { // GET_CUR, GET_MIN, GET_MAX, GET_RES
       usbSetupTransfer(usbp, (uint8_t *)ua_freq_48k, n, NULL);
       return true;
     }
@@ -193,22 +193,35 @@ bool usb_audio_requests_hook(USBDriver *usbp) {
 // not inlined (LTO would merge its frame into main(), whose stack is 1 KB, for every path)
 __attribute__((noinline)) void usb_audio_print_status(void *chp) {
   BaseSequentialStream *out = (BaseSequentialStream *)chp;
-  struct { uint32_t packets, frames, underruns, overruns, primes, sizes[3]; int32_t lvl_min, lvl_max; } s;
+  struct {
+    uint32_t packets, frames, underruns, overruns, primes, sizes[3];
+    int32_t lvl_min, lvl_max;
+  } s;
   uint32_t sent, missed, sofs, isr_max, isr_sum, isr_n, level;
   int32_t lvl_f;
   uint8_t alt;
   bool tone, priming;
 
   chSysLock();
-  s.packets = ua.packets; s.frames = ua.frames; s.underruns = ua.underruns;
-  s.overruns = ua.overruns; s.primes = ua.primes;
-  s.sizes[0] = ua.sizes[0]; s.sizes[1] = ua.sizes[1]; s.sizes[2] = ua.sizes[2];
-  s.lvl_min = ua.lvl_min; s.lvl_max = ua.lvl_max;
+  s.packets = ua.packets;
+  s.frames = ua.frames;
+  s.underruns = ua.underruns;
+  s.overruns = ua.overruns;
+  s.primes = ua.primes;
+  s.sizes[0] = ua.sizes[0];
+  s.sizes[1] = ua.sizes[1];
+  s.sizes[2] = ua.sizes[2];
+  s.lvl_min = ua.lvl_min;
+  s.lvl_max = ua.lvl_max;
   level = ua.w - ua.r;
   lvl_f = ua.lvl_q8 >> 8;
   priming = ua.priming;
-  sent = st_sent; missed = st_missed; sofs = st_sofs;
-  isr_max = st_isr_max; isr_sum = st_isr_sum; isr_n = st_isr_n;
+  sent = st_sent;
+  missed = st_missed;
+  sofs = st_sofs;
+  isr_max = st_isr_max;
+  isr_sum = st_isr_sum;
+  isr_n = st_isr_n;
   alt = ua_alt;
   tone = ua_tone_on;
   ua_stats_reset(&ua);
@@ -216,19 +229,20 @@ __attribute__((noinline)) void usb_audio_print_status(void *chp) {
   chSysUnlock();
 
   chprintf(out, "usb audio: %s, source %s\r\n",
-           alt == UA_ALT_24BIT ? "streaming 48000 Hz 24 bit (alt 1)" :
-           alt == UA_ALT_16BIT ? "streaming 48000 Hz 16 bit (alt 2)" : "idle (alt 0)",
-           tone ? "test tone (L 1 kHz, R 500 Hz, -6 dBFS)" : "synth");
+      alt == UA_ALT_24BIT     ? "streaming 48000 Hz 24 bit (alt 1)" :
+          alt == UA_ALT_16BIT ? "streaming 48000 Hz 16 bit (alt 2)" :
+                                "idle (alt 0)",
+      tone ? "test tone (L 1 kHz, R 500 Hz, -6 dBFS)" : "synth");
   chprintf(out, "since last U: packets sent %lu missed %lu built %lu (47:%lu 48:%lu 49:%lu)\r\n",
-           sent, missed, s.packets, s.sizes[0], s.sizes[1], s.sizes[2]);
+      sent, missed, s.packets, s.sizes[0], s.sizes[1], s.sizes[2]);
   if (sofs) {
     const uint64_t mhz = (uint64_t)s.frames * 1000000U / sofs;
     chprintf(out, "rate: %lu frames in %lu ms of host clock = %lu.%03lu Hz\r\n",
-             s.frames, sofs, (uint32_t)(mhz / 1000U), (uint32_t)(mhz % 1000U));
+        s.frames, sofs, (uint32_t)(mhz / 1000U), (uint32_t)(mhz % 1000U));
   }
   chprintf(out, "ring: level %lu now, %ld filtered, %ld..%ld before packets (target %d of %d)%s\r\n",
-           level, lvl_f, s.lvl_max < 0 ? 0 : s.lvl_min, s.lvl_max < 0 ? 0 : s.lvl_max,
-           UA_TARGET_FRAMES, UA_RING_FRAMES, priming ? ", priming" : "");
+      level, lvl_f, s.lvl_max < 0 ? 0 : s.lvl_min, s.lvl_max < 0 ? 0 : s.lvl_max,
+      UA_TARGET_FRAMES, UA_RING_FRAMES, priming ? ", priming" : "");
   chprintf(out, "underruns %lu overruns %lu primes %lu; packet build avg %lu max %lu cycles\r\n",
-           s.underruns, s.overruns, s.primes, isr_n ? isr_sum / isr_n : 0, isr_max);
+      s.underruns, s.overruns, s.primes, isr_n ? isr_sum / isr_n : 0, isr_max);
 }

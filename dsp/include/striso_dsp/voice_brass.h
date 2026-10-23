@@ -75,16 +75,16 @@ namespace brass {
 using real = float;
 static constexpr int BLOCK = strisy::BLOCK;
 static constexpr int MAX_VOICES = 10;
-static constexpr int CTRL = 8;               // control rate divider (6.1 kHz)
+static constexpr int CTRL = 8; // control rate divider (6.1 kHz)
 static constexpr int NCTRL = BLOCK / CTRL;
-static constexpr int NCV = 10;               // interpolated control values (see process_voice)
+static constexpr int NCV = 10; // interpolated control values (see process_voice)
 static_assert(BLOCK % CTRL == 0, "CTRL must divide BLOCK");
-static constexpr int BLEN = 1024;            // each half of the bore loop (period <= ~2040 samples, MIDI >= 19.5)
+static constexpr int BLEN = 1024; // each half of the bore loop (period <= ~2040 samples, MIDI >= 19.5)
 static constexpr uint32_t BMASK = BLEN - 1;
 static constexpr real DMAX = (real)(BLEN - 3);
-static constexpr int SLEN = 128;            // second steepening stage buffer
+static constexpr int SLEN = 128; // second steepening stage buffer
 static constexpr uint32_t SMASK = SLEN - 1;
-static constexpr int SD = 64;                // its nominal delay (latency of the radiated wave, 1.3 ms)
+static constexpr int SD = 64; // its nominal delay (latency of the radiated wave, 1.3 ms)
 // steepening: each stage compresses fronts at most (1 + BRASS_RL) times (host experiments: -DBRASS_RL=...)
 #ifdef BRASS_RL
 static constexpr real RL = BRASS_RL;
@@ -122,45 +122,45 @@ static float bore_buf[MAX_VOICES][2][BLEN];
 
 struct Params {
 	// level
-	real gain;            // output level
-	real pc_a, pc_b;      // breath level from pressure: pres * (pc_a + pc_b * pres)
-	real lv_hz;           // pressure smoothing (critically damped 2-pole)
-	real rel, rel_ped;    // release time constant (s): rel + rel_ped * pedal^2
+	real gain;         // output level
+	real pc_a, pc_b;   // breath level from pressure: pres * (pc_a + pc_b * pres)
+	real lv_hz;        // pressure smoothing (critically damped 2-pole)
+	real rel, rel_ped; // release time constant (s): rel + rel_ped * pedal^2
 	// lips
 	real lip_soft, lip_loud; // lip closure c at lb = 0 and lb = 1 (-2 = sinusoidal .. 0.8 = narrow pulse)
-	real lip_tilt;        // closure added by forward tilt (subtle lip brightness)
-	real jitter;          // pitch jitter (cents, ~35 Hz band)
-	real breath;          // breath turbulence, modulated by the lip opening
+	real lip_tilt;           // closure added by forward tilt (subtle lip brightness)
+	real jitter;             // pitch jitter (cents, ~35 Hz band)
+	real breath;             // breath turbulence, modulated by the lip opening
 	// bore
-	real brass;           // wave steepening: time shift (samples) at full level
-	real bore_t;          // bore resonance decay time (s): bloom and tail
-	real bell_hz;         // bell reflection cutoff (resonances above it fade)
+	real brass;   // wave steepening: time shift (samples) at full level
+	real bore_t;  // bore resonance decay time (s): bloom and tail
+	real bell_hz; // bell reflection cutoff (resonances above it fade)
 	// body
-	real rad_hz;          // radiation high-pass corner
+	real rad_hz;               // radiation high-pass corner
 	real cup_hz, cup_q, cup_g; // mouthpiece cup formant: frequency, Q, peak boost (linear, +1)
-	real tone_hz, tone_q; // bell/tone low-pass at full level
-	real tone_dyn;        // the tone low-pass closes by this many octaves from lb = 1 to lb = 0
-	real tilt_tone;       // tilt: tone low-pass octaves per unit tilt (back = darker / closed)
+	real tone_hz, tone_q;      // bell/tone low-pass at full level
+	real tone_dyn;             // the tone low-pass closes by this many octaves from lb = 1 to lb = 0
+	real tilt_tone;            // tilt: tone low-pass octaves per unit tilt (back = darker / closed)
 	// mute
-	real mute;            // mute depth 0..1
-	real mute_hz, mute_q; // mute resonance
+	real mute;                      // mute depth 0..1
+	real mute_hz, mute_q;           // mute resonance
 	real mute_hp, mute_bp, mute_lp; // output mix: high-pass (straight) / band-pass (harmon) / low-pass
-	real wah;             // tilt: mute resonance octaves per unit tilt (forward = open)
+	real wah;                       // tilt: mute resonance octaves per unit tilt (forward = open)
 	// attack / tonguing
-	real tongue;          // strike sensitivity
-	real acc_amp;         // accent: level overshoot
-	real acc_t;           // accent decay (s)
-	real acc_bright;      // accent: added brightness (lip closure, tone)
-	real scoop;           // pitch scoop from below at a strike (semitones at full strike)
-	real blat;            // attack buzz: random pitch flutter during the accent (semitones)
-	real t_noise;         // tongue noise burst
-	real slur;            // accent on a legato note change
+	real tongue;     // strike sensitivity
+	real acc_amp;    // accent: level overshoot
+	real acc_t;      // accent decay (s)
+	real acc_bright; // accent: added brightness (lip closure, tone)
+	real scoop;      // pitch scoop from below at a strike (semitones at full strike)
+	real blat;       // attack buzz: random pitch flutter during the accent (semitones)
+	real t_noise;    // tongue noise burst
+	real slur;       // accent on a legato note change
 	// modulation
-	real vib, vib_hz;     // automatic (delayed) lip vibrato, semitones
+	real vib, vib_hz;      // automatic (delayed) lip vibrato, semitones
 	real flutter, flut_hz; // shake -> flutter tongue
 	// section
-	real pair;            // second player (detuned copy of the lips), 0 = solo
-	real detune;          // its detune (cents)
+	real pair;   // second player (detuned copy of the lips), 0 = solo
+	real detune; // its detune (cents)
 };
 
 static constexpr int NPARAMS = sizeof(Params) / sizeof(real);
@@ -168,16 +168,49 @@ static_assert(sizeof(Params) == NPARAMS * sizeof(real), "Params must hold only f
 
 [[nodiscard]] static inline Params trumpet_params() {
 	Params p;
-	p.gain = 0.328f; p.pc_a = 0.3f; p.pc_b = 0.7f; p.lv_hz = 40.0f; p.rel = 0.03f; p.rel_ped = 0.4f;
-	p.lip_soft = -1.5f; p.lip_loud = 0.65f; p.lip_tilt = 0.15f; p.jitter = 3.0f; p.breath = 0.08f;
-	p.brass = 16.0f; p.bore_t = 0.025f; p.bell_hz = 1400.0f;
-	p.rad_hz = 350.0f; p.cup_hz = 1200.0f; p.cup_q = 1.4f; p.cup_g = 1.5f;
-	p.tone_hz = 5500.0f; p.tone_q = 0.8f; p.tone_dyn = 1.5f; p.tilt_tone = 0.6f;
-	p.mute = 0.0f; p.mute_hz = 1700.0f; p.mute_q = 4.0f; p.mute_hp = 0.3f; p.mute_bp = 2.5f; p.mute_lp = 0.0f; p.wah = 0.0f;
-	p.tongue = 1.0f; p.acc_amp = 0.35f; p.acc_t = 0.05f; p.acc_bright = 0.5f; p.scoop = 0.25f; p.blat = 0.25f;
-	p.t_noise = 0.15f; p.slur = 0.25f;
-	p.vib = 0.0f; p.vib_hz = 5.5f; p.flutter = 0.6f; p.flut_hz = 24.0f;
-	p.pair = 0.0f; p.detune = 8.0f;
+	p.gain = 0.328f;
+	p.pc_a = 0.3f;
+	p.pc_b = 0.7f;
+	p.lv_hz = 40.0f;
+	p.rel = 0.03f;
+	p.rel_ped = 0.4f;
+	p.lip_soft = -1.5f;
+	p.lip_loud = 0.65f;
+	p.lip_tilt = 0.15f;
+	p.jitter = 3.0f;
+	p.breath = 0.08f;
+	p.brass = 16.0f;
+	p.bore_t = 0.025f;
+	p.bell_hz = 1400.0f;
+	p.rad_hz = 350.0f;
+	p.cup_hz = 1200.0f;
+	p.cup_q = 1.4f;
+	p.cup_g = 1.5f;
+	p.tone_hz = 5500.0f;
+	p.tone_q = 0.8f;
+	p.tone_dyn = 1.5f;
+	p.tilt_tone = 0.6f;
+	p.mute = 0.0f;
+	p.mute_hz = 1700.0f;
+	p.mute_q = 4.0f;
+	p.mute_hp = 0.3f;
+	p.mute_bp = 2.5f;
+	p.mute_lp = 0.0f;
+	p.wah = 0.0f;
+	p.tongue = 1.0f;
+	p.acc_amp = 0.35f;
+	p.acc_t = 0.05f;
+	p.acc_bright = 0.5f;
+	p.scoop = 0.25f;
+	p.blat = 0.25f;
+	p.t_noise = 0.15f;
+	p.slur = 0.25f;
+	p.vib = 0.0f;
+	p.vib_hz = 5.5f;
+	p.flutter = 0.6f;
+	p.flut_hz = 24.0f;
+	p.pair = 0.0f;
+	p.detune = 8.0f;
 	return p;
 }
 
@@ -185,76 +218,171 @@ static constexpr int NUM_PRESETS = 9;
 
 [[nodiscard]] static inline const char* preset_name(int i) {
 	static constexpr const char* names[NUM_PRESETS] = {
-		"trumpet", "flugelhorn", "trombone", "horn", "euphonium", "tuba", "harmon", "plunger", "section"};
+	    "trumpet", "flugelhorn", "trombone", "horn", "euphonium", "tuba", "harmon", "plunger", "section"};
 	return (i >= 0 && i < NUM_PRESETS) ? names[i] : names[0];
 }
 
 [[nodiscard]] static inline Params preset_params(int i) {
 	Params p = trumpet_params();
 	switch (i) {
-	case 1:  // flugelhorn: conical, deep cup: dark and mellow, little steepening
+	case 1: // flugelhorn: conical, deep cup: dark and mellow, little steepening
 		p.gain = 0.415f;
-		p.lip_soft = -1.8f; p.lip_loud = 0.4f; p.breath = 0.12f;
-		p.brass = 8.0f; p.bore_t = 0.03f; p.bell_hz = 900.0f;
-		p.rad_hz = 250.0f; p.cup_hz = 750.0f; p.cup_q = 1.2f; p.cup_g = 1.0f;
-		p.tone_hz = 2600.0f; p.tone_q = 0.7f; p.tone_dyn = 1.2f;
-		p.acc_amp = 0.25f; p.acc_bright = 0.3f; p.scoop = 0.15f; p.blat = 0.1f; p.t_noise = 0.1f;
+		p.lip_soft = -1.8f;
+		p.lip_loud = 0.4f;
+		p.breath = 0.12f;
+		p.brass = 8.0f;
+		p.bore_t = 0.03f;
+		p.bell_hz = 900.0f;
+		p.rad_hz = 250.0f;
+		p.cup_hz = 750.0f;
+		p.cup_q = 1.2f;
+		p.cup_g = 1.0f;
+		p.tone_hz = 2600.0f;
+		p.tone_q = 0.7f;
+		p.tone_dyn = 1.2f;
+		p.acc_amp = 0.25f;
+		p.acc_bright = 0.3f;
+		p.scoop = 0.15f;
+		p.blat = 0.1f;
+		p.t_noise = 0.1f;
 		break;
-	case 2:  // trombone: long cylindrical bore: round when soft, the brassiest when loud
+	case 2: // trombone: long cylindrical bore: round when soft, the brassiest when loud
 		p.gain = 0.411f;
-		p.lip_soft = -1.5f; p.lip_loud = 0.7f;
-		p.brass = 30.0f; p.bore_t = 0.04f; p.bell_hz = 700.0f;
-		p.rad_hz = 150.0f; p.cup_hz = 550.0f; p.cup_q = 1.3f; p.cup_g = 1.5f;
-		p.tone_hz = 4500.0f; p.tone_dyn = 1.8f;
-		p.acc_amp = 0.35f; p.blat = 0.35f; p.scoop = 0.3f;
+		p.lip_soft = -1.5f;
+		p.lip_loud = 0.7f;
+		p.brass = 30.0f;
+		p.bore_t = 0.04f;
+		p.bell_hz = 700.0f;
+		p.rad_hz = 150.0f;
+		p.cup_hz = 550.0f;
+		p.cup_q = 1.3f;
+		p.cup_g = 1.5f;
+		p.tone_hz = 4500.0f;
+		p.tone_dyn = 1.8f;
+		p.acc_amp = 0.35f;
+		p.blat = 0.35f;
+		p.scoop = 0.3f;
 		break;
-	case 3:  // French horn: hand in the bell, dark and round, cuivre only when pushed
+	case 3: // French horn: hand in the bell, dark and round, cuivre only when pushed
 		p.gain = 0.444f;
 		p.lv_hz = 25.0f;
-		p.lip_soft = -1.8f; p.lip_loud = 0.6f; p.breath = 0.06f;
-		p.brass = 20.0f; p.bore_t = 0.06f; p.bell_hz = 500.0f;
-		p.rad_hz = 120.0f; p.cup_hz = 450.0f; p.cup_q = 1.2f; p.cup_g = 0.8f;
-		p.tone_hz = 1600.0f; p.tone_q = 1.1f; p.tone_dyn = 1.4f; p.tilt_tone = 0.8f;
-		p.acc_amp = 0.2f; p.acc_t = 0.07f; p.scoop = 0.2f; p.blat = 0.15f; p.t_noise = 0.08f;
+		p.lip_soft = -1.8f;
+		p.lip_loud = 0.6f;
+		p.breath = 0.06f;
+		p.brass = 20.0f;
+		p.bore_t = 0.06f;
+		p.bell_hz = 500.0f;
+		p.rad_hz = 120.0f;
+		p.cup_hz = 450.0f;
+		p.cup_q = 1.2f;
+		p.cup_g = 0.8f;
+		p.tone_hz = 1600.0f;
+		p.tone_q = 1.1f;
+		p.tone_dyn = 1.4f;
+		p.tilt_tone = 0.8f;
+		p.acc_amp = 0.2f;
+		p.acc_t = 0.07f;
+		p.scoop = 0.2f;
+		p.blat = 0.15f;
+		p.t_noise = 0.08f;
 		break;
-	case 4:  // euphonium: conical tenor tuba, warm and singing
+	case 4: // euphonium: conical tenor tuba, warm and singing
 		p.gain = 0.478f;
-		p.lip_soft = -1.8f; p.lip_loud = 0.45f; p.breath = 0.08f;
-		p.brass = 10.0f; p.bore_t = 0.05f; p.bell_hz = 500.0f;
-		p.rad_hz = 100.0f; p.cup_hz = 400.0f; p.cup_q = 1.2f; p.cup_g = 0.8f;
-		p.tone_hz = 2000.0f; p.tone_q = 0.7f; p.tone_dyn = 1.3f;
-		p.acc_amp = 0.25f; p.acc_t = 0.06f; p.scoop = 0.15f; p.blat = 0.12f;
+		p.lip_soft = -1.8f;
+		p.lip_loud = 0.45f;
+		p.breath = 0.08f;
+		p.brass = 10.0f;
+		p.bore_t = 0.05f;
+		p.bell_hz = 500.0f;
+		p.rad_hz = 100.0f;
+		p.cup_hz = 400.0f;
+		p.cup_q = 1.2f;
+		p.cup_g = 0.8f;
+		p.tone_hz = 2000.0f;
+		p.tone_q = 0.7f;
+		p.tone_dyn = 1.3f;
+		p.acc_amp = 0.25f;
+		p.acc_t = 0.06f;
+		p.scoop = 0.15f;
+		p.blat = 0.12f;
 		break;
-	case 5:  // tuba: big, warm low brass
+	case 5: // tuba: big, warm low brass
 		p.gain = 0.473f;
-		p.lip_soft = -1.6f; p.lip_loud = 0.5f; p.breath = 0.06f;
-		p.brass = 10.0f; p.bore_t = 0.06f; p.bell_hz = 350.0f;
-		p.rad_hz = 60.0f; p.cup_hz = 280.0f; p.cup_q = 1.1f; p.cup_g = 1.0f;
-		p.tone_hz = 1500.0f; p.tone_q = 0.7f; p.tone_dyn = 1.5f;
-		p.acc_amp = 0.3f; p.acc_t = 0.07f; p.scoop = 0.2f; p.blat = 0.15f; p.t_noise = 0.08f;
+		p.lip_soft = -1.6f;
+		p.lip_loud = 0.5f;
+		p.breath = 0.06f;
+		p.brass = 10.0f;
+		p.bore_t = 0.06f;
+		p.bell_hz = 350.0f;
+		p.rad_hz = 60.0f;
+		p.cup_hz = 280.0f;
+		p.cup_q = 1.1f;
+		p.cup_g = 1.0f;
+		p.tone_hz = 1500.0f;
+		p.tone_q = 0.7f;
+		p.tone_dyn = 1.5f;
+		p.acc_amp = 0.3f;
+		p.acc_t = 0.07f;
+		p.scoop = 0.2f;
+		p.blat = 0.15f;
+		p.t_noise = 0.08f;
 		break;
-	case 6:  // harmon-muted trumpet: thin and nasal, tilt is the hand on the stem (wah)
+	case 6: // harmon-muted trumpet: thin and nasal, tilt is the hand on the stem (wah)
 		p.gain = 0.29f;
-		p.mute = 1.0f; p.mute_hz = 1700.0f; p.mute_q = 5.0f; p.mute_hp = 0.2f; p.mute_bp = 3.0f; p.mute_lp = 0.25f;
-		p.wah = 1.0f; p.tilt_tone = 0.0f; p.lip_tilt = 0.0f;
-		p.lip_soft = -0.8f; p.breath = 0.12f;   // a buzzier embouchure: soft notes still feed the mute
+		p.mute = 1.0f;
+		p.mute_hz = 1700.0f;
+		p.mute_q = 5.0f;
+		p.mute_hp = 0.2f;
+		p.mute_bp = 3.0f;
+		p.mute_lp = 0.25f;
+		p.wah = 1.0f;
+		p.tilt_tone = 0.0f;
+		p.lip_tilt = 0.0f;
+		p.lip_soft = -0.8f;
+		p.breath = 0.12f; // a buzzier embouchure: soft notes still feed the mute
 		break;
-	case 7:  // trombone with a straight mute and a plunger over it (tilt back closes the plunger)
+	case 7: // trombone with a straight mute and a plunger over it (tilt back closes the plunger)
 		p.gain = 0.412f;
-		p.lip_soft = -1.5f; p.lip_loud = 0.7f;
-		p.brass = 30.0f; p.bore_t = 0.04f; p.bell_hz = 700.0f;
-		p.rad_hz = 150.0f; p.cup_hz = 550.0f; p.cup_q = 1.3f; p.cup_g = 1.5f;
-		p.tone_hz = 4500.0f; p.tone_q = 1.3f; p.tone_dyn = 1.8f; p.tilt_tone = 2.0f; p.lip_tilt = 0.0f;
-		p.mute = 0.8f; p.mute_hz = 1000.0f; p.mute_q = 1.4f; p.mute_hp = 1.4f; p.mute_bp = 0.6f; p.mute_lp = 0.3f;
-		p.wah = 0.5f; p.blat = 0.35f; p.scoop = 0.3f;
+		p.lip_soft = -1.5f;
+		p.lip_loud = 0.7f;
+		p.brass = 30.0f;
+		p.bore_t = 0.04f;
+		p.bell_hz = 700.0f;
+		p.rad_hz = 150.0f;
+		p.cup_hz = 550.0f;
+		p.cup_q = 1.3f;
+		p.cup_g = 1.5f;
+		p.tone_hz = 4500.0f;
+		p.tone_q = 1.3f;
+		p.tone_dyn = 1.8f;
+		p.tilt_tone = 2.0f;
+		p.lip_tilt = 0.0f;
+		p.mute = 0.8f;
+		p.mute_hz = 1000.0f;
+		p.mute_q = 1.4f;
+		p.mute_hp = 1.4f;
+		p.mute_bp = 0.6f;
+		p.mute_lp = 0.3f;
+		p.wah = 0.5f;
+		p.blat = 0.35f;
+		p.scoop = 0.3f;
 		break;
-	case 8:  // brass section: two players a few cents apart
+	case 8: // brass section: two players a few cents apart
 		p.gain = 0.507f;
-		p.lip_soft = -1.6f; p.lip_loud = 0.55f;
-		p.brass = 18.0f; p.bore_t = 0.035f; p.bell_hz = 1000.0f;
-		p.rad_hz = 220.0f; p.cup_hz = 900.0f; p.cup_q = 1.3f; p.cup_g = 1.2f;
-		p.tone_hz = 4000.0f; p.tone_dyn = 1.5f;
-		p.pair = 1.0f; p.detune = 9.0f; p.jitter = 4.0f;
+		p.lip_soft = -1.6f;
+		p.lip_loud = 0.55f;
+		p.brass = 18.0f;
+		p.bore_t = 0.035f;
+		p.bell_hz = 1000.0f;
+		p.rad_hz = 220.0f;
+		p.cup_hz = 900.0f;
+		p.cup_q = 1.3f;
+		p.cup_g = 1.2f;
+		p.tone_hz = 4000.0f;
+		p.tone_dyn = 1.5f;
+		p.pair = 1.0f;
+		p.detune = 9.0f;
+		p.jitter = 4.0f;
 		break;
 	default:
 		break;
@@ -270,27 +398,27 @@ static constexpr int DEFAULT_PRESET = 0;
 #endif
 
 struct VoiceState {
-	uint32_t ph, ph2;           // lip phases (32 bit fixed point, wrap = one period)
-	uint32_t inc, inc2;         // phase increments at the end of the previous block
-	real lv1, lv2;              // pressure smoother (control rate SVF)
-	real amp;                   // breath level after the release logic
-	real acc, tn, sc;           // accent, tongue noise and scoop envelopes
-	real ty1, ty2;              // tilt smoother (block rate SVF)
-	real d1;                    // stage 1 steepened read delay
-	real lps;                   // bell reflection lowpass state
-	real rs;                    // radiation high-pass state
+	uint32_t ph, ph2;            // lip phases (32 bit fixed point, wrap = one period)
+	uint32_t inc, inc2;          // phase increments at the end of the previous block
+	real lv1, lv2;               // pressure smoother (control rate SVF)
+	real amp;                    // breath level after the release logic
+	real acc, tn, sc;            // accent, tongue noise and scoop envelopes
+	real ty1, ty2;               // tilt smoother (block rate SVF)
+	real d1;                     // stage 1 steepened read delay
+	real lps;                    // bell reflection lowpass state
+	real rs;                     // radiation high-pass state
 	real c1, c2, t1, t2, m1, m2; // cup, tone and mute filter states
-	real ctrl_prev[NCV];        // last control point of the previous block
-	real jn, jn2, bn, dr;       // jitter (both players), blat noise, slow pitch wander (block rate)
-	uint32_t rng, nrng;         // block-rate and audio-rate noise generators
+	real ctrl_prev[NCV];         // last control point of the previous block
+	real jn, jn2, bn, dr;        // jitter (both players), blat noise, slow pitch wander (block rate)
+	uint32_t rng, nrng;          // block-rate and audio-rate noise generators
 	real vib_ph, vib_env, flut_ph;
 	real note_prev;
-	real vneg;                  // release speed latch
-	uint32_t w;                 // delay line write index
-	real ds;                    // second steepening stage: read delay
-	uint32_t ws;                // second stage write index
-	real lpt;                   // bell lowpass state of the transmitted (steepened) wave
-	float sb[SLEN];             // second stage: the steepened wave
+	real vneg;      // release speed latch
+	uint32_t w;     // delay line write index
+	real ds;        // second steepening stage: read delay
+	uint32_t ws;    // second stage write index
+	real lpt;       // bell lowpass state of the transmitted (steepened) wave
+	float sb[SLEN]; // second stage: the steepened wave
 	int active;
 };
 
@@ -299,12 +427,12 @@ struct Engine {
 	strisy::VoiceControls vc[MAX_VOICES];
 	int nvoices;
 	int preset;
-	Params p;                   // parameters as set (presets, live edits)
-	Params ps;                  // smoothed copy used by the DSP (de-zippers live edits)
+	Params p;  // parameters as set (presets, live edits)
+	Params ps; // smoothed copy used by the DSP (de-zippers live edits)
 	real sr, pi_sr, ph_scale, ctrl_dt, block_dt;
 	strisy::SvfCoef lv_c, ty_c;
-	real shake_pk, shake;       // global shake envelope
-	real dc, dc_c;              // master DC blocker
+	real shake_pk, shake; // global shake envelope
+	real dc, dc_c;        // master DC blocker
 	VoiceState vs[MAX_VOICES];
 	real src[BLOCK];
 	real vout[BLOCK];
@@ -318,9 +446,12 @@ struct Engine {
 // 2^p for any p (fast.lib's fastpow2 needs p >= 0: the fraction is taken after a floor here)
 [[nodiscard]] static inline real exp2s(real p) {
 	p = rmin(rmax(p, -60.0f), 60.0f);
-	const int wi = (int)(p + 64.0f) - 64;   // floor
+	const int wi = (int)(p + 64.0f) - 64; // floor
 	const real z = p - (real)wi;
-	union { uint32_t i; float f; } v = { static_cast<uint32_t>((1 << 23) * (p + 121.2740575f + 27.7280233f / (4.84252568f - z) - 1.49012907f * z)) };
+	union {
+		uint32_t i;
+		float f;
+	} v = {static_cast<uint32_t>((1 << 23) * (p + 121.2740575f + 27.7280233f / (4.84252568f - z) - 1.49012907f * z))};
 	return v.f;
 }
 
@@ -345,7 +476,9 @@ struct Engine {
 [[nodiscard]] static inline float fsqrt(float x) {
 #if defined(__arm__) && defined(__ARM_FP)
 	float r;
-	__asm__("vsqrt.f32 %0, %1" : "=t"(r) : "t"(x));
+	__asm__("vsqrt.f32 %0, %1"
+	        : "=t"(r)
+	        : "t"(x));
 	return r;
 #else
 	return __builtin_sqrtf(x);
@@ -371,7 +504,7 @@ static inline void pulse_norm(real c, real& inv, real& mean, real& a1) {
 	inv = 1.0f / (omc * omc);
 	real m, f;
 	if (c <= -0.999f) {
-		m = 0.5f + c * c;   // never closes: mean of (cos - c)^2
+		m = 0.5f + c * c; // never closes: mean of (cos - c)^2
 		f = -2.0f * c;
 	} else {
 		// open for |theta| < alpha = acos(c), s = sin(alpha):
@@ -408,7 +541,7 @@ static inline void reset_voice(VoiceState& s, int v) {
 }
 
 static inline void update_derived(Engine& e) {
-	e.lv_c = strisy::svf_from_g(strisy::tan0(e.pi_sr * CTRL * rmin(e.p.lv_hz, 400.0f)), 0.5f);   // critically damped
+	e.lv_c = strisy::svf_from_g(strisy::tan0(e.pi_sr * CTRL * rmin(e.p.lv_hz, 400.0f)), 0.5f); // critically damped
 }
 
 // Select a preset; callable between blocks at any time (after init). Sounding voices continue with
@@ -428,7 +561,7 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 	e.ph_scale = 4294967296.0f / sr;
 	e.ctrl_dt = (real)CTRL / sr;
 	e.block_dt = (real)BLOCK / sr;
-	e.ty_c = strisy::svf_from_g(strisy::tan0(e.pi_sr * BLOCK * 12.0f), 0.5f);  // 12 Hz
+	e.ty_c = strisy::svf_from_g(strisy::tan0(e.pi_sr * BLOCK * 12.0f), 0.5f); // 12 Hz
 	e.shake_pk = e.shake = 0.0f;
 	e.dc = 0.0f;
 	e.dc_c = 2.0f * 3.14159265f * 12.0f / sr;
@@ -442,8 +575,10 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 		s.nrng = 0x85EBCA6Bu * (uint32_t)(v + 3) + 999u;
 		s.ph = s.rng * 2654435761u;
 		s.ph2 = s.ph + 0x30000000u;
-		s.vib_ph = 0.17f * (real)v; s.vib_ph -= (real)(int)s.vib_ph;
-		s.flut_ph = 0.31f * (real)v; s.flut_ph -= (real)(int)s.flut_ph;
+		s.vib_ph = 0.17f * (real)v;
+		s.vib_ph -= (real)(int)s.vib_ph;
+		s.flut_ph = 0.31f * (real)v;
+		s.flut_ph -= (real)(int)s.flut_ph;
 		s.note_prev = 69.0f;
 		s.active = 0;
 	}
@@ -459,19 +594,19 @@ static inline void process_global(Engine& e) {
 }
 
 #ifdef BRASS_TEST_HOOK
-static int brass_guard_resets = 0;   // host test: voices reset by the guard
+static int brass_guard_resets = 0; // host test: voices reset by the guard
 static void brass_test_hook(Engine& e);
 #endif
 
 [[nodiscard]] static inline real block_noise(uint32_t& r) {
 	r = r * 1664525u + 1013904223u;
-	return (real)(int32_t)r * 4.656613e-10f;   // uniform -1..1
+	return (real)(int32_t)r * 4.656613e-10f; // uniform -1..1
 }
 
 // bore loop, both steepening stages and the bell: the radiated wave -> e.vout
 // The two linear reads use the block's delays (they move by < 0.05 samples per block under vibrato).
 static inline void audio_bore(Engine& e, VoiceState& s, float* __restrict__ B1, float* __restrict__ B2,
-                              real d1n, real d2, real ks, real ks2, real rl, real g, real Gb) {
+    real d1n, real d2, real ks, real ks2, real rl, real g, real Gb) {
 	real d1 = s.d1, lps = s.lps, lpt = s.lpt, ds = s.ds;
 	uint32_t w = s.w, ws = s.ws;
 	const uint32_t i2 = (uint32_t)(int)d2, in = (uint32_t)(int)d1n;
@@ -487,7 +622,7 @@ static inline void audio_bore(Engine& e, VoiceState& s, float* __restrict__ B1, 
 		// the outgoing wave arriving at the bell: the linear wave closes the loop ...
 		const real a0 = B1[(w - in) & BMASK], a1 = B1[(w - in - 1u) & BMASK];
 		const real bl = a0 + fn * (a1 - a0);
-		const real v = (bl - lps) * Gb;     // bell: low frequencies reflect (one-pole TPT lowpass x g)
+		const real v = (bl - lps) * Gb; // bell: low frequencies reflect (one-pole TPT lowpass x g)
 		const real lp = v + lps;
 		lps = lp + v;
 		B2[w] = g * lp;
@@ -520,13 +655,18 @@ static inline void audio_bore(Engine& e, VoiceState& s, float* __restrict__ B1, 
 		lpt = lt + vt;
 		out[n] = yst - g * lt;
 	}
-	s.d1 = d1; s.lps = lps; s.lpt = lpt; s.ds = ds; s.w = w; s.ws = ws;
+	s.d1 = d1;
+	s.lps = lps;
+	s.lpt = lpt;
+	s.ds = ds;
+	s.w = w;
+	s.ws = ws;
 }
 
 // radiation high-pass, cup formant, tone low-pass, mute, gain: e.vout in place
 template <bool MUTE>
 static inline void audio_body(Engine& e, VoiceState& s, real Gr, const strisy::SvfCoef& cupc, real cupG,
-                              const strisy::SvfCoef& mc, real mdep, real wh, real wb, real wl, real gain) {
+    const strisy::SvfCoef& mc, real mdep, real wh, real wb, real wl, real gain) {
 	real rs = s.rs, c1 = s.c1, c2 = s.c2, t1 = s.t1, t2 = s.t2, m1 = s.m1, m2 = s.m2;
 	real ta = s.ctrl_prev[7], tga = s.ctrl_prev[8], tg2a = s.ctrl_prev[9];
 	real* __restrict__ out = e.vout;
@@ -536,7 +676,9 @@ static inline void audio_body(Engine& e, VoiceState& s, real Gr, const strisy::S
 		const real dta = (cur[7] - ta) * r, dtga = (cur[8] - tga) * r, dtg2a = (cur[9] - tg2a) * r;
 #pragma GCC unroll 2
 		for (int j = 0; j < CTRL; j++) {
-			ta += dta; tga += dtga; tg2a += dtg2a;
+			ta += dta;
+			tga += dtga;
+			tg2a += dtg2a;
 			const int n = k * CTRL + j;
 			const real o = out[n];
 			// radiation high-pass (one-pole TPT)
@@ -561,10 +703,20 @@ static inline void audio_body(Engine& e, VoiceState& s, real Gr, const strisy::S
 			}
 			out[n] = o2 * gain;
 		}
-		ta = cur[7]; tga = cur[8]; tg2a = cur[9];   // exact control point (no drift)
+		ta = cur[7];
+		tga = cur[8];
+		tg2a = cur[9]; // exact control point (no drift)
 	}
-	s.rs = rs; s.c1 = c1; s.c2 = c2; s.t1 = t1; s.t2 = t2; s.m1 = m1; s.m2 = m2;
-	s.ctrl_prev[7] = ta; s.ctrl_prev[8] = tga; s.ctrl_prev[9] = tg2a;
+	s.rs = rs;
+	s.c1 = c1;
+	s.c2 = c2;
+	s.t1 = t1;
+	s.t2 = t2;
+	s.m1 = m1;
+	s.m2 = m2;
+	s.ctrl_prev[7] = ta;
+	s.ctrl_prev[8] = tga;
+	s.ctrl_prev[9] = tg2a;
 }
 
 static inline void process_voice(Engine& e, int v) {
@@ -581,23 +733,33 @@ static inline void process_voice(Engine& e, int v) {
 	const bool held = pres > 0.0f;
 	bool start = false;
 	if (!s.active) {
-		if (!held && vplev <= 0.0f) { s.note_prev = note; return; }
+		if (!held && vplev <= 0.0f) {
+			s.note_prev = note;
+			return;
+		}
 		s.active = 1;
 		start = true;
 	}
 
 	// ---- block rate -------------------------------------------------------------------------
-	const bool jump = start || fabsf(note - s.note_prev) >= 1.0f;   // a new note
-	if (jump && !start && held) s.acc = rmax(s.acc, P.slur);       // legato change: a small articulation
-	if (jump) { s.vib_env = 0.0f; s.vneg = 0.0f; }
+	const bool jump = start || fabsf(note - s.note_prev) >= 1.0f; // a new note
+	if (jump && !start && held) s.acc = rmax(s.acc, P.slur);      // legato change: a small articulation
+	if (jump) {
+		s.vib_env = 0.0f;
+		s.vneg = 0.0f;
+	}
 	s.note_prev = note;
 	const real by = rmin(rmax(cc.but_y, -1.0f), 1.0f);
-	if (start) { s.ty1 = 0.0f; s.ty2 = by; }
+	if (start) {
+		s.ty1 = 0.0f;
+		s.ty2 = by;
+	}
 	real y;
 	{
 		real ty1 = s.ty1, ty2 = s.ty2, t1;
 		SVF_TICK(by, ty1, ty2, e.ty_c, t1, y);
-		s.ty1 = ty1; s.ty2 = ty2;
+		s.ty1 = ty1;
+		s.ty2 = ty2;
 	}
 	y = rmin(rmax(y, -1.0f), 1.0f);
 
@@ -605,16 +767,17 @@ static inline void process_voice(Engine& e, int v) {
 	s.jn += 0.15f * (6.0f * block_noise(s.rng) - s.jn);
 	s.bn += 0.6f * (1.7f * block_noise(s.rng) - s.bn);
 	s.jn = rmin(rmax(s.jn, -4.0f), 4.0f);
-	s.dr += 0.003f * (45.0f * block_noise(s.rng) - s.dr);   // ~0.7 Hz, std ~1
+	s.dr += 0.003f * (45.0f * block_noise(s.rng) - s.dr); // ~0.7 Hz, std ~1
 	s.dr = rmin(rmax(s.dr, -4.0f), 4.0f);
 	s.bn = rmin(rmax(s.bn, -3.0f), 3.0f);
 	// delayed automatic vibrato
-	s.vib_ph += P.vib_hz * e.block_dt; if (s.vib_ph >= 1.0f) s.vib_ph -= (real)(int)s.vib_ph;
+	s.vib_ph += P.vib_hz * e.block_dt;
+	if (s.vib_ph >= 1.0f) s.vib_ph -= (real)(int)s.vib_ph;
 	if (held) s.vib_env = rmin(s.vib_env + e.block_dt * 1.6f, 1.0f);
 	const real vib = rmin(rmax(P.vib, 0.0f), 2.0f) * rmax(s.vib_env - 0.3f, 0.0f) * 1.43f * psin(s.vib_ph);
 
 	// pitches: the bore follows the note; the lips add scoop, jitter and buzz on top
-	const real nloop = note + vib + 0.005f * P.jitter * s.dr;   // slow wander: the bore follows
+	const real nloop = note + vib + 0.005f * P.jitter * s.dr; // slow wander: the bore follows
 	const real acc0 = s.acc;
 	const bool pair_on = P.pair > 0.001f;
 	// section: the two players sit symmetrically around the note, each with its own jitter
@@ -630,7 +793,10 @@ static inline void process_voice(Engine& e, int v) {
 	const real n2 = nloop - 0.8f * P.scoop * s.sc + 0.01f * P.jitter * s.jn2 + P.blat * acc0 * acc0 * s.bn + half_det;
 	const real f2r = rmin(note_freq(n2), fmax);
 	const uint32_t inc2 = (uint32_t)(f2r * e.ph_scale) | 1u;
-	if (jump || s.inc == 0) { s.inc = inc1; s.inc2 = inc2; }
+	if (jump || s.inc == 0) {
+		s.inc = inc1;
+		s.inc2 = inc2;
+	}
 	const int32_t dA = (int32_t)(inc1 - s.inc) / BLOCK;
 	const int32_t dB = (int32_t)(inc2 - s.inc2) / BLOCK;
 
@@ -643,11 +809,11 @@ static inline void process_voice(Engine& e, int v) {
 	const real Gb = gb / (1.0f + gb);
 	const real t0 = tanp(rmin(3.14159265f / P0, 1.3f));
 	const real ratio = t0 / gb;
-	const real lag = atanp(ratio);                                      // bell lowpass phase lag at f0
-	const real lpmag = 1.0f / fsqrt(1.0f + ratio * ratio);             // and its magnitude
+	const real lag = atanp(ratio);                         // bell lowpass phase lag at f0
+	const real lpmag = 1.0f / fsqrt(1.0f + ratio * ratio); // and its magnitude
 	const real Dtot = rmax(P0 - lag * P0 * 0.159154943f, 2.0f);
 	real g = exp2s(-1.442695f * P0 / (rmax(P.bore_t, 0.002f) * e.sr));
-	g = rmin(g, 0.95f) * rmin(rmax((2040.0f - P0) * 0.01f, 0.0f), 1.0f);   // no resonance below MIDI ~19.5
+	g = rmin(g, 0.95f) * rmin(rmax((2040.0f - P0) * 0.01f, 0.0f), 1.0f); // no resonance below MIDI ~19.5
 	const real geff = g * lpmag;
 	const real d1t = rmin(rmax(0.5f * Dtot, 0.5f), 1000.0f);
 	const real d2t = rmin(rmax(Dtot - d1t, 1.0f), 1000.0f);
@@ -674,7 +840,7 @@ static inline void process_voice(Engine& e, int v) {
 	const real fcup = rmin(rmax(P.cup_hz, 50.0f), 8000.0f);
 	const strisy::SvfCoef cupc0 = strisy::svf_pade(e.pi_sr * fcup, cq);
 	const strisy::SvfCoef cupc = {cupc0.a, cupc0.ga, cupc0.g2a, 1.0f / cq};
-	const real cupG = rmin(rmax(P.cup_g, 0.0f), 6.0f) / cq;   // band-pass (peak gain Q) -> boost cup_g
+	const real cupG = rmin(rmax(P.cup_g, 0.0f), 6.0f) / cq; // band-pass (peak gain Q) -> boost cup_g
 	const real mdep = rmin(rmax(P.mute, 0.0f), 1.0f);
 	const bool mute_on = mdep > 0.0f;
 	strisy::SvfCoef mc = {0, 0, 0, 1};
@@ -686,7 +852,9 @@ static inline void process_voice(Engine& e, int v) {
 		mc = {m0.a, m0.ga, m0.g2a, 1.0f / mq};
 		// a resonance swept up sits on weaker harmonics: keep the open (forward) wah as loud as closed
 		const real wcomp = exp2s(rmin(rmax(0.8f * P.wah * y, -2.0f), 2.0f));
-		wh = P.mute_hp * wcomp; wb = P.mute_bp / mq * wcomp; wl = P.mute_lp * wcomp;
+		wh = P.mute_hp * wcomp;
+		wb = P.mute_bp / mq * wcomp;
+		wl = P.mute_lp * wcomp;
 	}
 
 	// envelope rates
@@ -726,27 +894,39 @@ static inline void process_voice(Engine& e, int v) {
 			const real lb = rmin(fsqrt(amp) + P.acc_bright * acc, 1.5f);
 			// lip closure: linear in lb up to lip_loud, then saturating smoothly towards cmax
 			real c = rmax(lip_lo + lip_d * lb + lip_y, -2.0f);
-			if (c > c_knee) { const real t = (c - c_knee) * c_span_inv; c = c_knee + c_span * t / (1.0f + t); }
+			if (c > c_knee) {
+				const real t = (c - c_knee) * c_span_inv;
+				c = c_knee + c_span * t / (1.0f + t);
+			}
 			real inv, mean, a1, inv2 = 0.0f, mean2 = 0.0f, a12 = 0.0f;
 			pulse_norm(c, inv, mean, a1);
 			if (pair_on) pulse_norm(rmin(c + 0.12f, cmax), inv2, mean2, a12);
-			fph += flut_inc; if (fph >= 1.0f) fph -= 1.0f;
+			fph += flut_inc;
+			if (fph >= 1.0f) fph -= 1.0f;
 			const real am = 1.0f - shake * (0.5f + 0.5f * psin(fph));
 			const real ft = rmin(tone_lo * exp2s(P.tone_dyn * (lb - 1.0f) + tone_y), 16000.0f);
 			const strisy::SvfCoef tcf = strisy::svf_pade(e.pi_sr * rmax(ft, 40.0f), tq);
 			real* cv = e.ctrl[k];
-			cv[0] = amp * am * pnorm * (0.5f / a1);   // the fundamental follows the breath level
+			cv[0] = amp * am * pnorm * (0.5f / a1); // the fundamental follows the breath level
 			cv[1] = c;
 			cv[2] = inv;
 			cv[3] = mean + pairlv * mean2;
 			cv[4] = P.t_noise * tn * tn;
 			cv[5] = inv2 * pairlv;
 			cv[6] = rmin(c + 0.12f, cmax);
-			cv[7] = tcf.a; cv[8] = tcf.ga; cv[9] = tcf.g2a;
+			cv[7] = tcf.a;
+			cv[8] = tcf.ga;
+			cv[9] = tcf.g2a;
 		}
-		s.lv1 = lv1; s.lv2 = lv2; s.amp = amp; s.acc = acc; s.tn = tn; s.sc = sc; s.flut_ph = fph;
+		s.lv1 = lv1;
+		s.lv2 = lv2;
+		s.amp = amp;
+		s.acc = acc;
+		s.tn = tn;
+		s.sc = sc;
+		s.flut_ph = fph;
 	}
-	if (start) {   // first block of a note from silence: no interpolation from stale control values
+	if (start) { // first block of a note from silence: no interpolation from stale control values
 		for (int k = 0; k < 7; k++) s.ctrl_prev[k] = (k == 0 || k == 4) ? 0.0f : e.ctrl[0][k];
 		for (int k = 7; k < NCV; k++) s.ctrl_prev[k] = e.ctrl[0][k];
 	}
@@ -757,7 +937,7 @@ static inline void process_voice(Engine& e, int v) {
 		real sg = s.ctrl_prev[0], c = s.ctrl_prev[1], inv = s.ctrl_prev[2], mn = s.ctrl_prev[3], tnl = s.ctrl_prev[4];
 		real inv2 = s.ctrl_prev[5], cb = s.ctrl_prev[6];
 		const real br = P.breath;
-		const real M32 = 2.3283064e-10f;   // 2^-32
+		const real M32 = 2.3283064e-10f; // 2^-32
 		real* __restrict__ src = e.src;
 		for (int k = 0; k < NCTRL; k++) {
 			const real* cur = e.ctrl[k];
@@ -768,10 +948,18 @@ static inline void process_voice(Engine& e, int v) {
 			if (pair_on) {
 #pragma GCC unroll 2
 				for (int j = 0; j < CTRL; j++) {
-					sg += dsg; c += dc; inv += dinv; mn += dmn; tnl += dtn; inv2 += dinv2; cb += dcb;
-					ia += (uint32_t)dA; ib += (uint32_t)dB;
-					pa += ia; pb += ib;
-					real q = (real)(int32_t)(pa + 0x40000000u) * M32;     // cos(2 pi phase) = sin(2 pi (phase + 1/4))
+					sg += dsg;
+					c += dc;
+					inv += dinv;
+					mn += dmn;
+					tnl += dtn;
+					inv2 += dinv2;
+					cb += dcb;
+					ia += (uint32_t)dA;
+					ib += (uint32_t)dB;
+					pa += ia;
+					pb += ib;
+					real q = (real)(int32_t)(pa + 0x40000000u) * M32; // cos(2 pi phase) = sin(2 pi (phase + 1/4))
 					real ps = 8.0f * q * (1.0f - 2.0f * fabsf(q));
 					const real cs = ps * (0.775f + 0.225f * fabsf(ps));
 					q = (real)(int32_t)(pb + 0x40000000u) * M32;
@@ -786,7 +974,13 @@ static inline void process_voice(Engine& e, int v) {
 			} else {
 #pragma GCC unroll 2
 				for (int j = 0; j < CTRL; j++) {
-					sg += dsg; c += dc; inv += dinv; mn += dmn; tnl += dtn; inv2 += dinv2; cb += dcb;
+					sg += dsg;
+					c += dc;
+					inv += dinv;
+					mn += dmn;
+					tnl += dtn;
+					inv2 += dinv2;
+					cb += dcb;
 					ia += (uint32_t)dA;
 					pa += ia;
 					const real q = (real)(int32_t)(pa + 0x40000000u) * M32;
@@ -799,12 +993,30 @@ static inline void process_voice(Engine& e, int v) {
 					src[k * CTRL + j] = sg * (u + br * u * nz - mn) + tnl * nz;
 				}
 			}
-			sg = cur[0]; c = cur[1]; inv = cur[2]; mn = cur[3]; tnl = cur[4]; inv2 = cur[5]; cb = cur[6];
+			sg = cur[0];
+			c = cur[1];
+			inv = cur[2];
+			mn = cur[3];
+			tnl = cur[4];
+			inv2 = cur[5];
+			cb = cur[6];
 		}
-		if (!pair_on) { ib = inc2; pb += inc2 * (uint32_t)BLOCK; }
-		s.ph = pa; s.ph2 = pb; s.inc = inc1; s.inc2 = inc2; s.nrng = nr;
-		s.ctrl_prev[0] = sg; s.ctrl_prev[1] = c; s.ctrl_prev[2] = inv; s.ctrl_prev[3] = mn; s.ctrl_prev[4] = tnl;
-		s.ctrl_prev[5] = inv2; s.ctrl_prev[6] = cb;
+		if (!pair_on) {
+			ib = inc2;
+			pb += inc2 * (uint32_t)BLOCK;
+		}
+		s.ph = pa;
+		s.ph2 = pb;
+		s.inc = inc1;
+		s.inc2 = inc2;
+		s.nrng = nr;
+		s.ctrl_prev[0] = sg;
+		s.ctrl_prev[1] = c;
+		s.ctrl_prev[2] = inv;
+		s.ctrl_prev[3] = mn;
+		s.ctrl_prev[4] = tnl;
+		s.ctrl_prev[5] = inv2;
+		s.ctrl_prev[6] = cb;
 		(void)ib;
 	}
 
@@ -826,8 +1038,7 @@ static inline void process_voice(Engine& e, int v) {
 	real peak = 0.0f;
 	for (int n = 0; n < BLOCK; n++) peak = rmax(peak, fabsf(out[n]));
 	// guard: non-finite or absurd state -> reset this voice and drop its block
-	const real st = fabsf(s.lps) + fabsf(s.lpt) + fabsf(s.rs) + fabsf(s.c1) + fabsf(s.c2) + fabsf(s.t1) + fabsf(s.t2)
-	              + fabsf(s.m1) + fabsf(s.m2) + fabsf(s.amp) + fabsf(s.lv1) + fabsf(s.lv2) + fabsf(s.d1);
+	const real st = fabsf(s.lps) + fabsf(s.lpt) + fabsf(s.rs) + fabsf(s.c1) + fabsf(s.c2) + fabsf(s.t1) + fabsf(s.t2) + fabsf(s.m1) + fabsf(s.m2) + fabsf(s.amp) + fabsf(s.lv1) + fabsf(s.lv2) + fabsf(s.d1);
 	if (!(peak < 1e5f) || !(st < 1e6f)) {
 #ifdef BRASS_TEST_HOOK
 		brass_guard_resets++;
@@ -853,10 +1064,13 @@ static inline void process_voice(Engine& e, int v) {
 static inline void process(Engine& e, real* __restrict__ output) {
 #ifdef BRASS_TEST_SWITCH
 	// host test: step to the next preset every BRASS_TEST_SWITCH blocks, while voices are sounding
-	{ static int nb = 0; if (++nb % BRASS_TEST_SWITCH == 0) set_preset(e, (e.preset + 1) % NUM_PRESETS); }
+	{
+		static int nb = 0;
+		if (++nb % BRASS_TEST_SWITCH == 0) set_preset(e, (e.preset + 1) % NUM_PRESETS);
+	}
 #endif
 #ifdef BRASS_TEST_HOOK
-	brass_test_hook(e);   // host test (tools/harness/perf_brass.h): live parameter writes, extra voices
+	brass_test_hook(e); // host test (tools/harness/perf_brass.h): live parameter writes, extra voices
 #endif
 	// smooth the parameters towards the set values (live edits glide in ~13 ms instead of stepping)
 	{
@@ -887,61 +1101,61 @@ static inline void process(Engine& e, real* __restrict__ output) {
 
 struct ParamEntry {
 	strisy::ParamDesc d;
-	real Params::* m;
+	real Params::*m;
 };
 
 static constexpr ParamEntry param_table[] = {
-	// level
-	{{"gain", "level", 0.1f, 6.0f, strisy::ParamKind::continuous}, &Params::gain},
-	{{"pres_lin", "level", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::pc_a},          // level = pres*(pres_lin + pres_sq*pres)
-	{{"pres_sq", "level", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::pc_b},
-	{{"pres_hz", "level", 2.0f, 200.0f, strisy::ParamKind::continuous}, &Params::lv_hz},         // breath response speed
-	{{"release", "level", 0.005f, 1.0f, strisy::ParamKind::continuous}, &Params::rel},           // lip stop time constant (s)
-	{{"rel_pedal", "level", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::rel_ped},       // + rel_pedal * pedal^2
-	// lips
-	{{"lip_soft", "lips", -2.0f, 0.8f, strisy::ParamKind::continuous}, &Params::lip_soft},       // lip closure when soft (-2 = pure)
-	{{"lip_loud", "lips", -2.0f, 0.85f, strisy::ParamKind::continuous}, &Params::lip_loud},      // lip closure when loud (0.85 = buzzy)
-	{{"lip_tilt", "lips", -0.5f, 0.5f, strisy::ParamKind::continuous}, &Params::lip_tilt},       // forward tilt brightens the lips
-	{{"jitter", "lips", 0.0f, 20.0f, strisy::ParamKind::continuous}, &Params::jitter},           // cents
-	{{"breath", "lips", 0.0f, 0.8f, strisy::ParamKind::continuous}, &Params::breath},            // breath turbulence
-	// bore
-	{{"brassiness", "bore", 0.0f, 60.0f, strisy::ParamKind::continuous}, &Params::brass},        // wave steepening (samples at ff)
-	{{"bore_decay", "bore", 0.005f, 0.2f, strisy::ParamKind::continuous}, &Params::bore_t},      // resonance decay (s): bloom, tail
-	{{"bell_hz", "bore", 150.0f, 4000.0f, strisy::ParamKind::continuous}, &Params::bell_hz},     // bell reflection cutoff
-	// body
-	{{"rad_hz", "body", 20.0f, 2000.0f, strisy::ParamKind::continuous}, &Params::rad_hz},        // radiation high-pass
-	{{"cup_hz", "body", 150.0f, 3000.0f, strisy::ParamKind::continuous}, &Params::cup_hz},       // mouthpiece formant
-	{{"cup_q", "body", 0.5f, 5.0f, strisy::ParamKind::continuous}, &Params::cup_q},
-	{{"cup_gain", "body", 0.0f, 4.0f, strisy::ParamKind::continuous}, &Params::cup_g},
-	{{"tone_hz", "body", 500.0f, 12000.0f, strisy::ParamKind::continuous}, &Params::tone_hz},    // bell low-pass at ff
-	{{"tone_q", "body", 0.5f, 2.0f, strisy::ParamKind::continuous}, &Params::tone_q},
-	{{"tone_dyn", "body", 0.0f, 4.0f, strisy::ParamKind::continuous}, &Params::tone_dyn},        // octaves darker when soft
-	{{"tilt_tone", "body", -2.0f, 2.0f, strisy::ParamKind::continuous}, &Params::tilt_tone},     // tilt: octaves (back = darker/closed)
-	// mute
-	{{"mute", "mute", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::mute},                // depth
-	{{"mute_hz", "mute", 300.0f, 5000.0f, strisy::ParamKind::continuous}, &Params::mute_hz},
-	{{"mute_q", "mute", 0.5f, 10.0f, strisy::ParamKind::continuous}, &Params::mute_q},
-	{{"mute_hp", "mute", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::mute_hp},          // straight-mute character
-	{{"mute_bp", "mute", 0.0f, 4.0f, strisy::ParamKind::continuous}, &Params::mute_bp},          // harmon character
-	{{"mute_lp", "mute", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::mute_lp},
-	{{"wah", "mute", -2.0f, 2.0f, strisy::ParamKind::continuous}, &Params::wah},                 // tilt: mute resonance octaves
-	// attack
-	{{"tongue", "attack", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::tongue},          // strike sensitivity
-	{{"acc_level", "attack", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::acc_amp},      // accent overshoot
-	{{"acc_decay", "attack", 0.01f, 0.3f, strisy::ParamKind::continuous}, &Params::acc_t},
-	{{"acc_bright", "attack", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::acc_bright},
-	{{"scoop", "attack", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::scoop},            // semitones from below
-	{{"blat", "attack", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::blat},              // attack buzz (semitones)
-	{{"t_noise", "attack", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::t_noise},        // tongue "t" noise
-	{{"slur", "attack", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::slur},              // articulation on legato changes
-	// modulation
-	{{"vibrato", "mod", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::vib},               // delayed lip vibrato (semitones)
-	{{"vib_hz", "mod", 2.0f, 9.0f, strisy::ParamKind::continuous}, &Params::vib_hz},
-	{{"flutter", "mod", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::flutter},           // shake -> flutter tongue
-	{{"flut_hz", "mod", 8.0f, 40.0f, strisy::ParamKind::continuous}, &Params::flut_hz},
-	// section
-	{{"pair", "section", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::pair},             // second player level
-	{{"detune", "section", 0.0f, 30.0f, strisy::ParamKind::continuous}, &Params::detune},        // cents
+    // level
+    {{"gain", "level", 0.1f, 6.0f, strisy::ParamKind::continuous}, &Params::gain},
+    {{"pres_lin", "level", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::pc_a}, // level = pres*(pres_lin + pres_sq*pres)
+    {{"pres_sq", "level", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::pc_b},
+    {{"pres_hz", "level", 2.0f, 200.0f, strisy::ParamKind::continuous}, &Params::lv_hz},   // breath response speed
+    {{"release", "level", 0.005f, 1.0f, strisy::ParamKind::continuous}, &Params::rel},     // lip stop time constant (s)
+    {{"rel_pedal", "level", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::rel_ped}, // + rel_pedal * pedal^2
+    // lips
+    {{"lip_soft", "lips", -2.0f, 0.8f, strisy::ParamKind::continuous}, &Params::lip_soft},  // lip closure when soft (-2 = pure)
+    {{"lip_loud", "lips", -2.0f, 0.85f, strisy::ParamKind::continuous}, &Params::lip_loud}, // lip closure when loud (0.85 = buzzy)
+    {{"lip_tilt", "lips", -0.5f, 0.5f, strisy::ParamKind::continuous}, &Params::lip_tilt},  // forward tilt brightens the lips
+    {{"jitter", "lips", 0.0f, 20.0f, strisy::ParamKind::continuous}, &Params::jitter},      // cents
+    {{"breath", "lips", 0.0f, 0.8f, strisy::ParamKind::continuous}, &Params::breath},       // breath turbulence
+    // bore
+    {{"brassiness", "bore", 0.0f, 60.0f, strisy::ParamKind::continuous}, &Params::brass},    // wave steepening (samples at ff)
+    {{"bore_decay", "bore", 0.005f, 0.2f, strisy::ParamKind::continuous}, &Params::bore_t},  // resonance decay (s): bloom, tail
+    {{"bell_hz", "bore", 150.0f, 4000.0f, strisy::ParamKind::continuous}, &Params::bell_hz}, // bell reflection cutoff
+    // body
+    {{"rad_hz", "body", 20.0f, 2000.0f, strisy::ParamKind::continuous}, &Params::rad_hz},  // radiation high-pass
+    {{"cup_hz", "body", 150.0f, 3000.0f, strisy::ParamKind::continuous}, &Params::cup_hz}, // mouthpiece formant
+    {{"cup_q", "body", 0.5f, 5.0f, strisy::ParamKind::continuous}, &Params::cup_q},
+    {{"cup_gain", "body", 0.0f, 4.0f, strisy::ParamKind::continuous}, &Params::cup_g},
+    {{"tone_hz", "body", 500.0f, 12000.0f, strisy::ParamKind::continuous}, &Params::tone_hz}, // bell low-pass at ff
+    {{"tone_q", "body", 0.5f, 2.0f, strisy::ParamKind::continuous}, &Params::tone_q},
+    {{"tone_dyn", "body", 0.0f, 4.0f, strisy::ParamKind::continuous}, &Params::tone_dyn},    // octaves darker when soft
+    {{"tilt_tone", "body", -2.0f, 2.0f, strisy::ParamKind::continuous}, &Params::tilt_tone}, // tilt: octaves (back = darker/closed)
+    // mute
+    {{"mute", "mute", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::mute}, // depth
+    {{"mute_hz", "mute", 300.0f, 5000.0f, strisy::ParamKind::continuous}, &Params::mute_hz},
+    {{"mute_q", "mute", 0.5f, 10.0f, strisy::ParamKind::continuous}, &Params::mute_q},
+    {{"mute_hp", "mute", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::mute_hp}, // straight-mute character
+    {{"mute_bp", "mute", 0.0f, 4.0f, strisy::ParamKind::continuous}, &Params::mute_bp}, // harmon character
+    {{"mute_lp", "mute", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::mute_lp},
+    {{"wah", "mute", -2.0f, 2.0f, strisy::ParamKind::continuous}, &Params::wah}, // tilt: mute resonance octaves
+    // attack
+    {{"tongue", "attack", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::tongue},     // strike sensitivity
+    {{"acc_level", "attack", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::acc_amp}, // accent overshoot
+    {{"acc_decay", "attack", 0.01f, 0.3f, strisy::ParamKind::continuous}, &Params::acc_t},
+    {{"acc_bright", "attack", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::acc_bright},
+    {{"scoop", "attack", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::scoop},     // semitones from below
+    {{"blat", "attack", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::blat},       // attack buzz (semitones)
+    {{"t_noise", "attack", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::t_noise}, // tongue "t" noise
+    {{"slur", "attack", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::slur},       // articulation on legato changes
+    // modulation
+    {{"vibrato", "mod", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::vib}, // delayed lip vibrato (semitones)
+    {{"vib_hz", "mod", 2.0f, 9.0f, strisy::ParamKind::continuous}, &Params::vib_hz},
+    {{"flutter", "mod", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::flutter}, // shake -> flutter tongue
+    {{"flut_hz", "mod", 8.0f, 40.0f, strisy::ParamKind::continuous}, &Params::flut_hz},
+    // section
+    {{"pair", "section", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::pair},      // second player level
+    {{"detune", "section", 0.0f, 30.0f, strisy::ParamKind::continuous}, &Params::detune}, // cents
 };
 static constexpr int NUM_LIVE_PARAMS = sizeof(param_table) / sizeof(param_table[0]);
 static_assert(NUM_LIVE_PARAMS == NPARAMS, "every Params field is exposed once");

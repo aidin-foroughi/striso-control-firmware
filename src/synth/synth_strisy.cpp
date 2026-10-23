@@ -32,10 +32,10 @@
 // The Engine is placed in DTCM (zero-initialized, no constructors run): it must be plain data.
 
 extern "C" {
-    #include "ch.h"
-    #include "hal.h"
-    #include "synth.h"
-    #include "usb_audio.h"
+#include "ch.h"
+#include "hal.h"
+#include "synth.h"
+#include "usb_audio.h"
 }
 
 // per-section cycle counts for the 'P' console command (see synth_profile_print)
@@ -43,7 +43,12 @@ static volatile uint32_t prof[8];
 static uint32_t prof_t;
 static volatile uint32_t prof_blocks;
 #define STRISY_PROF_START() (prof_t = DWT->CYCCNT)
-#define STRISY_PROF_MARK(k) do { uint32_t t_ = DWT->CYCCNT; prof[k] += t_ - prof_t; prof_t = t_; } while (0)
+#define STRISY_PROF_MARK(k) \
+	do { \
+		uint32_t t_ = DWT->CYCCNT; \
+		prof[k] += t_ - prof_t; \
+		prof_t = t_; \
+	} while (0)
 
 #include "striso_dsp/strisy.h"
 // VOICE_LIST(X, XP): X(ns) for an engine, XP(ns) for an engine with presets (NUM_PRESETS,
@@ -89,7 +94,7 @@ enum { VOICE_LIST(VOICE_ENUM, VOICE_ENUM) NUM_ENGINES };
 // selectable entries: an engine, or one preset of an engine
 struct VoiceEntry {
 	uint8_t engine;
-	int8_t preset;            // -1: engine without presets
+	int8_t preset; // -1: engine without presets
 	const char* engine_name;
 	const char* preset_name;
 };
@@ -100,9 +105,11 @@ static int num_entries;
 static void build_entries(void) {
 	num_entries = 0;
 #define ADD_ENTRY(ns) ADD_ENTRY_(ns)
-#define ADD_ENTRY_(ns) if (num_entries < MAX_ENTRIES) entries[num_entries++] = {VOICE_##ns, -1, #ns, nullptr};
+#define ADD_ENTRY_(ns) \
+	if (num_entries < MAX_ENTRIES) entries[num_entries++] = {VOICE_##ns, -1, #ns, nullptr};
 #define ADD_PRESETS(ns) ADD_PRESETS_(ns)
-#define ADD_PRESETS_(ns) for (int i = 0; i < ns::NUM_PRESETS && num_entries < MAX_ENTRIES; i++) \
+#define ADD_PRESETS_(ns) \
+	for (int i = 0; i < ns::NUM_PRESETS && num_entries < MAX_ENTRIES; i++) \
 		entries[num_entries++] = {VOICE_##ns, (int8_t)i, #ns, ns::preset_name(i)};
 	VOICE_LIST(ADD_ENTRY, ADD_PRESETS)
 }
@@ -117,8 +124,8 @@ static constexpr int DEFAULT_ENGINE = 0;
 // The keys write into one shared set of controls; the active engine gets a copy every block.
 static strisy::VoiceControls controls_vc[VOICECOUNT];
 static strisy::GlobalControls controls_g;
-static volatile int voice_request = 0;   // entry to switch to, set by synth_select_voice()
-static int voice_current = -1;           // entry running in the synth thread
+static volatile int voice_request = 0; // entry to switch to, set by synth_select_voice()
+static int voice_current = -1;         // entry running in the synth thread
 
 template <class E> static inline void copy_controls(E& e) {
 	e.g = controls_g;
@@ -128,8 +135,9 @@ template <class E> static inline void copy_controls(E& e) {
 static void engine_init(int k) {
 	switch (k) {
 #define CASE_INIT(ns) CASE_INIT_(ns)
-#define CASE_INIT_(ns) case VOICE_##ns: ns::init(engine_##ns, SAMPLINGFREQ, VOICECOUNT); break;
-	VOICE_LIST(CASE_INIT, CASE_INIT)
+#define CASE_INIT_(ns) \
+	case VOICE_##ns: ns::init(engine_##ns, SAMPLINGFREQ, VOICECOUNT); break;
+		VOICE_LIST(CASE_INIT, CASE_INIT)
 	}
 }
 
@@ -138,8 +146,9 @@ static void engine_set_preset(int k, int p) {
 	switch (k) {
 #define CASE_NO_PRESET(ns)
 #define CASE_PRESET(ns) CASE_PRESET_(ns)
-#define CASE_PRESET_(ns) case VOICE_##ns: ns::set_preset(engine_##ns, p); break;
-	VOICE_LIST(CASE_NO_PRESET, CASE_PRESET)
+#define CASE_PRESET_(ns) \
+	case VOICE_##ns: ns::set_preset(engine_##ns, p); break;
+		VOICE_LIST(CASE_NO_PRESET, CASE_PRESET)
 	default: break;
 	}
 }
@@ -147,16 +156,21 @@ static void engine_set_preset(int k, int p) {
 static void engine_process(int k, float* out) {
 	switch (k) {
 #define CASE_PROCESS(ns) CASE_PROCESS_(ns)
-#define CASE_PROCESS_(ns) case VOICE_##ns: copy_controls(engine_##ns); ns::process(engine_##ns, out); break;
-	VOICE_LIST(CASE_PROCESS, CASE_PROCESS)
+#define CASE_PROCESS_(ns) \
+	case VOICE_##ns: \
+		copy_controls(engine_##ns); \
+		ns::process(engine_##ns, out); \
+		break;
+		VOICE_LIST(CASE_PROCESS, CASE_PROCESS)
 	}
 }
 
 [[nodiscard]] static int engine_active_voices(int k) {
 	switch (k) {
 #define CASE_ACTIVE(ns) CASE_ACTIVE_(ns)
-#define CASE_ACTIVE_(ns) case VOICE_##ns: return ns::active_voices(engine_##ns);
-	VOICE_LIST(CASE_ACTIVE, CASE_ACTIVE)
+#define CASE_ACTIVE_(ns) \
+	case VOICE_##ns: return ns::active_voices(engine_##ns);
+		VOICE_LIST(CASE_ACTIVE, CASE_ACTIVE)
 	}
 	return 0;
 }
@@ -174,8 +188,9 @@ template <class E> [[nodiscard]] static constexpr int param_count(E&) { return s
 [[nodiscard]] static int engine_param_count(int k) {
 	switch (k) {
 #define CASE_PCOUNT(ns) CASE_PCOUNT_(ns)
-#define CASE_PCOUNT_(ns) case VOICE_##ns: return param_count(engine_##ns);
-	VOICE_LIST(CASE_PCOUNT, CASE_PCOUNT)
+#define CASE_PCOUNT_(ns) \
+	case VOICE_##ns: return param_count(engine_##ns);
+		VOICE_LIST(CASE_PCOUNT, CASE_PCOUNT)
 	}
 	return 0;
 }
@@ -183,8 +198,9 @@ template <class E> [[nodiscard]] static constexpr int param_count(E&) { return s
 [[nodiscard]] static const strisy::ParamDesc* engine_param_desc(int k, int i) {
 	switch (k) {
 #define CASE_PDESC(ns) CASE_PDESC_(ns)
-#define CASE_PDESC_(ns) case VOICE_##ns: return strisy::EngineParams<ns::Engine>::desc(i);
-	VOICE_LIST(CASE_PDESC, CASE_PDESC)
+#define CASE_PDESC_(ns) \
+	case VOICE_##ns: return strisy::EngineParams<ns::Engine>::desc(i);
+		VOICE_LIST(CASE_PDESC, CASE_PDESC)
 	}
 	return nullptr;
 }
@@ -192,8 +208,9 @@ template <class E> [[nodiscard]] static constexpr int param_count(E&) { return s
 [[nodiscard]] static float* engine_param_ptr(int k, int i) {
 	switch (k) {
 #define CASE_PPTR(ns) CASE_PPTR_(ns)
-#define CASE_PPTR_(ns) case VOICE_##ns: return strisy::EngineParams<ns::Engine>::ptr(engine_##ns, i);
-	VOICE_LIST(CASE_PPTR, CASE_PPTR)
+#define CASE_PPTR_(ns) \
+	case VOICE_##ns: return strisy::EngineParams<ns::Engine>::ptr(engine_##ns, i);
+		VOICE_LIST(CASE_PPTR, CASE_PPTR)
 	}
 	return nullptr;
 }
@@ -201,15 +218,19 @@ template <class E> [[nodiscard]] static constexpr int param_count(E&) { return s
 static void engine_param_changed(int k, int i) {
 	switch (k) {
 #define CASE_PCHG(ns) CASE_PCHG_(ns)
-#define CASE_PCHG_(ns) case VOICE_##ns: strisy::EngineParams<ns::Engine>::changed(engine_##ns, i); break;
-	VOICE_LIST(CASE_PCHG, CASE_PCHG)
+#define CASE_PCHG_(ns) \
+	case VOICE_##ns: strisy::EngineParams<ns::Engine>::changed(engine_##ns, i); break;
+		VOICE_LIST(CASE_PCHG, CASE_PCHG)
 	}
 }
 
-struct ParamWrite { uint8_t target, index; float value; };
+struct ParamWrite {
+	uint8_t target, index;
+	float value;
+};
 static constexpr int PARAM_QUEUE = 64;
 static std::array<ParamWrite, PARAM_QUEUE> param_queue;
-static volatile uint32_t param_head, param_tail;  // single producer (USB), single consumer (synth)
+static volatile uint32_t param_head, param_tail; // single producer (USB), single consumer (synth)
 
 // apply queued writes; called from the synth thread at the start of a block
 static void apply_params(int engine) {
@@ -240,15 +261,15 @@ static float dump;
 float volume = 1.0f;
 volatile synth_load_t synth_load;
 
-static int32_t *outbuf;
-static int32_t *inbuf;
+static int32_t* outbuf;
+static int32_t* inbuf;
 static float output0[CHANNEL_BUFFER_SIZE];
 static float out_l[CHANNEL_BUFFER_SIZE], out_r[CHANNEL_BUFFER_SIZE];
 
 // 4 KB stack in DTCM (upstream's Faust synth used 1024 bytes, almost all of it)
 static THD_WORKING_AREA(waSynthThread, 4096) __attribute__((section(".ram5_clear")));
 static thread_t* pThreadDSP = 0;
-static void synthThread(void *arg) {  // THE SYNTH THREAD
+static void synthThread(void* arg) { // THE SYNTH THREAD
 	(void)arg;
 	chRegSetThreadName("SYNTH");
 
@@ -295,7 +316,7 @@ static void synthThread(void *arg) {  // THE SYNTH THREAD
 		apply_params(entries[voice_current].engine);
 		engine_process(entries[voice_current].engine, output0);
 		fx::process(fx_engine, output0, out_l, out_r);
-		prof_blocks = prof_blocks + 1;  // (C++20: no ++ on volatile)
+		prof_blocks = prof_blocks + 1; // (C++20: no ++ on volatile)
 
 		volume_filtered = VOLUME_FILTER * volume_filtered + (1 - VOLUME_FILTER) * volume;
 
@@ -308,19 +329,19 @@ static void synthThread(void *arg) {  // THE SYNTH THREAD
 				const float x = ch ? out_r[n] : out_l[n];
 				tmp = (int32_t)(x * volume_filtered * MAX_VAL);
 				if (tmp <= -MAX_VAL) {
-					tmp = -(MAX_VAL-1);
+					tmp = -(MAX_VAL - 1);
 				} else if (tmp >= MAX_VAL) {
-					tmp = MAX_VAL-1;
+					tmp = MAX_VAL - 1;
 				}
-				outbuf[2*n+ch] = tmp * (1<<8);
+				outbuf[2 * n + ch] = tmp * (1 << 8);
 #if USB_AUDIO_PRE_VOLUME
 				if (usb) {
 					int32_t u = (int32_t)(x * (USB_AUDIO_GAIN * MAX_VAL));
-					u = u <= -MAX_VAL ? -(MAX_VAL-1) : (u >= MAX_VAL ? MAX_VAL-1 : u);
-					usb[2*n+ch] = u * (1<<8);
+					u = u <= -MAX_VAL ? -(MAX_VAL - 1) : (u >= MAX_VAL ? MAX_VAL - 1 : u);
+					usb[2 * n + ch] = u * (1 << 8);
 				}
 #else
-				if (usb) usb[2*n+ch] = tmp * (1<<8);
+				if (usb) usb[2 * n + ch] = tmp * (1 << 8);
 #endif
 			}
 		}
@@ -349,23 +370,25 @@ static void synthThread(void *arg) {  // THE SYNTH THREAD
 void start_synth_thread(void) {
 	build_entries();
 	for (int n = 0; n < num_entries; n++) {
-		if (entries[n].engine == DEFAULT_ENGINE) { voice_request = n; break; }
+		if (entries[n].engine == DEFAULT_ENGINE) {
+			voice_request = n;
+			break;
+		}
 	}
-	pThreadDSP = chThdCreateStatic(waSynthThread, sizeof(waSynthThread), NORMALPRIO+2, synthThread, NULL);
+	pThreadDSP = chThdCreateStatic(waSynthThread, sizeof(waSynthThread), NORMALPRIO + 2, synthThread, NULL);
 }
 
-extern "C" void computebufI(int32_t *inp, int32_t *outp);
-void computebufI(int32_t *inp, int32_t *outp) {
+extern "C" void computebufI(int32_t* inp, int32_t* outp);
+void computebufI(int32_t* inp, int32_t* outp) {
 	outbuf = outp;
 	inbuf = inp;
 	if (pThreadDSP) {
 		chSysLockFromISR();
 		chEvtSignalI(pThreadDSP, (eventmask_t)1);
 		chSysUnlockFromISR();
-	}
-	else
+	} else
 		for (int i = 0; i < PLAYBACK_BUFFER_SIZE; i++) {
-			outp[i] = (i - PLAYBACK_BUFFER_SIZE / 2) * 1<<22;
+			outp[i] = (i - PLAYBACK_BUFFER_SIZE / 2) * 1 << 22;
 		}
 }
 
@@ -389,27 +412,32 @@ int synth_select_voice(int n) {
 	return 1;
 }
 
-void synth_profile_print(void *chp) {
+void synth_profile_print(void* chp) {
 	static const char* names[8] = {"global", "voice setup", "1a control", "2b lp+bp", "2a osc", "2c body", "master", "1b coefs"};
 	uint32_t p[8], blocks, total = 0;
 	chSysLock();
-	for (int k = 0; k < 8; k++) { p[k] = prof[k]; prof[k] = 0; total += p[k]; }
-	blocks = prof_blocks; prof_blocks = 0;
+	for (int k = 0; k < 8; k++) {
+		p[k] = prof[k];
+		prof[k] = 0;
+		total += p[k];
+	}
+	blocks = prof_blocks;
+	prof_blocks = 0;
 	chSysUnlock();
 	if (!blocks) return;
 	const VoiceEntry& en = entries[voice_current];
 	int active = engine_active_voices(en.engine);
-	chprintf((BaseSequentialStream *)chp, "profile over %lu blocks, voice %s%s%s, %d voices active now, cycles per block:\r\n",
-	         blocks, en.engine_name, en.preset_name ? ":" : "", en.preset_name ? en.preset_name : "", active);
+	chprintf((BaseSequentialStream*)chp, "profile over %lu blocks, voice %s%s%s, %d voices active now, cycles per block:\r\n",
+	    blocks, en.engine_name, en.preset_name ? ":" : "", en.preset_name ? en.preset_name : "", active);
 	for (int k = 0; k < 8; k++)
-		chprintf((BaseSequentialStream *)chp, "  %-12s %6lu\r\n", names[k], p[k] / blocks);
-	chprintf((BaseSequentialStream *)chp, "  %-12s %6lu of %lu\r\n", "total", total / blocks, (uint32_t)SYNTH_BLOCK_CYCLES);
+		chprintf((BaseSequentialStream*)chp, "  %-12s %6lu\r\n", names[k], p[k] / blocks);
+	chprintf((BaseSequentialStream*)chp, "  %-12s %6lu of %lu\r\n", "total", total / blocks, (uint32_t)SYNTH_BLOCK_CYCLES);
 }
 
 [[nodiscard]] static constexpr uint32_t float_bits(float f) { return std::bit_cast<uint32_t>(f); }
 
-void synth_params_print(void *chp, int target) {
-	BaseSequentialStream* out = (BaseSequentialStream *)chp;
+void synth_params_print(void* chp, int target) {
+	BaseSequentialStream* out = (BaseSequentialStream*)chp;
 	if (target == 0) {
 		const VoiceEntry& en = entries[voice_request];
 		const int k = en.engine;
@@ -419,7 +447,7 @@ void synth_params_print(void *chp, int target) {
 			const strisy::ParamDesc* d = engine_param_desc(k, i);
 			const float* p = engine_param_ptr(k, i);
 			chprintf(out, "%d %s %s %08lx %08lx %08lx %d\r\n", i, d->name, d->group,
-			         float_bits(d->min), float_bits(d->max), float_bits(p ? *p : 0.0f), static_cast<int>(d->kind));
+			    float_bits(d->min), float_bits(d->max), float_bits(p ? *p : 0.0f), static_cast<int>(d->kind));
 		}
 	} else {
 		const int count = strisy::EngineParams<fx::Engine>::count;
@@ -428,7 +456,7 @@ void synth_params_print(void *chp, int target) {
 			const strisy::ParamDesc* d = strisy::EngineParams<fx::Engine>::desc(i);
 			const float* p = strisy::EngineParams<fx::Engine>::ptr(fx_engine, i);
 			chprintf(out, "%d %s %s %08lx %08lx %08lx %d\r\n", i, d->name, d->group,
-			         float_bits(d->min), float_bits(d->max), float_bits(p ? *p : 0.0f), static_cast<int>(d->kind));
+			    float_bits(d->min), float_bits(d->max), float_bits(p ? *p : 0.0f), static_cast<int>(d->kind));
 		}
 	}
 }

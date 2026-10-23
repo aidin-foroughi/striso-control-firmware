@@ -69,10 +69,12 @@ static constexpr int MAIN_LEN = 2048;
 static constexpr int SHORT_LEN = 1024;
 static constexpr real NOTE_MIN = 18.0f;
 static constexpr real NOTE_MAX = 122.0f;
-static constexpr real G_TH = 0.36f;          // gamma near the reeds' oscillation threshold
-static constexpr real G_TH_JET = 0.42f;      // jet drive near the flute's threshold
+static constexpr real G_TH = 0.36f;     // gamma near the reeds' oscillation threshold
+static constexpr real G_TH_JET = 0.42f; // jet drive near the flute's threshold
 
-enum { KIND_CYL = 0, KIND_CONE = 1, KIND_JET = 2 };
+enum { KIND_CYL = 0,
+	KIND_CONE = 1,
+	KIND_JET = 2 };
 
 // flute (jet) constants, found by sweeping the model on the host: the open pipe reflects without
 // inversion; the jet is deflected against the acoustic flow (sign -1) and travels half a period to
@@ -90,7 +92,9 @@ using strisy::rmin;
 [[nodiscard]] static inline real fsqrt(real x) {
 #if defined(__arm__) && defined(__ARM_FP)
 	real r;
-	__asm__("vsqrt.f32 %0, %1" : "=t"(r) : "t"(x));
+	__asm__("vsqrt.f32 %0, %1"
+	        : "=t"(r)
+	        : "t"(x));
 	return r;
 #else
 	return __builtin_sqrtf(x);
@@ -104,7 +108,10 @@ using strisy::rmin;
 	if ((real)w > p) w--;
 	const real z = p - (real)w;
 	const real f = 1.0f + z * (0.693146839f + z * (0.240231090f + z * (0.0554789288f + z * (0.00968616940f + z * (0.00123824704f + z * 0.000218713408f)))));
-	union { uint32_t i; float f; } e = { (uint32_t)(w + 127) << 23 };
+	union {
+		uint32_t i;
+		float f;
+	} e = {(uint32_t)(w + 127) << 23};
 	return f * e.f;
 }
 [[nodiscard]] static inline real cos_poly(real x) {
@@ -144,64 +151,64 @@ using strisy::rmin;
 
 struct Params {
 	// breath
-	real level;        // output level
-	real speak;        // pressure where the tone starts to speak
-	real dyn;          // breath drive (gamma) at pressure 1
-	real attack;       // breath smoothing, ms
-	real dyn_gain;     // 0: loudness from the physics only .. 1: also scaled by pressure
+	real level;    // output level
+	real speak;    // pressure where the tone starts to speak
+	real dyn;      // breath drive (gamma) at pressure 1
+	real attack;   // breath smoothing, ms
+	real dyn_gain; // 0: loudness from the physics only .. 1: also scaled by pressure
 	// articulation
 	real tongue;       // pressure kick of a fast strike
 	real tongue_noise; // "t" noise burst of a fast strike
 	// reed (jet: unused)
-	real reed_open;    // zeta: reed opening / embouchure looseness
-	real reed_freq;    // reed resonance, Hz (at least 6 f0)
-	real reed_damp;    // lip damping of the reed
+	real reed_open; // zeta: reed opening / embouchure looseness
+	real reed_freq; // reed resonance, Hz (at least 6 f0)
+	real reed_damp; // lip damping of the reed
 	// bore
-	real loss;         // reflection gain at low frequencies
-	real lattice;      // tone-hole lattice / bell cutoff, Hz (at least 2 f0)
-	real lat_breath;   // cutoff opening with breath, octaves per unit pressure
-	real apex;         // cone: apex share of the period at the lowest note
-	real apex_lp;      // cone: apex reflection lowpass, multiples of f0
-	real jet;          // flute: jet travel delay, fraction of the period
-	real jet_off;      // flute: jet offset from the edge (even harmonics)
+	real loss;       // reflection gain at low frequencies
+	real lattice;    // tone-hole lattice / bell cutoff, Hz (at least 2 f0)
+	real lat_breath; // cutoff opening with breath, octaves per unit pressure
+	real apex;       // cone: apex share of the period at the lowest note
+	real apex_lp;    // cone: apex reflection lowpass, multiples of f0
+	real jet;        // flute: jet travel delay, fraction of the period
+	real jet_off;    // flute: jet offset from the edge (even harmonics)
 	// tone (shared output stage)
-	real body;         // internal wave mixed into the radiated one
-	real rad_hp;       // radiation highpass, Hz
-	real bright;       // brightness lowpass, Hz
-	real br_breath;    // extra brightness with breath (per voice, grows with pressure^2)
-	real f1_hz, f1_db, f2_hz, f2_db, f_q;   // formant bands
+	real body;                            // internal wave mixed into the radiated one
+	real rad_hp;                          // radiation highpass, Hz
+	real bright;                          // brightness lowpass, Hz
+	real br_breath;                       // extra brightness with breath (per voice, grows with pressure^2)
+	real f1_hz, f1_db, f2_hz, f2_db, f_q; // formant bands
 	// noise
-	real breath;       // audible breath (band-limited), relative
-	real turb;         // turbulence on the breath drive
-	real noise_hz;     // breath noise band centre, Hz
+	real breath;   // audible breath (band-limited), relative
+	real turb;     // turbulence on the breath drive
+	real noise_hz; // breath noise band centre, Hz
 	// expression
-	real tilt_bright;  // embouchure brightness from tilt
-	real tilt_breath;  // breathiness / subtone with backward tilt
-	real growl;        // growl depth when pushed hard
-	real growl_from;   // pressure where the growl starts
-	real vib;          // automatic vibrato, semitones
+	real tilt_bright; // embouchure brightness from tilt
+	real tilt_breath; // breathiness / subtone with backward tilt
+	real growl;       // growl depth when pushed hard
+	real growl_from;  // pressure where the growl starts
+	real vib;         // automatic vibrato, semitones
 	real vib_hz;
-	real vib_breath;   // automatic breath (amplitude) vibrato
+	real vib_breath; // automatic breath (amplitude) vibrato
 };
 static constexpr int NPARAMS = sizeof(Params) / sizeof(real);
 
 struct PresetInfo {
 	const char* name;
 	int kind;
-	real low_note;     // lowest note of the instrument (sets the cone apex length)
+	real low_note; // lowest note of the instrument (sets the cone apex length)
 };
 
 static constexpr int NUM_PRESETS = 9;
 static constexpr PresetInfo preset_info[NUM_PRESETS] = {
-	{"clarinet", KIND_CYL, 50},
-	{"bass clarinet", KIND_CYL, 34},
-	{"soprano sax", KIND_CONE, 56},
-	{"alto sax", KIND_CONE, 49},
-	{"tenor sax", KIND_CONE, 44},
-	{"baritone sax", KIND_CONE, 37},
-	{"oboe", KIND_CONE, 58},
-	{"bassoon", KIND_CONE, 34},
-	{"flute", KIND_JET, 60},
+    {"clarinet", KIND_CYL, 50},
+    {"bass clarinet", KIND_CYL, 34},
+    {"soprano sax", KIND_CONE, 56},
+    {"alto sax", KIND_CONE, 49},
+    {"tenor sax", KIND_CONE, 44},
+    {"baritone sax", KIND_CONE, 37},
+    {"oboe", KIND_CONE, 58},
+    {"bassoon", KIND_CONE, 34},
+    {"flute", KIND_JET, 60},
 };
 
 [[nodiscard]] static inline const char* preset_name(int i) {
@@ -210,15 +217,42 @@ static constexpr PresetInfo preset_info[NUM_PRESETS] = {
 
 [[nodiscard]] static inline Params base_params() {
 	Params p;
-	p.level = 1.0f; p.speak = 0.12f; p.dyn = 0.75f; p.attack = 3.0f; p.dyn_gain = 0.6f;
-	p.tongue = 0.35f; p.tongue_noise = 0.5f;
-	p.reed_open = 0.30f; p.reed_freq = 4000.0f; p.reed_damp = 0.5f;
-	p.loss = 0.985f; p.lattice = 1100.0f; p.lat_breath = 0.4f; p.apex = 0.5f; p.apex_lp = 6.0f; p.jet = 0.5f; p.jet_off = 0.3f;
-	p.body = 0.4f; p.rad_hp = 250.0f; p.bright = 5000.0f; p.br_breath = 1.5f;
-	p.f1_hz = 800.0f; p.f1_db = 0.0f; p.f2_hz = 2500.0f; p.f2_db = 0.0f; p.f_q = 1.5f;
-	p.breath = 0.3f; p.turb = 0.02f; p.noise_hz = 2000.0f;
-	p.tilt_bright = 0.5f; p.tilt_breath = 0.5f; p.growl = 0.0f; p.growl_from = 1.05f;
-	p.vib = 0.0f; p.vib_hz = 5.0f; p.vib_breath = 0.0f;
+	p.level = 1.0f;
+	p.speak = 0.12f;
+	p.dyn = 0.75f;
+	p.attack = 3.0f;
+	p.dyn_gain = 0.6f;
+	p.tongue = 0.35f;
+	p.tongue_noise = 0.5f;
+	p.reed_open = 0.30f;
+	p.reed_freq = 4000.0f;
+	p.reed_damp = 0.5f;
+	p.loss = 0.985f;
+	p.lattice = 1100.0f;
+	p.lat_breath = 0.4f;
+	p.apex = 0.5f;
+	p.apex_lp = 6.0f;
+	p.jet = 0.5f;
+	p.jet_off = 0.3f;
+	p.body = 0.4f;
+	p.rad_hp = 250.0f;
+	p.bright = 5000.0f;
+	p.br_breath = 1.5f;
+	p.f1_hz = 800.0f;
+	p.f1_db = 0.0f;
+	p.f2_hz = 2500.0f;
+	p.f2_db = 0.0f;
+	p.f_q = 1.5f;
+	p.breath = 0.3f;
+	p.turb = 0.02f;
+	p.noise_hz = 2000.0f;
+	p.tilt_bright = 0.5f;
+	p.tilt_breath = 0.5f;
+	p.growl = 0.0f;
+	p.growl_from = 1.05f;
+	p.vib = 0.0f;
+	p.vib_hz = 5.0f;
+	p.vib_breath = 0.0f;
 	return p;
 }
 
@@ -226,59 +260,163 @@ static constexpr PresetInfo preset_info[NUM_PRESETS] = {
 	Params p = base_params();
 	switch (i) {
 	default:
-	case 0:  // clarinet
+	case 0: // clarinet
 		p.level = 2.05f;
 		break;
-	case 1:  // bass clarinet
+	case 1: // bass clarinet
 		p.level = 2.25f;
-		p.lattice = 650.0f; p.reed_open = 0.34f; p.reed_freq = 2500.0f; p.bright = 3000.0f;
-		p.rad_hp = 120.0f; p.noise_hz = 1200.0f; p.br_breath = 1.5f;
+		p.lattice = 650.0f;
+		p.reed_open = 0.34f;
+		p.reed_freq = 2500.0f;
+		p.bright = 3000.0f;
+		p.rad_hp = 120.0f;
+		p.noise_hz = 1200.0f;
+		p.br_breath = 1.5f;
 		break;
-	case 2:  // soprano sax
+	case 2: // soprano sax
 		p.level = 1.27f;
-		p.apex = 0.28f; p.apex_lp = 3.0f; p.dyn = 0.7f; p.lattice = 1800.0f; p.reed_open = 0.42f; p.reed_freq = 3600.0f;
-		p.f1_hz = 900.0f; p.f1_db = 4.0f; p.f2_hz = 3000.0f; p.f2_db = 10.0f; p.f_q = 1.2f; p.bright = 10000.0f; p.rad_hp = 800.0f;
-		p.growl = 0.45f; p.breath = 0.4f; p.br_breath = 3.0f;
+		p.apex = 0.28f;
+		p.apex_lp = 3.0f;
+		p.dyn = 0.7f;
+		p.lattice = 1800.0f;
+		p.reed_open = 0.42f;
+		p.reed_freq = 3600.0f;
+		p.f1_hz = 900.0f;
+		p.f1_db = 4.0f;
+		p.f2_hz = 3000.0f;
+		p.f2_db = 10.0f;
+		p.f_q = 1.2f;
+		p.bright = 10000.0f;
+		p.rad_hp = 800.0f;
+		p.growl = 0.45f;
+		p.breath = 0.4f;
+		p.br_breath = 3.0f;
 		break;
-	case 3:  // alto sax
+	case 3: // alto sax
 		p.level = 1.56f;
-		p.apex = 0.28f; p.apex_lp = 3.0f; p.dyn = 0.7f; p.lattice = 1500.0f; p.reed_open = 0.42f; p.reed_freq = 3400.0f;
-		p.f1_hz = 650.0f; p.f1_db = 4.0f; p.f2_hz = 2500.0f; p.f2_db = 10.0f; p.f_q = 1.2f; p.bright = 9000.0f; p.rad_hp = 600.0f;
-		p.growl = 0.45f; p.breath = 0.4f; p.br_breath = 3.0f;
+		p.apex = 0.28f;
+		p.apex_lp = 3.0f;
+		p.dyn = 0.7f;
+		p.lattice = 1500.0f;
+		p.reed_open = 0.42f;
+		p.reed_freq = 3400.0f;
+		p.f1_hz = 650.0f;
+		p.f1_db = 4.0f;
+		p.f2_hz = 2500.0f;
+		p.f2_db = 10.0f;
+		p.f_q = 1.2f;
+		p.bright = 9000.0f;
+		p.rad_hp = 600.0f;
+		p.growl = 0.45f;
+		p.breath = 0.4f;
+		p.br_breath = 3.0f;
 		break;
-	case 4:  // tenor sax
+	case 4: // tenor sax
 		p.level = 1.68f;
-		p.apex = 0.28f; p.apex_lp = 3.0f; p.dyn = 0.7f; p.lattice = 1200.0f; p.reed_open = 0.44f; p.reed_freq = 3000.0f;
-		p.f1_hz = 500.0f; p.f1_db = 4.0f; p.f2_hz = 2000.0f; p.f2_db = 9.0f; p.f_q = 1.2f; p.bright = 8000.0f;
-		p.rad_hp = 450.0f; p.growl = 0.45f; p.breath = 0.45f; p.br_breath = 3.0f;
+		p.apex = 0.28f;
+		p.apex_lp = 3.0f;
+		p.dyn = 0.7f;
+		p.lattice = 1200.0f;
+		p.reed_open = 0.44f;
+		p.reed_freq = 3000.0f;
+		p.f1_hz = 500.0f;
+		p.f1_db = 4.0f;
+		p.f2_hz = 2000.0f;
+		p.f2_db = 9.0f;
+		p.f_q = 1.2f;
+		p.bright = 8000.0f;
+		p.rad_hp = 450.0f;
+		p.growl = 0.45f;
+		p.breath = 0.45f;
+		p.br_breath = 3.0f;
 		break;
-	case 5:  // baritone sax
+	case 5: // baritone sax
 		p.level = 1.84f;
-		p.apex = 0.28f; p.apex_lp = 3.0f; p.dyn = 0.7f; p.lattice = 900.0f; p.reed_open = 0.46f; p.reed_freq = 2600.0f;
-		p.f1_hz = 380.0f; p.f1_db = 4.0f; p.f2_hz = 1500.0f; p.f2_db = 8.0f; p.f_q = 1.2f; p.bright = 6000.0f;
-		p.rad_hp = 300.0f; p.growl = 0.45f; p.breath = 0.45f; p.noise_hz = 1500.0f; p.br_breath = 3.0f;
+		p.apex = 0.28f;
+		p.apex_lp = 3.0f;
+		p.dyn = 0.7f;
+		p.lattice = 900.0f;
+		p.reed_open = 0.46f;
+		p.reed_freq = 2600.0f;
+		p.f1_hz = 380.0f;
+		p.f1_db = 4.0f;
+		p.f2_hz = 1500.0f;
+		p.f2_db = 8.0f;
+		p.f_q = 1.2f;
+		p.bright = 6000.0f;
+		p.rad_hp = 300.0f;
+		p.growl = 0.45f;
+		p.breath = 0.45f;
+		p.noise_hz = 1500.0f;
+		p.br_breath = 3.0f;
 		break;
-	case 6:  // oboe
+	case 6: // oboe
 		p.level = 1.16f;
-		p.apex = 0.28f; p.apex_lp = 3.0f; p.dyn = 0.68f; p.lattice = 2000.0f; p.reed_open = 0.30f; p.reed_freq = 5000.0f; p.reed_damp = 0.6f;
-		p.f1_hz = 1250.0f; p.f1_db = 12.0f; p.f2_hz = 3000.0f; p.f2_db = 10.0f; p.f_q = 2.0f; p.bright = 9000.0f;
-		p.rad_hp = 1000.0f; p.breath = 0.2f; p.noise_hz = 2500.0f; p.br_breath = 2.0f; p.speak = 0.09f; p.tilt_breath = 0.3f;
+		p.apex = 0.28f;
+		p.apex_lp = 3.0f;
+		p.dyn = 0.68f;
+		p.lattice = 2000.0f;
+		p.reed_open = 0.30f;
+		p.reed_freq = 5000.0f;
+		p.reed_damp = 0.6f;
+		p.f1_hz = 1250.0f;
+		p.f1_db = 12.0f;
+		p.f2_hz = 3000.0f;
+		p.f2_db = 10.0f;
+		p.f_q = 2.0f;
+		p.bright = 9000.0f;
+		p.rad_hp = 1000.0f;
+		p.breath = 0.2f;
+		p.noise_hz = 2500.0f;
+		p.br_breath = 2.0f;
+		p.speak = 0.09f;
+		p.tilt_breath = 0.3f;
 		break;
-	case 7:  // bassoon
+	case 7: // bassoon
 		p.level = 2.31f;
-		p.apex = 0.28f; p.apex_lp = 3.0f; p.dyn = 0.7f; p.lattice = 600.0f; p.reed_open = 0.22f; p.reed_freq = 3000.0f; p.reed_damp = 0.6f;
-		p.f1_hz = 480.0f; p.f1_db = 8.0f; p.f2_hz = 1150.0f; p.f2_db = 8.0f; p.f_q = 2.0f; p.bright = 4000.0f;
-		p.rad_hp = 300.0f; p.breath = 0.2f; p.noise_hz = 1200.0f; p.br_breath = 3.0f; p.bright = 5000.0f; p.speak = 0.05f; p.tilt_breath = 0.3f;
+		p.apex = 0.28f;
+		p.apex_lp = 3.0f;
+		p.dyn = 0.7f;
+		p.lattice = 600.0f;
+		p.reed_open = 0.22f;
+		p.reed_freq = 3000.0f;
+		p.reed_damp = 0.6f;
+		p.f1_hz = 480.0f;
+		p.f1_db = 8.0f;
+		p.f2_hz = 1150.0f;
+		p.f2_db = 8.0f;
+		p.f_q = 2.0f;
+		p.bright = 4000.0f;
+		p.rad_hp = 300.0f;
+		p.breath = 0.2f;
+		p.noise_hz = 1200.0f;
+		p.br_breath = 3.0f;
+		p.bright = 5000.0f;
+		p.speak = 0.05f;
+		p.tilt_breath = 0.3f;
 		break;
-	case 8:  // flute
+	case 8: // flute
 		p.level = 0.59f;
-		p.speak = 0.12f; p.dyn = 1.2f; p.lattice = 3000.0f; p.loss = 0.95f; p.jet = 0.5f; p.jet_off = 0.6f;
-		p.body = 3.0f; p.rad_hp = 300.0f; p.bright = 7000.0f; p.f_q = 1.0f;
-		p.breath = 1.0f; p.turb = 0.03f; p.noise_hz = 3000.0f; p.tongue_noise = 0.8f; p.br_breath = 2.0f; p.tongue = 0.6f;
+		p.speak = 0.12f;
+		p.dyn = 1.2f;
+		p.lattice = 3000.0f;
+		p.loss = 0.95f;
+		p.jet = 0.5f;
+		p.jet_off = 0.6f;
+		p.body = 3.0f;
+		p.rad_hp = 300.0f;
+		p.bright = 7000.0f;
+		p.f_q = 1.0f;
+		p.breath = 1.0f;
+		p.turb = 0.03f;
+		p.noise_hz = 3000.0f;
+		p.tongue_noise = 0.8f;
+		p.br_breath = 2.0f;
+		p.tongue = 0.6f;
 		break;
 	}
 #ifdef WIND_OVR
-	WIND_OVR;   // host experiments: -DWIND_OVR=p.apex=0.2f,p.loss=0.98f
+	WIND_OVR; // host experiments: -DWIND_OVR=p.apex=0.2f,p.loss=0.98f
 #endif
 	return p;
 }
@@ -301,21 +439,21 @@ struct VoiceState {
 	int quiet;
 	uint32_t widx, rng;
 	real note_prev;
-	real ps;             // smoothed pressure
-	real ty;             // smoothed tilt
-	real tongue;         // articulation envelope
-	real growl;          // smoothed growl amount
-	real gph;            // growl phase (turns)
-	real gm;             // breath multiplier (growl, breath vibrato) at the end of the last block
-	real gam;            // breath drive at the end of the last block
-	real og;             // output gain at the end of the last block
-	real d1, d2;         // delay lengths at the end of the last block
-	real lp, lp2;        // loop filter states
-	real ls;             // apex lowpass state
-	real dcx, dcy;       // flute loop DC blocker
-	real x1, x2, pm1, gm1;   // reed
-	real tn;             // turbulence noise lowpass
-	real yp;             // previous output sample (breath brightness)
+	real ps;               // smoothed pressure
+	real ty;               // smoothed tilt
+	real tongue;           // articulation envelope
+	real growl;            // smoothed growl amount
+	real gph;              // growl phase (turns)
+	real gm;               // breath multiplier (growl, breath vibrato) at the end of the last block
+	real gam;              // breath drive at the end of the last block
+	real og;               // output gain at the end of the last block
+	real d1, d2;           // delay lengths at the end of the last block
+	real lp, lp2;          // loop filter states
+	real ls;               // apex lowpass state
+	real dcx, dcy;         // flute loop DC blocker
+	real x1, x2, pm1, gm1; // reed
+	real tn;               // turbulence noise lowpass
+	real yp;               // previous output sample (breath brightness)
 };
 
 struct Engine {
@@ -324,23 +462,23 @@ struct Engine {
 	int nvoices;
 	int preset, kind;
 	real sr;
-	Params p;            // as set (presets, live edits)
-	Params ps;           // smoothed copy used by the DSP
+	Params p;  // as set (presets, live edits)
+	Params ps; // smoothed copy used by the DSP
 	real low_note;
-	real inv_sr;         // 1 / sample rate
-	real kp;             // breath smoothing coefficient (per block)
-	real inv_1mp0;       // 1 / (1 - speak)
-	real inv_p0;         // 1 / speak
-	real p_low;          // period of the lowest note (cone apex length)
+	real inv_sr;   // 1 / sample rate
+	real kp;       // breath smoothing coefficient (per block)
+	real inv_1mp0; // 1 / (1 - speak)
+	real inv_p0;   // 1 / speak
+	real p_low;    // period of the lowest note (cone apex length)
 	real shake;
-	real vph;            // vibrato phase (turns)
+	real vph; // vibrato phase (turns)
 	// shared output stage
-	real hp_s, lp_s;     // radiation highpass / brightness lowpass states
+	real hp_s, lp_s; // radiation highpass / brightness lowpass states
 	strisy::SvfState f1s, f2s, nbs;
 	real dc1, dcx;
 	VoiceState vs[MAX_VOICES];
-	real mix[BLOCK];     // voices
-	real nmix[BLOCK];    // breath noise bus
+	real mix[BLOCK];  // voices
+	real nmix[BLOCK]; // breath noise bus
 };
 
 static float wind_main[MAX_VOICES][MAIN_LEN];
@@ -353,7 +491,8 @@ static inline void reset_voice(Engine& e, int v, bool clear) {
 	s.rng = 0x9E3779B9u * (uint32_t)(v + 1);
 	s.note_prev = note;
 	s.gm = 1.0f;
-	s.d1 = 100.0f; s.d2 = 10.0f;
+	s.d1 = 100.0f;
+	s.d2 = 10.0f;
 	if (clear) {
 		for (int i = 0; i < MAIN_LEN; i++) wind_main[v][i] = 0.0f;
 		for (int i = 0; i < SHORT_LEN; i++) wind_short[v][i] = 0.0f;
@@ -386,7 +525,8 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 	e.inv_sr = 1.0f / e.sr;
 	e.nvoices = nvoices < MAX_VOICES ? nvoices : MAX_VOICES;
 	e.g = {1.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 3.0f / 16};
-	e.shake = 0.0f; e.vph = 0.0f;
+	e.shake = 0.0f;
+	e.vph = 0.0f;
 	e.hp_s = e.lp_s = 0.0f;
 	e.f1s = e.f2s = e.nbs = strisy::SvfState();
 	e.dc1 = e.dcx = 0.0f;
@@ -415,19 +555,18 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 	const real dm1 = d - 1.0f, dm2 = d - 2.0f, dm3 = d - 3.0f;
 	const real p01 = d * dm1, p23 = dm2 * dm3;
 	const uint32_t b0 = w - (uint32_t)i0;
-	return -(dm1 * p23) * (1.0f / 6.0f) * buf[b0 & (MAIN_LEN - 1)] + (d * p23) * 0.5f * buf[(b0 - 1u) & (MAIN_LEN - 1)]
-			- (p01 * dm3) * 0.5f * buf[(b0 - 2u) & (MAIN_LEN - 1)] + (p01 * dm2) * (1.0f / 6.0f) * buf[(b0 - 3u) & (MAIN_LEN - 1)];
+	return -(dm1 * p23) * (1.0f / 6.0f) * buf[b0 & (MAIN_LEN - 1)] + (d * p23) * 0.5f * buf[(b0 - 1u) & (MAIN_LEN - 1)] - (p01 * dm3) * 0.5f * buf[(b0 - 2u) & (MAIN_LEN - 1)] + (p01 * dm2) * (1.0f / 6.0f) * buf[(b0 - 3u) & (MAIN_LEN - 1)];
 }
 
 // per-block values of a voice, handed to the sample loops
 struct BlockCoef {
 	real d1, dd1, d2, dd2, gam, dgam, gm, dgm, og, dog;
-	real bb0, ba1, ba2, g;         // loop lowpass (2-pole) and reflection gain
-	real cbs, gs;                  // apex lowpass, apex reflection (cone) / flute: one-pole and DC
-	real zeta, rb, r1, r2;         // reed
-	real turb, ct, body, bo;       // turbulence depth, its lowpass, body mix, breath bus level
-	real joff, soff, ja, jn;       // flute: jet offset, its saturated value, jet amplitude, jet noise
-	real kb;                       // breath brightness (first difference)
+	real bb0, ba1, ba2, g;   // loop lowpass (2-pole) and reflection gain
+	real cbs, gs;            // apex lowpass, apex reflection (cone) / flute: one-pole and DC
+	real zeta, rb, r1, r2;   // reed
+	real turb, ct, body, bo; // turbulence depth, its lowpass, body mix, breath bus level
+	real joff, soff, ja, jn; // flute: jet offset, its saturated value, jet amplitude, jet noise
+	real kb;                 // breath brightness (first difference)
 };
 
 template <int KIND>
@@ -446,7 +585,10 @@ template <int KIND>
 	const real joff = c.joff, soff = c.soff, ja = c.ja, jn = c.jn, kb = c.kb;
 	real peak = 0.0f;
 	for (int n = 0; n < BLOCK; n++) {
-		d1 += c.dd1; gam += c.dgam; gm += c.dgm; og += c.dog;
+		d1 += c.dd1;
+		gam += c.dgam;
+		gm += c.dgm;
+		og += c.dog;
 		if (KIND != KIND_CYL) d2 += c.dd2;
 		rng = rng * 1664525u + 1013904223u;
 		const real wn = (real)(int32_t)rng * (1.0f / 2147483648.0f);
@@ -473,7 +615,7 @@ template <int KIND>
 			const real jt = (jx * (1.0f - 0.148148148f * jx * jx) - soff) * ja;
 			mb[widx & (MAIN_LEN - 1)] = jt + tmp;
 			widx++;
-			y = bi + body * jt + JET_H2 * joff * bi * bi;   // bore, jet sound at the mouth hole, jet asymmetry
+			y = bi + body * jt + JET_H2 * joff * bi * bi; // bore, jet sound at the mouth hole, jet asymmetry
 		} else {
 			// lattice / bell: 2-pole lowpass, reflection
 			const real yl = bb0 * bi + lp;
@@ -494,13 +636,15 @@ template <int KIND>
 			}
 			// reed displacement from the previous pressure difference, then the flow
 			const real x = rb * (pm1 - gm1) + r1 * x1 + r2 * x2;
-			x2 = x1; x1 = x;
+			x2 = x1;
+			x1 = x;
 			const real W = zeta * rmax(1.0f + x, 0.0f);
 			const real X = drv - V;
 			const real uabs = 0.5f * W * (fsqrt(W * W + 4.0f * fabsf(X)) - W);
 			const real u = X >= 0.0f ? uabs : -uabs;
 			const real p = V + u;
-			pm1 = p; gm1 = drv;
+			pm1 = p;
+			gm1 = drv;
 			if (KIND == KIND_CONE) {
 				mb[widx & (MAIN_LEN - 1)] = bm + u;
 				sb[widx & (SHORT_LEN - 1)] = am + u;
@@ -508,7 +652,7 @@ template <int KIND>
 				mb[widx & (MAIN_LEN - 1)] = am + u;
 			}
 			widx++;
-			y = (bi + am) + body * bi;   // radiated through the lattice + some internal wave
+			y = (bi + am) + body * bi; // radiated through the lattice + some internal wave
 		}
 		const real yo = og * (y + kb * (y - yp));
 		yp = y;
@@ -516,9 +660,19 @@ template <int KIND>
 		mix[n] += y;
 		peak = rmax(peak, fabsf(y));
 	}
-	s.widx = widx; s.rng = rng;
-	s.lp = lp; s.lp2 = lp2; s.ls = ls; s.dcx = dcx; s.dcy = dcy;
-	s.x1 = x1; s.x2 = x2; s.pm1 = pm1; s.gm1 = gm1; s.tn = tn; s.yp = yp;
+	s.widx = widx;
+	s.rng = rng;
+	s.lp = lp;
+	s.lp2 = lp2;
+	s.ls = ls;
+	s.dcx = dcx;
+	s.dcy = dcy;
+	s.x1 = x1;
+	s.x2 = x2;
+	s.pm1 = pm1;
+	s.gm1 = gm1;
+	s.tn = tn;
+	s.yp = yp;
 	return peak;
 }
 
@@ -534,7 +688,10 @@ static inline void process_voice(Engine& e, int v) {
 	const real vplev = pres > 0.0f ? vp / (0.3f + vp) : 0.0f;
 	bool wake = false;
 	if (!s.active) {
-		if (pres <= 0.0f) { s.note_prev = c.note; return; }
+		if (pres <= 0.0f) {
+			s.note_prev = c.note;
+			return;
+		}
 		s.active = 1;
 		s.quiet = 0;
 		wake = true;
@@ -553,14 +710,14 @@ static inline void process_voice(Engine& e, int v) {
 	const real ps = s.ps;
 	s.ty += 0.03f * (clampr(c.but_y, -1.0f, 1.0f) - s.ty);
 	const real ty = s.ty;
-	s.tongue = rmax(s.tongue * 0.94f, vplev);   // ~16 ms
+	s.tongue = rmax(s.tongue * 0.94f, vplev); // ~16 ms
 	if (s.tongue < 1e-6f) s.tongue = 0.0f;
 	const real tg = s.tongue;
 	const real gr_t = clampr((ps - q.growl_from) * 3.0f, 0.0f, 1.0f) + e.shake;
 	s.growl += 0.05f * (rmin(gr_t, 1.2f) - s.growl);
 	if (s.growl < 1e-6f) s.growl = 0.0f;
-	const real ebr = q.tilt_bright * ty;                       // embouchure brightness -1..1
-	const real sub = q.tilt_breath * rmax(-ty, 0.0f);          // subtone / covered amount 0..1
+	const real ebr = q.tilt_bright * ty;              // embouchure brightness -1..1
+	const real sub = q.tilt_breath * rmax(-ty, 0.0f); // subtone / covered amount 0..1
 
 	// pitch (with the automatic vibrato) and the fundamental
 	const real vibs = q.vib * sin_turns(e.vph + 0.13f * (real)v);
@@ -568,7 +725,7 @@ static inline void process_voice(Engine& e, int v) {
 	const real P = (sr * (1.0f / 440.0f)) * pow2((69.0f - nt) * (1.0f / 12.0f));
 	const real f0 = 440.0f * pow2((nt - 69.0f) * (1.0f / 12.0f));
 	const real isr = e.inv_sr;
-	const real P_2pi = P * 0.15915494f;     // 1 / w0
+	const real P_2pi = P * 0.15915494f; // 1 / w0
 	const real w0 = 6.2831853f / P;
 	const real sw = sin_poly(w0), cw = cos_poly(w0);
 
@@ -580,7 +737,7 @@ static inline void process_voice(Engine& e, int v) {
 		fc = rmax(fc, 3.0f * f0);
 		const real cp = pow2(-fc * (6.2831853f * 1.442695f) * isr);
 		b.cbs = 1.0f - cp;
-		b.gs = 0.995f;   // DC blocker pole
+		b.gs = 0.995f; // DC blocker pole
 		// phase delays at f0: one-pole lowpass (lag) and DC blocker (lead)
 		const real t_lp = atan_pos(cp * sw / (1.0f - cp * cw)) * P_2pi;
 		const real ph_dc = atan2_r(sw, 1.0f - cw) - atan2_r(b.gs * sw, 1.0f - b.gs * cw);
@@ -595,7 +752,8 @@ static inline void process_voice(Engine& e, int v) {
 		b.ba2 = (1.0f - 1.4142136f * K + K * K) * bn;
 		const real c2w = 2.0f * cw * cw - 1.0f, s2w = 2.0f * sw * cw;
 		tau = 1.0f + atan2_r(-(b.ba1 * sw + b.ba2 * s2w), 1.0f + b.ba1 * cw + b.ba2 * c2w) * P_2pi;
-		b.cbs = 1.0f; b.gs = 0.997f;
+		b.cbs = 1.0f;
+		b.gs = 0.997f;
 	}
 	// release: once the breath is gone, the bore dies out in ~0.1 s whatever its length
 	const real rel = clampr(1.0f - ps * 20.0f, 0.0f, 1.0f) * (9.97f / 0.1f) * e.inv_sr;
@@ -610,7 +768,10 @@ static inline void process_voice(Engine& e, int v) {
 		const real iw = 1.0f / wr;
 		const real A = iw * iw, B = 0.5f * qr * iw;
 		const real ia0 = 1.0f / (A + B);
-		b.zeta = zeta; b.rb = ia0; b.r1 = (2.0f * A - 1.0f) * ia0; b.r2 = -(A - B) * ia0;
+		b.zeta = zeta;
+		b.rb = ia0;
+		b.r1 = (2.0f * A - 1.0f) * ia0;
+		b.r2 = -(A - B) * ia0;
 	}
 
 	// delay lengths: loop delay + filter phase delays + correction = period
@@ -621,7 +782,7 @@ static inline void process_voice(Engine& e, int v) {
 	} else if (kind == KIND_CONE) {
 		// apex: fixed length (its share at the lowest note is q.apex), at most 45% of the period
 		const real ap = clampr(q.apex, 0.05f, 0.5f);
-		const real beta = clampr(ap * e.p_low * f0 * isr, ap, 0.45f);     // p_low / P
+		const real beta = clampr(ap * e.p_low * f0 * isr, ap, 0.45f); // p_low / P
 		const real cps = pow2(-clampr(q.apex_lp, 1.0f, 30.0f) * f0 * (6.2831853f * 1.442695f) * isr);
 		b.cbs = 1.0f - cps;
 		const real taus = atan_pos(cps * sw / (1.0f - cps * cw)) * P_2pi;
@@ -633,30 +794,41 @@ static inline void process_voice(Engine& e, int v) {
 		D2 = clampr(clampr(q.jet, 0.05f, 1.0f) * P, 1.0f, (real)(SHORT_LEN - 2));
 	}
 	b.g *= pow2(-rel * D1);
-	if (jump || wake) { s.d1 = D1; s.d2 = D2; }
-	b.d1 = s.d1; b.dd1 = (D1 - s.d1) * (1.0f / BLOCK);
-	b.d2 = s.d2; b.dd2 = (D2 - s.d2) * (1.0f / BLOCK);
-	s.d1 = D1; s.d2 = D2;
+	if (jump || wake) {
+		s.d1 = D1;
+		s.d2 = D2;
+	}
+	b.d1 = s.d1;
+	b.dd1 = (D1 - s.d1) * (1.0f / BLOCK);
+	b.d2 = s.d2;
+	b.dd2 = (D2 - s.d2) * (1.0f / BLOCK);
+	s.d1 = D1;
+	s.d2 = D2;
 
 	// breath drive with tongue kick; growl and breath vibrato as a multiplier
 	const real gam_t = rmin(drive_of(q, ps, kind, e.inv_p0, e.inv_1mp0) * (1.0f + q.tongue * tg) * (1.0f - 0.08f * sub), kind == KIND_JET ? 1.4f : 0.94f);
-	b.gam = s.gam; b.dgam = (gam_t - s.gam) * (1.0f / BLOCK); s.gam = gam_t;
+	b.gam = s.gam;
+	b.dgam = (gam_t - s.gam) * (1.0f / BLOCK);
+	s.gam = gam_t;
 	s.gph += clampr(0.5f * f0 + 3.0f, 25.0f, 140.0f) * (BLOCK * isr);
 	s.gph -= (real)(int)s.gph;
 	const real gm_t = 1.0f + q.growl * s.growl * sin_turns(s.gph) + q.vib_breath * sin_turns(e.vph + 0.13f * (real)v + 0.25f);
-	b.gm = s.gm; b.dgm = (gm_t - s.gm) * (1.0f / BLOCK); s.gm = gm_t;
+	b.gm = s.gm;
+	b.dgm = (gm_t - s.gm) * (1.0f / BLOCK);
+	s.gm = gm_t;
 	// output gain: physics, optionally scaled with breath
 	const real psc = clampr(ps, 0.0f, 1.3f);
 	const real og_t = q.level * ((1.0f - q.dyn_gain) + q.dyn_gain * psc);
-	b.og = s.og; b.dog = (og_t - s.og) * (1.0f / BLOCK); s.og = og_t;
+	b.og = s.og;
+	b.dog = (og_t - s.og) * (1.0f / BLOCK);
+	s.og = og_t;
 	// noise: turbulence on the drive (lowpass ~2 kHz); audible breath: rises with pres^2 up to
 	// the speaking pressure, then settles to a quieter part of the tone; tongue "t" burst
 	b.turb = q.turb * (1.0f + 2.0f * sub) + 0.1f * tg;
 	b.ct = 0.25f;
 	const real nr = clampr(ps * e.inv_p0, 0.0f, 1.0f);
 	const real speaking = clampr((ps - clampr(q.speak, 0.02f, 0.6f)) * 4.0f, 0.0f, 1.0f);
-	b.bo = 0.02f * (q.breath * nr * nr * (1.0f - 0.6f * speaking) * (1.0f + 2.0f * sub) * (0.5f + 0.5f * psc)
-			+ q.tongue_noise * tg * nr);
+	b.bo = 0.02f * (q.breath * nr * nr * (1.0f - 0.6f * speaking) * (1.0f + 2.0f * sub) * (0.5f + 0.5f * psc) + q.tongue_noise * tg * nr);
 	b.body = q.body;
 	b.kb = clampr(q.br_breath, 0.0f, 8.0f) * psc * psc;
 	b.joff = clampr(q.jet_off, 0.0f, 0.9f);
@@ -664,8 +836,8 @@ static inline void process_voice(Engine& e, int v) {
 	b.ja = JET_AMP;
 	b.jn = (kind == KIND_JET) ? 4.0f * b.turb : 0.0f;
 
-	const real peak = kind == KIND_CYL ? run_voice<KIND_CYL>(e, v, b)
-			: kind == KIND_CONE ? run_voice<KIND_CONE>(e, v, b) : run_voice<KIND_JET>(e, v, b);
+	const real peak = kind == KIND_CYL ? run_voice<KIND_CYL>(e, v, b) : kind == KIND_CONE ? run_voice<KIND_CONE>(e, v, b) :
+	                                                                                        run_voice<KIND_JET>(e, v, b);
 
 	// safety: reset a voice whose state went non-finite or absurd
 	if (!(fabsf(s.lp) + fabsf(s.x1) + fabsf(s.pm1) + fabsf(s.dcy) + peak < 1000.0f)) {
@@ -729,17 +901,19 @@ static inline void process(Engine& e, real* __restrict__ output) {
 	real s1 = e.dc1, xp = e.dcx;
 	for (int n = 0; n < BLOCK; n++) {
 		real x = e.mix[n];
-		x = fabsf(x) < 1e4f ? x : 0.0f;    // also catches NaN
+		x = fabsf(x) < 1e4f ? x : 0.0f; // also catches NaN
 		hp += chp * (x - hp);
-		const real xr = x - hp;            // radiation highpass
-		lpo += clp * (xr - lpo);           // brightness lowpass
+		const real xr = x - hp;  // radiation highpass
+		lpo += clp * (xr - lpo); // brightness lowpass
 		real v1, v2, w1, w2, u1, u2;
 		SVF_TICK(lpo, a1, a2, c1, v1, v2);
 		SVF_TICK(lpo, b1, b2, c2, w1, w2);
 		real nb = e.nmix[n];
 		nb = fabsf(nb) < 1e4f ? nb : 0.0f;
 		SVF_TICK(nb, n1, n2, cn, u1, u2);
-		(void)v2; (void)w2; (void)u2;
+		(void)v2;
+		(void)w2;
+		(void)u2;
 		const real y = lpo + g1 * v1 + g2 * w1 + cn.k * u1;
 		// DC blocker (~10 Hz) and soft limit above 4 (asymptote 8)
 		s1 = 0.99871f * s1 + y - xp;
@@ -755,8 +929,13 @@ static inline void process(Engine& e, real* __restrict__ output) {
 	if (fabsf(hp) + fabsf(lpo) + fabsf(a1) + fabsf(a2) + fabsf(b1) + fabsf(b2) + fabsf(n1) + fabsf(n2) + fabsf(s1) + fabsf(xp) < 1e-9f) {
 		hp = lpo = a1 = a2 = b1 = b2 = n1 = n2 = s1 = xp = 0.0f;
 	}
-	e.hp_s = hp; e.lp_s = lpo; e.f1s = {a1, a2}; e.f2s = {b1, b2}; e.nbs = {n1, n2};
-	e.dc1 = s1; e.dcx = xp;
+	e.hp_s = hp;
+	e.lp_s = lpo;
+	e.f1s = {a1, a2};
+	e.f2s = {b1, b2};
+	e.nbs = {n1, n2};
+	e.dc1 = s1;
+	e.dcx = xp;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -764,46 +943,46 @@ static inline void process(Engine& e, real* __restrict__ output) {
 
 struct ParamEntry {
 	strisy::ParamDesc d;
-	real Params::* m;
+	real Params::*m;
 };
 
 static constexpr ParamEntry param_table[] = {
-	{{"level", "breath", 0.1f, 4.0f, strisy::ParamKind::continuous}, &Params::level},
-	{{"speak", "breath", 0.03f, 0.5f, strisy::ParamKind::continuous}, &Params::speak},          // pressure where the tone speaks
-	{{"dyn", "breath", 0.4f, 1.5f, strisy::ParamKind::continuous}, &Params::dyn},               // drive at full pressure (reeds <= 0.94)
-	{{"attack", "breath", 0.5f, 60.0f, strisy::ParamKind::continuous}, &Params::attack},        // breath smoothing (ms)
-	{{"dyn_gain", "breath", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::dyn_gain},     // loudness also scaled by breath
-	{{"tongue", "artic", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::tongue},          // pressure kick of a fast strike
-	{{"tongue_noise", "artic", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::tongue_noise},
-	{{"reed_open", "reed", 0.08f, 0.7f, strisy::ParamKind::continuous}, &Params::reed_open},    // embouchure looseness
-	{{"reed_freq", "reed", 1500.0f, 8000.0f, strisy::ParamKind::continuous}, &Params::reed_freq},
-	{{"reed_damp", "reed", 0.2f, 1.5f, strisy::ParamKind::continuous}, &Params::reed_damp},
-	{{"loss", "bore", 0.9f, 0.995f, strisy::ParamKind::continuous}, &Params::loss},
-	{{"lattice", "bore", 300.0f, 6000.0f, strisy::ParamKind::continuous}, &Params::lattice},    // tone-hole cutoff (Hz)
-	{{"lat_breath", "bore", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::lat_breath},   // octaves brighter per pressure
-	{{"apex", "bore", 0.15f, 0.45f, strisy::ParamKind::continuous}, &Params::apex},             // cone apex share (lowest note)
-	{{"apex_lp", "bore", 1.5f, 20.0f, strisy::ParamKind::continuous}, &Params::apex_lp},
-	{{"jet", "bore", 0.4f, 0.6f, strisy::ParamKind::continuous}, &Params::jet},                 // flute jet delay (of period)
-	{{"jet_off", "bore", 0.0f, 0.8f, strisy::ParamKind::continuous}, &Params::jet_off},         // flute jet offset
-	{{"body", "tone", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::body},
-	{{"rad_hp", "tone", 20.0f, 2000.0f, strisy::ParamKind::continuous}, &Params::rad_hp},
-	{{"bright", "tone", 500.0f, 16000.0f, strisy::ParamKind::continuous}, &Params::bright},
-	{{"br_breath", "tone", 0.0f, 8.0f, strisy::ParamKind::continuous}, &Params::br_breath},
-	{{"f1_hz", "tone", 150.0f, 5000.0f, strisy::ParamKind::continuous}, &Params::f1_hz},
-	{{"f1_db", "tone", -12.0f, 15.0f, strisy::ParamKind::continuous}, &Params::f1_db},
-	{{"f2_hz", "tone", 300.0f, 8000.0f, strisy::ParamKind::continuous}, &Params::f2_hz},
-	{{"f2_db", "tone", -12.0f, 15.0f, strisy::ParamKind::continuous}, &Params::f2_db},
-	{{"f_q", "tone", 0.5f, 6.0f, strisy::ParamKind::continuous}, &Params::f_q},
-	{{"breath", "noise", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::breath},          // audible breath
-	{{"turb", "noise", 0.0f, 0.15f, strisy::ParamKind::continuous}, &Params::turb},             // turbulence on the drive
-	{{"noise_hz", "noise", 300.0f, 8000.0f, strisy::ParamKind::continuous}, &Params::noise_hz},
-	{{"tilt_bright", "expr", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::tilt_bright},
-	{{"tilt_breath", "expr", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::tilt_breath},
-	{{"growl", "expr", 0.0f, 0.8f, strisy::ParamKind::continuous}, &Params::growl},
-	{{"growl_from", "expr", 0.5f, 1.5f, strisy::ParamKind::continuous}, &Params::growl_from},
-	{{"vib", "mod", 0.0f, 0.6f, strisy::ParamKind::continuous}, &Params::vib},                  // automatic vibrato, semitones
-	{{"vib_hz", "mod", 2.0f, 8.0f, strisy::ParamKind::continuous}, &Params::vib_hz},
-	{{"vib_breath", "mod", 0.0f, 0.3f, strisy::ParamKind::continuous}, &Params::vib_breath},
+    {{"level", "breath", 0.1f, 4.0f, strisy::ParamKind::continuous}, &Params::level},
+    {{"speak", "breath", 0.03f, 0.5f, strisy::ParamKind::continuous}, &Params::speak},      // pressure where the tone speaks
+    {{"dyn", "breath", 0.4f, 1.5f, strisy::ParamKind::continuous}, &Params::dyn},           // drive at full pressure (reeds <= 0.94)
+    {{"attack", "breath", 0.5f, 60.0f, strisy::ParamKind::continuous}, &Params::attack},    // breath smoothing (ms)
+    {{"dyn_gain", "breath", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::dyn_gain}, // loudness also scaled by breath
+    {{"tongue", "artic", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::tongue},      // pressure kick of a fast strike
+    {{"tongue_noise", "artic", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::tongue_noise},
+    {{"reed_open", "reed", 0.08f, 0.7f, strisy::ParamKind::continuous}, &Params::reed_open}, // embouchure looseness
+    {{"reed_freq", "reed", 1500.0f, 8000.0f, strisy::ParamKind::continuous}, &Params::reed_freq},
+    {{"reed_damp", "reed", 0.2f, 1.5f, strisy::ParamKind::continuous}, &Params::reed_damp},
+    {{"loss", "bore", 0.9f, 0.995f, strisy::ParamKind::continuous}, &Params::loss},
+    {{"lattice", "bore", 300.0f, 6000.0f, strisy::ParamKind::continuous}, &Params::lattice},  // tone-hole cutoff (Hz)
+    {{"lat_breath", "bore", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::lat_breath}, // octaves brighter per pressure
+    {{"apex", "bore", 0.15f, 0.45f, strisy::ParamKind::continuous}, &Params::apex},           // cone apex share (lowest note)
+    {{"apex_lp", "bore", 1.5f, 20.0f, strisy::ParamKind::continuous}, &Params::apex_lp},
+    {{"jet", "bore", 0.4f, 0.6f, strisy::ParamKind::continuous}, &Params::jet},         // flute jet delay (of period)
+    {{"jet_off", "bore", 0.0f, 0.8f, strisy::ParamKind::continuous}, &Params::jet_off}, // flute jet offset
+    {{"body", "tone", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::body},
+    {{"rad_hp", "tone", 20.0f, 2000.0f, strisy::ParamKind::continuous}, &Params::rad_hp},
+    {{"bright", "tone", 500.0f, 16000.0f, strisy::ParamKind::continuous}, &Params::bright},
+    {{"br_breath", "tone", 0.0f, 8.0f, strisy::ParamKind::continuous}, &Params::br_breath},
+    {{"f1_hz", "tone", 150.0f, 5000.0f, strisy::ParamKind::continuous}, &Params::f1_hz},
+    {{"f1_db", "tone", -12.0f, 15.0f, strisy::ParamKind::continuous}, &Params::f1_db},
+    {{"f2_hz", "tone", 300.0f, 8000.0f, strisy::ParamKind::continuous}, &Params::f2_hz},
+    {{"f2_db", "tone", -12.0f, 15.0f, strisy::ParamKind::continuous}, &Params::f2_db},
+    {{"f_q", "tone", 0.5f, 6.0f, strisy::ParamKind::continuous}, &Params::f_q},
+    {{"breath", "noise", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::breath}, // audible breath
+    {{"turb", "noise", 0.0f, 0.15f, strisy::ParamKind::continuous}, &Params::turb},    // turbulence on the drive
+    {{"noise_hz", "noise", 300.0f, 8000.0f, strisy::ParamKind::continuous}, &Params::noise_hz},
+    {{"tilt_bright", "expr", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::tilt_bright},
+    {{"tilt_breath", "expr", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::tilt_breath},
+    {{"growl", "expr", 0.0f, 0.8f, strisy::ParamKind::continuous}, &Params::growl},
+    {{"growl_from", "expr", 0.5f, 1.5f, strisy::ParamKind::continuous}, &Params::growl_from},
+    {{"vib", "mod", 0.0f, 0.6f, strisy::ParamKind::continuous}, &Params::vib}, // automatic vibrato, semitones
+    {{"vib_hz", "mod", 2.0f, 8.0f, strisy::ParamKind::continuous}, &Params::vib_hz},
+    {{"vib_breath", "mod", 0.0f, 0.3f, strisy::ParamKind::continuous}, &Params::vib_breath},
 };
 static constexpr int NUM_LIVE_PARAMS = sizeof(param_table) / sizeof(param_table[0]);
 static_assert(NUM_LIVE_PARAMS == NPARAMS, "every Params field is exposed once");
@@ -815,7 +994,7 @@ template <> struct EngineParams<wind::Engine> {
 	static constexpr int count = wind::NUM_LIVE_PARAMS;
 	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &wind::param_table[i].d : 0; }
 	static float* ptr(wind::Engine& e, int i) { return (i >= 0 && i < count) ? &(e.p.*(wind::param_table[i].m)) : 0; }
-	static void changed(wind::Engine&, int) {}   // the DSP follows e.p through its smoothed copy
+	static void changed(wind::Engine&, int) {} // the DSP follows e.p through its smoothed copy
 };
 } // namespace strisy
 

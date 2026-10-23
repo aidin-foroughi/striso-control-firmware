@@ -1,0 +1,51 @@
+# Style of our C++ (dsp/, src/synth/synth_strisy.cpp, src/usb/usb_audio*, tools/harness,
+# tools/target_render, tests): what the code already looked like, written down. Tabs, no column
+# limit (lines are never re-wrapped), short functions/ifs/loops may stay on one line, includes
+# keep their order (ChibiOS headers must come first). Piers' C files and third-party code are not
+# formatted (tools/format.sh lists the files). clang-format 15 (Docker image).
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++20
+UseTab: ForIndentation
+IndentWidth: 4
+TabWidth: 4
+ContinuationIndentWidth: 4
+ColumnLimit: 0
+AccessModifierOffset: -4
+AlignAfterOpenBracket: DontAlign
+AlignOperands: DontAlign
+AlignTrailingComments: true
+AlignConsecutiveMacros: None
+AlignEscapedNewlines: DontAlign
+AllowShortBlocksOnASingleLine: Always
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortEnumsOnASingleLine: true
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortLambdasOnASingleLine: All
+AllowShortLoopsOnASingleLine: true
+AlwaysBreakTemplateDeclarations: No
+BinPackArguments: true
+BinPackParameters: true
+BreakBeforeBinaryOperators: None
+BreakBeforeBraces: Attach
+BreakBeforeTernaryOperators: false
+BreakConstructorInitializers: AfterColon
+BreakStringLiterals: false
+Cpp11BracedListStyle: true
+FixNamespaceComments: false
+IncludeBlocks: Preserve
+IndentCaseLabels: false
+IndentPPDirectives: None
+IndentWrappedFunctionNames: false
+KeepEmptyLinesAtTheStartOfBlocks: true
+MaxEmptyLinesToKeep: 2
+NamespaceIndentation: None
+PointerAlignment: Left
+ReflowComments: false
+SortIncludes: Never
+SortUsingDeclarations: false
+SpaceAfterCStyleCast: false
+SpaceBeforeParens: ControlStatements
+SpacesBeforeTrailingComments: 1
+SpacesInContainerLiterals: false

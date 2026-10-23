@@ -20,10 +20,10 @@ using striso::tuning::Tuning;
 // a key's name (e.g. "D_3") as 12-TET pitch: the 17 names per octave of put_button_name
 double name_pitch_12tet(const char* name) {
 	static const char* const names[17] = {"C_", "Db", "C#", "D_", "Eb", "D#", "E_", "F_", "Gb",
-	                                      "F#", "G_", "Ab", "G#", "A_", "Bb", "A#", "B_"};
+	    "F#", "G_", "Ab", "G#", "A_", "Bb", "A#", "B_"};
 	static const int pc[17] = {0, 1, 1, 2, 3, 3, 4, 5, 6, 6, 7, 8, 8, 9, 10, 10, 11};
 	for (int i = 0; i < 17; i++)
-		if (std::strncmp(name, names[i], 2) == 0) return 12.0 * (name[2] - '1' + 3) + pc[i];  // D_3 = 62
+		if (std::strncmp(name, names[i], 2) == 0) return 12.0 * (name[2] - '1' + 3) + pc[i]; // D_3 = 62
 	return -1;
 }
 
@@ -32,10 +32,10 @@ float pitch_of(const Tuning& t, int n, float key_offset = 0.0f) {
 	return striso::tuning::key_pitch(t, key_offset, striso::tuning::coord0[but], striso::tuning::coord1[but]);
 }
 
-}  // namespace
+} // namespace
 
 TEST_CASE("tuning: in 12-TET every key plays the note its name says") {
-	const Tuning t;  // 12-TET, base 62 (D)
+	const Tuning t; // 12-TET, base 62 (D)
 	for (int n = 0; n < KEY_COUNT; n++) {
 		char name[4] = {};
 		put_button_name(n, name);
@@ -59,7 +59,7 @@ TEST_CASE("tuning: key numbers are 17-tone steps, n = 17 coord0 + 10 coord1 + 30
 
 TEST_CASE("tuning: transposition, the tuning offset and per-key offsets add to the pitch") {
 	Tuning t;
-	t.fifth = 6.96f;  // a meantone-ish fifth
+	t.fifth = 6.96f; // a meantone-ish fifth
 	t.base = 60.0f;
 	t.offset = 0.25f;
 	const float plain = pitch_of(t, 40);

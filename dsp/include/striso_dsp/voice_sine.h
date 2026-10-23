@@ -21,8 +21,8 @@ static constexpr int BLOCK = strisy::BLOCK;
 static constexpr int MAX_VOICES = 16;
 
 struct VoiceState {
-	real c, s;        // rotating phasor: output is s
-	real amp;         // smoothed amplitude
+	real c, s; // rotating phasor: output is s
+	real amp;  // smoothed amplitude
 };
 
 struct Engine {
@@ -30,7 +30,7 @@ struct Engine {
 	strisy::VoiceControls vc[MAX_VOICES];
 	int nvoices;
 	real sr;
-	real amp_coef;    // one-pole smoothing per sample
+	real amp_coef; // one-pole smoothing per sample
 	VoiceState vs[MAX_VOICES];
 };
 
@@ -46,7 +46,7 @@ struct Engine {
 
 static inline void init(Engine& e, int sample_rate, int nvoices) {
 	e.sr = (real)sample_rate;
-	e.amp_coef = 1.0f / (1.0f + 0.005f * e.sr);  // one-pole, about 5 ms
+	e.amp_coef = 1.0f / (1.0f + 0.005f * e.sr); // one-pole, about 5 ms
 	e.nvoices = nvoices < MAX_VOICES ? nvoices : MAX_VOICES;
 	e.g = {1.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 3.0f / 16};
 	for (int v = 0; v < e.nvoices; v++) {
@@ -61,10 +61,10 @@ static inline void process(Engine& e, real* output) {
 		const strisy::VoiceControls c = e.vc[v];
 		VoiceState& st = e.vs[v];
 		real target = c.pres > 0.0f ? c.pres : 0.0f;
-		if (target == 0.0f && st.amp < 1e-6f) continue;  // silent voice: skip
+		if (target == 0.0f && st.amp < 1e-6f) continue; // silent voice: skip
 		// block-rate rotation coefficients for the note's frequency
 		real w = 2.0f * 3.14159265f * 8.1757989f * strisy::fastpow2(c.note * (1.0f / 12.0f)) / e.sr;
-		w = w < 1.5707963f ? w : 1.5707963f;  // up to SR/4
+		w = w < 1.5707963f ? w : 1.5707963f; // up to SR/4
 		real cw = cos_poly(w), sw = sin_poly(w);
 		real cc = st.c, ss = st.s, amp = st.amp;
 		const real k = e.amp_coef;
@@ -77,7 +77,9 @@ static inline void process(Engine& e, real* output) {
 		}
 		// renormalize the phasor once per block against rounding drift
 		real g = 1.5f - 0.5f * (cc * cc + ss * ss);
-		st.c = cc * g; st.s = ss * g; st.amp = amp;
+		st.c = cc * g;
+		st.s = ss * g;
+		st.amp = amp;
 	}
 }
 

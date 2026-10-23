@@ -13,14 +13,14 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#define UA_AC_INTERFACE   3
-#define UA_AS_INTERFACE   4
-#define UA_EP             3
-#define UA_ALT_24BIT      1
-#define UA_ALT_16BIT      2
+#define UA_AC_INTERFACE 3
+#define UA_AS_INTERFACE 4
+#define UA_EP 3
+#define UA_ALT_24BIT 1
+#define UA_ALT_16BIT 2
 // endpoint config packet size: the descriptor's 294 rounded up to whole FIFO words (the OTG LLD
 // sizes the TX FIFO as in_maxsize / 4 words, so 294 would give 292 bytes and never fit a packet)
-#define UA_EP_SIZE        296
+#define UA_EP_SIZE 296
 
 #ifdef __cplusplus
 extern "C" {

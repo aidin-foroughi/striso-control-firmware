@@ -18,7 +18,10 @@ __attribute__((used)) void _fini(void) {}
 static int semihost(int op, void* arg) {
 	register int r0 __asm("r0") = op;
 	register void* r1 __asm("r1") = arg;
-	__asm volatile("bkpt 0xab" : "+r"(r0) : "r"(r1) : "memory");
+	__asm volatile("bkpt 0xab"
+	               : "+r"(r0)
+	               : "r"(r1)
+	               : "memory");
 	return r0;
 }
 
@@ -28,7 +31,10 @@ static void c_start(void) {
 	initialise_monitor_handles();
 	__libc_init_array();
 	static char cmd[512];
-	struct { char* buf; int len; } blk = {cmd, (int)sizeof cmd - 1};
+	struct {
+		char* buf;
+		int len;
+	} blk = {cmd, (int)sizeof cmd - 1};
 	static char* argv[16];
 	int argc = 0;
 	if (semihost(0x15, &blk) == 0) { /* SYS_GET_CMDLINE */
@@ -47,19 +53,19 @@ static void c_start(void) {
 void Reset_Handler(void) __attribute__((naked, noreturn));
 void Reset_Handler(void) {
 	__asm volatile(
-		"ldr r0, =0xE000ED88  \n" /* CPACR: CP10/CP11 full access */
-		"ldr r1, [r0]         \n"
-		"orr r1, r1, #(0xF << 20) \n"
-		"str r1, [r0]         \n"
-		"dsb                  \n"
-		"isb                  \n"
-		"mov r0, #0           \n"
-		"vmsr fpscr, r0       \n"
-		"ldr r0, =0xE000EF3C  \n" /* FPDSCR = 0, as crt0_v7m.S */
-		"mov r1, #0           \n"
-		"str r1, [r0]         \n"
-		"b c_start            \n"
-		".ltorg               \n"); /* the constants right here (with LTO there is no later pool) */
+	    "ldr r0, =0xE000ED88  \n" /* CPACR: CP10/CP11 full access */
+	    "ldr r1, [r0]         \n"
+	    "orr r1, r1, #(0xF << 20) \n"
+	    "str r1, [r0]         \n"
+	    "dsb                  \n"
+	    "isb                  \n"
+	    "mov r0, #0           \n"
+	    "vmsr fpscr, r0       \n"
+	    "ldr r0, =0xE000EF3C  \n" /* FPDSCR = 0, as crt0_v7m.S */
+	    "mov r1, #0           \n"
+	    "str r1, [r0]         \n"
+	    "b c_start            \n"
+	    ".ltorg               \n"); /* the constants right here (with LTO there is no later pool) */
 }
 
 /* any fault ends the emulation with an error (semihosting SYS_EXIT, ADP_Stopped_RunTimeErrorUnknown) */
@@ -70,8 +76,20 @@ static void Fault_Handler(void) {
 }
 
 __attribute__((section(".vectors"), used)) const void* const vectors[16] = {
-	&__stack, (const void*)Reset_Handler, (const void*)Fault_Handler, (const void*)Fault_Handler,
-	(const void*)Fault_Handler, (const void*)Fault_Handler, (const void*)Fault_Handler, 0, 0, 0, 0,
-	(const void*)Fault_Handler, (const void*)Fault_Handler, 0, (const void*)Fault_Handler,
-	(const void*)Fault_Handler,
+    &__stack,
+    (const void*)Reset_Handler,
+    (const void*)Fault_Handler,
+    (const void*)Fault_Handler,
+    (const void*)Fault_Handler,
+    (const void*)Fault_Handler,
+    (const void*)Fault_Handler,
+    0,
+    0,
+    0,
+    0,
+    (const void*)Fault_Handler,
+    (const void*)Fault_Handler,
+    0,
+    (const void*)Fault_Handler,
+    (const void*)Fault_Handler,
 };

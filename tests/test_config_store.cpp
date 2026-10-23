@@ -36,7 +36,7 @@ char* flash_page() {
 	return page;
 }
 
-}  // namespace
+} // namespace
 
 TEST_CASE("config records are 16 bytes: an 8-char key and an 8-char value") {
 	CHECK(sizeof(ConfigParam) == 16);
@@ -82,15 +82,18 @@ TEST_CASE("lookup: the flash settings override the defaults, unknown keys are an
 	// the first default after the start tag, overridden in the flash table
 	const ConfigParam& d = default_config[1];
 	ConfigParam recs[3];
-	std::memcpy(recs[0].key, "MConfig ", 8); std::memcpy(recs[0].value, "v1.0    ", 8);
-	std::memcpy(recs[1].key, d.key, 8);      std::memcpy(recs[1].value, "override", 8);
-	std::memcpy(recs[2].key, "MCfgEnd ", 8); std::memcpy(recs[2].value, "        ", 8);
+	std::memcpy(recs[0].key, "MConfig ", 8);
+	std::memcpy(recs[0].value, "v1.0    ", 8);
+	std::memcpy(recs[1].key, d.key, 8);
+	std::memcpy(recs[1].value, "override", 8);
+	std::memcpy(recs[2].key, "MCfgEnd ", 8);
+	std::memcpy(recs[2].value, "        ", 8);
 	char* flash = flash_page();
 	REQUIRE_MESSAGE(flash != nullptr, "0x08020000 is not mappable on this host");
 	std::memcpy(flash, recs, sizeof recs);
 	CHECK(field(getConfigSetting(d.key)) == "override");
 	CHECK(std::string(getConfigSetting("NoSuchK ")) == "(ERROR!)");
 	CHECK(getConfigSetting(default_config[2].key) == default_config[2].value);
-	std::memset(flash, 0xff, 4096);  // erased again: the defaults apply
+	std::memset(flash, 0xff, 4096); // erased again: the defaults apply
 	CHECK(getConfigSetting(d.key) == d.value);
 }

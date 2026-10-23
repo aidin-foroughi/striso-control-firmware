@@ -12,7 +12,10 @@
 namespace {
 long g_bound_failures = 0;
 }
-#define BOWED_ASSERT(c) do { if (!(c)) g_bound_failures++; } while (0)
+#define BOWED_ASSERT(c) \
+	do { \
+		if (!(c)) g_bound_failures++; \
+	} while (0)
 #include "harness_util.h"
 #include "striso_dsp/voice_bowed.h"
 
@@ -21,7 +24,10 @@ namespace {
 constexpr int kSampleRate = 48000, kVoices = 10, kBlock = 32;
 
 uint32_t rs;
-float rnd() { rs = rs * 1664525u + 1013904223u; return static_cast<float>(rs >> 8) * (1.0f / 16777216.0f); }
+float rnd() {
+	rs = rs * 1664525u + 1013904223u;
+	return static_cast<float>(rs >> 8) * (1.0f / 16777216.0f);
+}
 float wild(float lo, float hi) {
 	const float r = rnd();
 	if (r < 0.01f) return NAN;
@@ -31,7 +37,10 @@ float wild(float lo, float hi) {
 	return lo + rnd() * (hi - lo);
 }
 
-struct Result { long bad = 0, big = 0; float peak = 0; };
+struct Result {
+	long bad = 0, big = 0;
+	float peak = 0;
+};
 
 void collect(Result& res, const float* buf) {
 	for (int n = 0; n < kBlock; n++) {
@@ -50,33 +59,53 @@ Result fuzz(double secs, uint32_t seed) {
 	Result res;
 	const long nb = static_cast<long>(secs * kSampleRate / kBlock);
 	for (long b = 0; b < nb; b++) {
-		const int mode = static_cast<int>((b / 400) % 6);  // phases of different nastiness
+		const int mode = static_cast<int>((b / 400) % 6); // phases of different nastiness
 		for (int v = 0; v < kVoices; v++) {
 			strisy::VoiceControls& c = e.vc[v];
 			const float r = rnd();
-			if (mode == 0) {  // normal-ish playing with random note-ons/offs
+			if (mode == 0) { // normal-ish playing with random note-ons/offs
 				if (r < 0.05f) c.pres = c.pres > 0 ? 0.0f : rnd() * 1.5f;
 				c.note = (r < 0.02f) ? 20 + rnd() * 95 : c.note;
-				c.vpres = (rnd() - 0.5f) * 3; c.but_x = rnd() * 2 - 1; c.but_y = rnd() * 2 - 1;
-			} else if (mode == 1) {  // everything wild every block
-				c.note = wild(-50, 200); c.pres = wild(-1, 3); c.vpres = wild(-10, 10);
-				c.but_x = wild(-10, 10); c.but_y = wild(-10, 10);
-			} else if (mode == 2) {  // 10-voice chords of the lowest notes started in one block
+				c.vpres = (rnd() - 0.5f) * 3;
+				c.but_x = rnd() * 2 - 1;
+				c.but_y = rnd() * 2 - 1;
+			} else if (mode == 1) { // everything wild every block
+				c.note = wild(-50, 200);
+				c.pres = wild(-1, 3);
+				c.vpres = wild(-10, 10);
+				c.but_x = wild(-10, 10);
+				c.but_y = wild(-10, 10);
+			} else if (mode == 2) { // 10-voice chords of the lowest notes started in one block
 				const bool on = (b % 20) < 3;
-				c.note = rnd() * 20; c.pres = on ? 0.3f + rnd() * 1.7f : 0.0f; c.vpres = on ? 5.0f : -5.0f;
-				c.but_x = 0; c.but_y = rnd() * 2 - 1;
-			} else if (mode == 3) {  // extreme bends far below and above the range
+				c.note = rnd() * 20;
+				c.pres = on ? 0.3f + rnd() * 1.7f : 0.0f;
+				c.vpres = on ? 5.0f : -5.0f;
+				c.but_x = 0;
+				c.but_y = rnd() * 2 - 1;
+			} else if (mode == 3) { // extreme bends far below and above the range
 				c.pres = 0.8f;
 				c.note = 60 + 8 * 0.5f * 1000.0f * std::sin(0.01f * static_cast<float>(b) + static_cast<float>(v)) * ((rnd() < 0.5f) ? 1 : 0.01f);
-				c.vpres = wild(-2, 2); c.but_x = wild(-1, 1); c.but_y = wild(-1, 1);
-			} else if (mode == 4) {  // re-trigger every block (voice stealing / re-press)
-				c.pres = (b + v) % 2 ? 0.0f : 1.0f; c.note = 10 + rnd() * 110; c.vpres = (b + v) % 2 ? -1.0f : 1.0f;
-			} else {  // pres > 0 with notes jumping every block
-				c.pres = 0.2f + rnd(); c.note = rnd() * 127; c.vpres = rnd() * 2;
+				c.vpres = wild(-2, 2);
+				c.but_x = wild(-1, 1);
+				c.but_y = wild(-1, 1);
+			} else if (mode == 4) { // re-trigger every block (voice stealing / re-press)
+				c.pres = (b + v) % 2 ? 0.0f : 1.0f;
+				c.note = 10 + rnd() * 110;
+				c.vpres = (b + v) % 2 ? -1.0f : 1.0f;
+			} else { // pres > 0 with notes jumping every block
+				c.pres = 0.2f + rnd();
+				c.note = rnd() * 127;
+				c.vpres = rnd() * 2;
 			}
 		}
 		strisy::GlobalControls& g = e.g;
-		if (rnd() < 0.05f) { g.acc_abs = wild(0, 5); g.rot_x = wild(-1, 1); g.rot_y = wild(-1, 1); g.rot_z = wild(-1, 1); g.pedal = wild(0, 1); }
+		if (rnd() < 0.05f) {
+			g.acc_abs = wild(0, 5);
+			g.rot_x = wild(-1, 1);
+			g.rot_y = wild(-1, 1);
+			g.rot_z = wild(-1, 1);
+			g.pedal = wild(0, 1);
+		}
 		if (rnd() < 0.05f) bowed::set_preset(e, static_cast<int>(rnd() * 12) - 1);
 		using EP = strisy::EngineParams<bowed::Engine>;
 		for (int k = 0; k < 2; k++) {
@@ -99,7 +128,10 @@ Result replay(const char* csv, int preset) {
 	bowed::set_preset(e, preset);
 	const std::vector<harness::RecEvent> ev = harness::load_recording(csv, kVoices);
 	Result res;
-	if (ev.empty()) { res.bad = -1; return res; }
+	if (ev.empty()) {
+		res.bad = -1;
+		return res;
+	}
 	const long nb = static_cast<long>((ev.back().t + 2.0) * kSampleRate / kBlock);
 	size_t k = 0;
 	for (long b = 0; b < nb; b++) {
@@ -112,7 +144,7 @@ Result replay(const char* csv, int preset) {
 	return res;
 }
 
-}  // namespace
+} // namespace
 
 TEST_CASE("bowed: seed and delay bounds hold under the brutal fuzz") {
 	for (uint32_t seed : {1u, 2u, 3u}) {

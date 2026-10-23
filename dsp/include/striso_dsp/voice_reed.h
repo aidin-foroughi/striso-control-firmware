@@ -61,13 +61,13 @@ static constexpr int MAX_VOICES = 10;
 // The lowest note (MIDI 20, 26 Hz) has a period of 1881 samples.
 static constexpr int MAIN_LEN = 2048;
 static constexpr int SHORT_LEN = 2048;
-static constexpr real NOTE_MIN = 18.0f;   // lower notes are clamped (period limited by the buffers)
+static constexpr real NOTE_MIN = 18.0f; // lower notes are clamped (period limited by the buffers)
 static constexpr real NOTE_MAX = 122.0f;
 
 // ---------------------------------------------------------------------------------------------
 // Voice parameters (tuned on the host harness)
 
-static constexpr real BETA_CLAR = 0.5f;      // apex/period ratio at full backward tilt (cylinder)
+static constexpr real BETA_CLAR = 0.5f; // apex/period ratio at full backward tilt (cylinder)
 // (host experiments: -DREED_BSAX=...)
 #ifdef REED_BSAX
 static constexpr real BSAX = REED_BSAX;
@@ -80,12 +80,12 @@ static constexpr real ZS = REED_ZS;
 #else
 static constexpr real ZS = 0.14f;
 #endif
-static constexpr real BETA_SAX = BSAX;   // at full forward tilt (cone)
-static constexpr real P_TH = 0.12f;          // pressure where gamma reaches G_TH (about where the reed speaks)
+static constexpr real BETA_SAX = BSAX; // at full forward tilt (cone)
+static constexpr real P_TH = 0.12f;    // pressure where gamma reaches G_TH (about where the reed speaks)
 static constexpr real G_TH = 0.36f;
-static constexpr real G_SLOPE = 0.46f;       // gamma per unit pressure above P_TH
-static constexpr real G_MAX = 0.94f;         // gamma > 1 would choke the reed
-static constexpr real GS = 0.997f;           // short tube end reflection
+static constexpr real G_SLOPE = 0.46f; // gamma per unit pressure above P_TH
+static constexpr real G_MAX = 0.94f;   // gamma > 1 would choke the reed
+static constexpr real GS = 0.997f;     // short tube end reflection
 // (host experiments: -DREED_FR=...)
 #ifdef REED_FR
 static constexpr real FR = REED_FR;
@@ -150,7 +150,9 @@ static constexpr real FCS = 6.0f;
 [[nodiscard]] static inline real fsqrt(real x) {
 #if defined(__arm__) && defined(__ARM_FP)
 	real r;
-	__asm__("vsqrt.f32 %0, %1" : "=t"(r) : "t"(x));
+	__asm__("vsqrt.f32 %0, %1"
+	        : "=t"(r)
+	        : "t"(x));
 	return r;
 #else
 	return __builtin_sqrtf(x);
@@ -183,7 +185,10 @@ static constexpr real CORR_MID[14] = {0.33f, 0.56f, 0.47f, 0.49f, 0.46f, 0.50f, 
 	if ((real)w > p) w--;
 	const real z = p - (real)w;
 	const real f = 1.0f + z * (0.693146839f + z * (0.240231090f + z * (0.0554789288f + z * (0.00968616940f + z * (0.00123824704f + z * 0.000218713408f)))));
-	union { uint32_t i; float f; } e = { (uint32_t)(w + 127) << 23 };
+	union {
+		uint32_t i;
+		float f;
+	} e = {(uint32_t)(w + 127) << 23};
 	return f * e.f;
 }
 
@@ -216,25 +221,25 @@ static constexpr real CORR_MID[14] = {0.33f, 0.56f, 0.47f, 0.49f, 0.46f, 0.50f, 
 
 struct VoiceState {
 	int active;
-	int quiet;           // consecutive quiet blocks after release
-	uint32_t widx;       // delay write index
-	uint32_t rng;        // noise generator
-	uint32_t gph;        // growl oscillator phase
+	int quiet;     // consecutive quiet blocks after release
+	uint32_t widx; // delay write index
+	uint32_t rng;  // noise generator
+	uint32_t gph;  // growl oscillator phase
 	real note_prev;
-	real pres_s;         // smoothed pressure
-	real gam;            // breath gamma at the end of the last block
-	real by_s;           // smoothed tilt
-	real tongue;         // articulation envelope
-	real growl;          // smoothed growl amount
-	real d1, d2;         // delay lengths at the end of the last block
-	real lp, lp2;        // bell lowpass state
-	real pr1, pr2;       // presence filter state
-	real ls;             // short tube lowpass state
-	real x1, x2;         // reed displacement x(n-1), x(n-2)
-	real pm1, gm1;       // p(n-1), gamma(n-1)
-	real n1, n1b, n2;    // noise filter states
-	real gn;             // growl noise lowpass
-	real outg;           // output gain at the end of the last block
+	real pres_s;      // smoothed pressure
+	real gam;         // breath gamma at the end of the last block
+	real by_s;        // smoothed tilt
+	real tongue;      // articulation envelope
+	real growl;       // smoothed growl amount
+	real d1, d2;      // delay lengths at the end of the last block
+	real lp, lp2;     // bell lowpass state
+	real pr1, pr2;    // presence filter state
+	real ls;          // short tube lowpass state
+	real x1, x2;      // reed displacement x(n-1), x(n-2)
+	real pm1, gm1;    // p(n-1), gamma(n-1)
+	real n1, n1b, n2; // noise filter states
+	real gn;          // growl noise lowpass
+	real outg;        // output gain at the end of the last block
 };
 
 struct Engine {
@@ -242,8 +247,8 @@ struct Engine {
 	strisy::VoiceControls vc[MAX_VOICES];
 	int nvoices;
 	real sr;
-	real shake;          // smoothed shake amount from acc_abs
-	real dc1;            // master DC blocker state
+	real shake; // smoothed shake amount from acc_abs
+	real dc1;   // master DC blocker state
 	real dcx;
 	VoiceState vs[MAX_VOICES];
 	real mix[BLOCK];
@@ -260,7 +265,8 @@ static inline void reset_voice(Engine& e, int v) {
 	s = VoiceState();
 	s.rng = seed;
 	s.note_prev = note;
-	s.d1 = 100.0f; s.d2 = 100.0f;
+	s.d1 = 100.0f;
+	s.d2 = 100.0f;
 	for (int i = 0; i < MAIN_LEN; i++) reed_main[v][i] = 0.0f;
 	for (int i = 0; i < SHORT_LEN; i++) reed_short[v][i] = 0.0f;
 }
@@ -270,7 +276,8 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 	e.nvoices = nvoices < MAX_VOICES ? nvoices : MAX_VOICES;
 	e.g = {1.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 3.0f / 16};
 	e.shake = 0.0f;
-	e.dc1 = 0.0f; e.dcx = 0.0f;
+	e.dc1 = 0.0f;
+	e.dcx = 0.0f;
 	for (int n = 0; n < BLOCK; n++) e.mix[n] = 0.0f;
 	for (int v = 0; v < MAX_VOICES; v++) {
 		e.vc[v] = {69.0f, 0.0f, 0.0f, 0.0f, 0.0f};
@@ -297,7 +304,10 @@ static inline void process_voice(Engine& e, int v) {
 
 	bool wake = false;
 	if (!s.active) {
-		if (pres <= 0.0f) { s.note_prev = c.note; return; }
+		if (pres <= 0.0f) {
+			s.note_prev = c.note;
+			return;
+		}
 		s.active = 1;
 		s.quiet = 0;
 		wake = true;
@@ -310,11 +320,11 @@ static inline void process_voice(Engine& e, int v) {
 
 	// ---- block-rate controls
 	const real sr = e.sr;
-	s.pres_s += 0.25f * (pres - s.pres_s);            // ~2.5 ms
-	if (s.pres_s < 1e-6f) s.pres_s = 0.0f;            // no denormals in the decays
+	s.pres_s += 0.25f * (pres - s.pres_s); // ~2.5 ms
+	if (s.pres_s < 1e-6f) s.pres_s = 0.0f; // no denormals in the decays
 	const real ps = s.pres_s;
-	s.by_s += 0.03f * (clampr(c.but_y, -1.0f, 1.0f) - s.by_s);  // ~20 ms
-	s.tongue = strisy::rmax(s.tongue * 0.96f, vplev);  // ~25 ms decay
+	s.by_s += 0.03f * (clampr(c.but_y, -1.0f, 1.0f) - s.by_s); // ~20 ms
+	s.tongue = strisy::rmax(s.tongue * 0.96f, vplev);          // ~25 ms decay
 	if (s.tongue < 1e-6f) s.tongue = 0.0f;
 	const real tg = s.tongue;
 
@@ -360,7 +370,10 @@ static inline void process_voice(Engine& e, int v) {
 	real D2 = clampr(beta * P - taus, 1.0f, (real)(SHORT_LEN - 2));
 	const real corr = tuning_corr(note, m);
 	real D1 = clampr(P - D2 - taus - tau - corr, 2.0f, (real)(MAIN_LEN - 5));
-	if (jump || wake) { s.d1 = D1; s.d2 = D2; }  // new note: no delay glide
+	if (jump || wake) {
+		s.d1 = D1;
+		s.d2 = D2;
+	} // new note: no delay glide
 	// end reflections. At tiny amplitudes the Bernoulli reed is an open end (p = 0), so after
 	// release the tubes would ring on their own end losses for seconds: when the breath is gone,
 	// add a loss that makes them die out in ~0.1 s (T60), whatever the tube length
@@ -410,13 +423,16 @@ static inline void process_voice(Engine& e, int v) {
 	real d1 = d1s, d2 = d2s, gam = gam0, og = outg0;
 	real peak = 0.0f;
 	for (int n = 0; n < BLOCK; n++) {
-		d1 += dd1; d2 += dd2; gam += dgam; og += doutg;
+		d1 += dd1;
+		d2 += dd2;
+		gam += dgam;
+		og += doutg;
 		// noise: white -> band 500 Hz .. 3 kHz
 		rng = rng * 1664525u + 1013904223u;
 		const real wn = (real)(int32_t)rng * (1.0f / 2147483648.0f);
-		n1 += 0.32f * (wn - n1);     // 2 x one-pole lowpass at ~3 kHz
+		n1 += 0.32f * (wn - n1); // 2 x one-pole lowpass at ~3 kHz
 		n1b += 0.32f * (n1 - n1b);
-		n2 += 0.064f * (n1b - n2);   // minus a lowpass at ~500 Hz
+		n2 += 0.064f * (n1b - n2); // minus a lowpass at ~500 Hz
 		const real nz = n1b - n2;
 		// growl modulator: parabolic sine (the hum) plus a little slow noise
 		gph += ginc;
@@ -428,7 +444,7 @@ static inline void process_voice(Engine& e, int v) {
 
 		// main tube: Lagrange-3 read at delay d1 (taps i0+1 .. i0+4 samples back)
 		const int i0 = (int)d1 - 1;
-		const real d = d1 - (real)i0;          // in [1, 2)
+		const real d = d1 - (real)i0; // in [1, 2)
 		const real dm1 = d - 1.0f, dm2 = d - 2.0f, dm3 = d - 3.0f;
 		const real p01 = d * dm1, p23 = dm2 * dm3;
 		const real h0 = -(dm1 * p23) * (1.0f / 6.0f);
@@ -436,8 +452,7 @@ static inline void process_voice(Engine& e, int v) {
 		const real h2 = -(p01 * dm3) * 0.5f;
 		const real h3 = (p01 * dm2) * (1.0f / 6.0f);
 		const uint32_t b0 = widx - (uint32_t)i0;
-		const real bi = h0 * mb[b0 & (MAIN_LEN - 1)] + h1 * mb[(b0 - 1u) & (MAIN_LEN - 1)]
-				+ h2 * mb[(b0 - 2u) & (MAIN_LEN - 1)] + h3 * mb[(b0 - 3u) & (MAIN_LEN - 1)];
+		const real bi = h0 * mb[b0 & (MAIN_LEN - 1)] + h1 * mb[(b0 - 1u) & (MAIN_LEN - 1)] + h2 * mb[(b0 - 2u) & (MAIN_LEN - 1)] + h3 * mb[(b0 - 3u) & (MAIN_LEN - 1)];
 		// bell reflection
 		const real yl = bb0 * bi + lp;
 		lp = 2.0f * bb0 * bi - ba1 * yl + lp2;
@@ -454,17 +469,19 @@ static inline void process_voice(Engine& e, int v) {
 
 		// reed displacement from the previous pressure difference
 		const real x = rb * (pm1 - gm1) + r1 * x1 + r2 * x2;
-		x2 = x1; x1 = x;
+		x2 = x1;
+		x1 = x;
 		const real W = zeta * strisy::rmax(1.0f + x, 0.0f);
 		const real X = gamn - V;
 		const real aX = fabsf(X);
 		const real uabs = 0.5f * W * (fsqrt(W * W + 4.0f * aX) - W);
 		const real u = X >= 0.0f ? uabs : -uabs;
 		const real p = V + u;
-		pm1 = p; gm1 = gamn;
+		pm1 = p;
+		gm1 = gamn;
 
-		mb[widx & (MAIN_LEN - 1)] = bm + u;    // a+ = p - a-
-		sb[widx & (SHORT_LEN - 1)] = am + u;   // b+ = p - b-
+		mb[widx & (MAIN_LEN - 1)] = bm + u;  // a+ = p - a-
+		sb[widx & (SHORT_LEN - 1)] = am + u; // b+ = p - b-
 		widx++;
 
 		// output: bell transmission (bright) plus some internal wave (body), a presence band
@@ -477,11 +494,26 @@ static inline void process_voice(Engine& e, int v) {
 		mix[n] += y;
 		peak = strisy::rmax(peak, fabsf(y));
 	}
-	s.widx = widx; s.rng = rng; s.gph = gph;
-	s.pr1 = pr1; s.pr2 = pr2;
-	s.lp = lp; s.lp2 = lp2; s.ls = ls; s.x1 = x1; s.x2 = x2; s.pm1 = pm1; s.gm1 = gm1;
-	s.n1 = n1; s.n1b = n1b; s.n2 = n2; s.gn = gn;
-	s.d1 = D1; s.d2 = D2; s.gam = gam_t; s.outg = outg_t;
+	s.widx = widx;
+	s.rng = rng;
+	s.gph = gph;
+	s.pr1 = pr1;
+	s.pr2 = pr2;
+	s.lp = lp;
+	s.lp2 = lp2;
+	s.ls = ls;
+	s.x1 = x1;
+	s.x2 = x2;
+	s.pm1 = pm1;
+	s.gm1 = gm1;
+	s.n1 = n1;
+	s.n1b = n1b;
+	s.n2 = n2;
+	s.gn = gn;
+	s.d1 = D1;
+	s.d2 = D2;
+	s.gam = gam_t;
+	s.outg = outg_t;
 
 	// safety: reset a voice whose state went non-finite or absurd (also catches NaN)
 	if (!(fabsf(lp) + fabsf(x1) + fabsf(pm1) + peak < 1000.0f)) {
@@ -514,7 +546,7 @@ static inline void process(Engine& e, real* __restrict__ output) {
 	real s1 = e.dc1, xp = e.dcx;
 	for (int n = 0; n < BLOCK; n++) {
 		real x = e.mix[n];
-		x = fabsf(x) < 1e4f ? x : 0.0f;  // also catches NaN
+		x = fabsf(x) < 1e4f ? x : 0.0f; // also catches NaN
 		s1 = 0.99871f * s1 + x - xp;
 		xp = x;
 		// soft limit above 4 (asymptote 8), then a hard safety clamp
@@ -522,8 +554,12 @@ static inline void process(Engine& e, real* __restrict__ output) {
 		const real o = a > 4.0f ? 4.0f + (a - 4.0f) / (1.0f + 0.25f * (a - 4.0f)) : a;
 		output[n] = clampr(s1 < 0.0f ? -o : o, -8.0f, 8.0f);
 	}
-	if (!(fabsf(s1) < 1e6f) || fabsf(s1) + fabsf(xp) < 1e-9f) { s1 = 0.0f; xp = 0.0f; }  // NaN guard; exact 0 when silent
-	e.dc1 = s1; e.dcx = xp;
+	if (!(fabsf(s1) < 1e6f) || fabsf(s1) + fabsf(xp) < 1e-9f) {
+		s1 = 0.0f;
+		xp = 0.0f;
+	} // NaN guard; exact 0 when silent
+	e.dc1 = s1;
+	e.dcx = xp;
 }
 
 } // namespace reed
