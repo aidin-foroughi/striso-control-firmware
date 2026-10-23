@@ -75,6 +75,7 @@
 #include "strisy.h"
 #include "trumpet_bore.h"
 #include "trumpet_cal.h"
+#include "trumpet_seed.h"
 
 namespace trumpet {
 
@@ -113,6 +114,20 @@ static constexpr real SPUMP = 0.6f;
 // mode's, and its tuning above the outward mode (cents); see the LIPS comment in process_player
 static constexpr real LIP_IN_R = 1.0f, LIP_IN_C = 150.0f;
 static constexpr real LEAD = 0.7f, SEED_BREATH = 0.3f, BFLOOR_T = 0.035f, SEED_LIP = 1.0f;
+// warm start (trumpet_seed.h): the breath a tongued note is seeded for (key pressure units:
+// WARM_D0 + WARM_D1 x strike, or the pressure if more), the hold of that breath (s), the front-end
+// run-in (samples at 96 kHz), the radiated fade-in time constant (s, per stage: hard .. soft)
+#ifndef TRUMPET_WARM_D0
+static constexpr real WARM_D0 = 0.2f, WARM_D1 = 0.5f, WARM_BF_K = 0.7f, WARM_BF_T = 0.03f;
+#else
+static constexpr real WARM_D0 = TRUMPET_WARM_D0, WARM_D1 = TRUMPET_WARM_D1, WARM_BF_K = TRUMPET_WARM_BFK, WARM_BF_T = TRUMPET_WARM_BFT;
+#endif
+static constexpr real WARM_FADE_HARD = 0.001f, WARM_FADE_SOFT = 0.004f;
+#ifndef TRUMPET_WARM_NPRE
+static constexpr int WARM_NPRE = 192;
+#else
+static constexpr int WARM_NPRE = TRUMPET_WARM_NPRE;
+#endif
 // pitch tracker: DC removal of the lip motion (per internal sample), period consistency
 static constexpr real TRK_HP = 0.004f, TRK_TOL = 0.05f;
 // output EQ fitted to the Iowa MIS Bb trumpet recordings (cmpref.py)
@@ -388,6 +403,11 @@ struct Player {
 	int active;
 	real peak;
 	real xamp;  // lip oscillation amplitude (m)
+	// warm start (trumpet_seed.h): a tongued note from silence starts in its own steady oscillation
+	int warm;     // this note was started from a seed
+	real wdyn;    // the strike, then the breath the seed was chosen for (key pressure units)
+	real rf, rf1; // radiated fade-in (two one-poles at block rate; 1 = full)
+	real rf_tau;  // its time constant (s)
 	real level; // smoothed output level (stealing)
 };
 
@@ -435,6 +455,7 @@ struct Engine {
 	real room_lp, dc;
 	uint32_t room_w;
 	real quiet; // blocks without sound (state flush)
+	float wtab[seed::NSIG][68]; // warm start: one period of each seeded signal
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -532,6 +553,7 @@ static inline void reset_player(Engine& e, int i) {
 	s.df = s.dprev = s.dnl = bore_of(e).dpure;
 	s.vmix = 1.0f;
 	s.fmeas = 0.0f;
+	s.rf = s.rf1 = 1.0f;
 	for (int n = 0; n < CLEN; n++) cyl_f[i][n] = cyl_b[i][n] = 0.0f;
 }
 
@@ -685,8 +707,10 @@ static inline Fingering choose_fingering(const Engine& e, real note, const Playe
 static inline void start_note(Engine& e, int i, real hard, bool tongue, bool from_silence) {
 	Player& s = e.pl[i];
 	const Params& P = e.ps;
+	s.warm = 0;
 	if (tongue) {
 		const real h = clampr(hard * P.attack, 0.0f, 1.5f);
+		s.wdyn = h; // the strike, until the warm start picks the breath
 		s.tau_on = 0.012f * exp2s(-3.3f * h); // 12 ms "d" .. 1.2 ms "t"
 		s.ov = P.overshoot * h;
 		s.bfloor = from_silence || s.gate < 0.3f ? clampr(SEED_BREATH * h, 0.0f, 0.9f) : 0.0f;
@@ -730,7 +754,184 @@ static long dbg_n = 0, dbg_len = 0;
 static float* dbg_pc = nullptr;
 static float* dbg_u = nullptr;
 static float* dbg_x = nullptr;
+static float* dbg_f = nullptr;  // cylinder forward input (CF writes)
+static float* dbg_r = nullptr;  // bell reflection (CB writes)
+static float* dbg_xo = nullptr; // outward lip mode (x; dbg_x is the opening x + y)
+static float* dbg_y = nullptr;  // inward lip mode
 #endif
+
+// ---------------------------------------------------------------------------------------------
+// warm start: a tongued note from silence starts in the horn's own steady oscillation for this
+// note and breath, captured offline from this model (trumpet_seed.h: the first harmonics of the
+// cylinder waves, the cup pressure and both lip modes, phase aligned to the lips' fundamental).
+// From rest the long bore of the low notes needs several round trips (~25 ms) to fill; seeded on
+// its own limit cycle the note speaks at once. Only the lowest harmonics are seeded (more for a
+// harder, louder attack): the lips and the bore grow the rest within a few periods, so the
+// brightness builds as in a real attack; the radiated sound fades in over a few ms (the tongue
+// release), so the seeded bore doesn't click.
+
+struct WarmSeed {
+	real trim, um;
+	real dc[seed::NSIG];
+	real re[seed::NSIG][seed::NH], im[seed::NSIG][seed::NH];
+};
+
+#ifdef TRUMPET_DEBUG
+static const seed::State* dbg_seed_ovr = nullptr; // capture: seed from this state
+static int dbg_nowarm = 0;
+static float dbg_force_dyn = -1.0f, dbg_bright = -1.0f; // capture: the seed's breath and harmonics
+#endif
+
+// the seed for this note and breath (interpolated between the captured breaths); false: none
+static inline bool warm_lookup(const Engine& e, real note, real dyn, const Fingering& fg, WarmSeed& w) {
+	const seed::State* a = nullptr;
+	const seed::State* c = nullptr;
+	real u = 0.0f;
+#ifdef TRUMPET_DEBUG
+	if (dbg_nowarm) return false;
+	if (dbg_seed_ovr) a = c = dbg_seed_ovr;
+#endif
+	if (a == nullptr) {
+		const seed::Set& st = seed::SETS[e.preset];
+		const int n = (int)(note + 0.5f) - st.lo;
+		if (st.st == nullptr || n < 0 || n >= st.n) return false;
+		const seed::State* row = &st.st[n * seed::NDYN];
+		int j = 0;
+		while (j < seed::NDYN - 2 && dyn > seed::DYN[j + 1]) j++;
+		u = clampr((dyn - seed::DYN[j]) / (seed::DYN[j + 1] - seed::DYN[j]), 0.0f, 1.0f);
+		a = &row[j];
+		c = &row[j + 1];
+		if (!a->ok) {
+			a = c;
+			u = 0.0f;
+		}
+		if (!c->ok) c = a;
+	}
+	if (!a->ok || a->combo != fg.combo || a->k != fg.k || a->ext != fg.ext) return false;
+	if (c->combo != a->combo || c->k != a->k || c->ext != a->ext) c = a;
+	w.trim = a->trim + u * (c->trim - a->trim);
+	w.um = a->um + u * (c->um - a->um);
+	for (int q = 0; q < seed::NSIG; q++) {
+		w.dc[q] = a->dc[q] + u * (c->dc[q] - a->dc[q]);
+		for (int k = 0; k < seed::NH; k++) {
+			w.re[q][k] = a->re[q][k] + u * (c->re[q][k] - a->re[q][k]);
+			w.im[q][k] = a->im[q][k] + u * (c->im[q][k] - a->im[q][k]);
+		}
+	}
+	return true;
+}
+
+// one period table (64 points, linear interpolation), read at t samples from now
+[[nodiscard]] static inline real wtab_at(const float* T, real t, real iper) {
+	real u = t * iper;
+	u -= (real)(int)u;
+	if (u < 0.0f) u += 1.0f;
+	u *= 64.0f;
+	const int j = (int)u & 63;
+	return T[j] + (u - (real)j) * (T[j + 1] - T[j]);
+}
+
+// fills one cylinder line backwards from the write index: L[w - n] = T(-n), n = 1..len
+static inline void wtab_fill(float* __restrict__ L, uint32_t w, int len, const float* __restrict__ T, real per) {
+	const real inc = 64.0f / per;
+	real u = 0.0f;
+	for (int n = 1; n <= len; n++) {
+		u -= inc;
+		if (u < 0.0f) u += 64.0f;
+		const int j = (int)u & 63;
+		L[(w - (uint32_t)n) & CMASK] = T[j] + (u - (real)j) * (T[j + 1] - T[j]);
+	}
+}
+
+// writes the seed into player i: the cylinder lines, the front end (run in on the seeded cup pressure
+// and the returning wave), the bell's multirate filter histories, the cup, both lip modes and the
+// tracker. Signals (trumpet_seed.h): 0 the cylinder's forward input, 1 the bell's reflection, 2 the
+// cup pressure, 3 and 4 the outward and inward lip modes.
+// bright 0..1: the seeded harmonics (0: the first two, 1: all NH)
+static inline void warm_fill(Engine& e, int i, const WarmSeed& w, real per, real df, real loss_b, real knl, real bright) {
+	Player& s = e.pl[i];
+	const bore::Bore& b = bore_of(e);
+	constexpr int NH = seed::NH;
+	real g[NH];
+	for (int k = 0; k < NH; k++) g[k] = clampr(bright * (real)(NH - 2) + 2.0f - (real)k, 0.0f, 1.0f);
+	for (int q = 0; q < seed::NSIG; q++) {
+		float* T = e.wtab[q];
+		for (int j = 0; j < 64; j++) {
+			real v = w.dc[q];
+			for (int k = 0; k < NH; k++) {
+				const int ci = ((k + 1) * j) & 63;
+				v += g[k] * (w.re[q][k] * seed::COS64[ci] - w.im[q][k] * seed::COS64[(ci + 48) & 63]);
+			}
+			T[j] = v;
+		}
+		T[64] = T[0];
+	}
+	const float* Tf = e.wtab[0];
+	const float* Tr = e.wtab[1];
+	const float* Tp = e.wtab[2];
+	const float* Tx = e.wtab[3];
+	const float* Ty = e.wtab[4];
+	const real iper = 1.0f / per;
+	const uint32_t w0 = s.w;
+	constexpr int NPRE = WARM_NPRE;
+	// cylinder: forward line as far back as the (steepened) reads reach, backward line for the reads
+	// and the front-end run-in
+	wtab_fill(cyl_f[i], w0, (int)rmin(df + 96.0f, (real)(CLEN - 2)), Tf, per);
+	wtab_fill(cyl_b[i], w0, (int)rmin(df + (real)(NPRE + 4), (real)(CLEN - 2)), Tr, per);
+	// front end: run the ladder in for NPRE samples on the seeded cup pressure and the returning wave
+	const int nsec = b.nsec;
+	int dl[MAXSEC];
+	real kl[MAXSEC];
+	for (int j = 0; j < MAXSEC; j++) {
+		dl[j] = j < nsec ? b.sec_d[j] : 1;
+		kl[j] = j < nsec ? b.sec_k[j] : 0.0f;
+		for (int n = 0; n < SLEN; n++) s.ff[j][n] = s.fb[j][n] = 0.0f;
+	}
+	const float* CB = cyl_b[i];
+	const int i0 = (int)df;
+	const real fr = df - (real)i0;
+	for (int t = -NPRE; t <= -1; t++) {
+		const uint32_t ww = w0 + (uint32_t)t;
+		const real b0 = s.fb[0][(ww - (uint32_t)b.sec_d[0]) & SMASK];
+		s.ff[0][ww & SMASK] = wtab_at(Tp, (real)(t + 1), iper) - b0;
+		ladder<0>(s, ww, dl, kl, nsec);
+		const real c0 = CB[(ww - (uint32_t)i0) & CMASK], c1 = CB[(ww - (uint32_t)i0 - 1u) & CMASK];
+		const real cbv = c0 + fr * (c1 - c0);
+		const real fa = s.ff[nsec - 1][(ww - (uint32_t)b.sec_d[nsec - 1]) & SMASK];
+		s.fb[nsec - 1][ww & SMASK] = cbv + b.sec_k[nsec - 1] * (fa - cbv);
+	}
+	// bell: decimator input (the wave arriving at the bell), 12 kHz history (the decimator delays
+	// 23.5 samples), interpolator input (the reflection 23.5 samples ahead of its output)
+	for (int m = 0; m < DHL; m++) {
+		const int j = (s.dpos - 1 - m) & (DHL - 1);
+		s.dh[j] = s.dh[j + DHL] = wtab_at(Tf, (real)(-1 - m) - df, iper);
+	}
+	const real td = (real)(-1 - s.phase);
+	for (int m = 0; m < H12L; m++) {
+		const int j = (s.hpos - 1 - m) & (H12L - 1);
+		s.h12[j] = s.h12[j + H12L] = wtab_at(Tf, td - 8.0f * (real)m - 23.5f - df, iper);
+	}
+	const real il = 1.0f / rmax(loss_b, 0.3f);
+	for (int m = 0; m < 8; m++) s.ih[m] = m < 6 ? wtab_at(Tr, td - 8.0f * (real)m + 23.5f, iper) * il : 0.0f;
+	// cup, lips (x and v from the last two samples), tracker
+	s.pc = Tp[0];
+	s.x = Tx[0];
+	s.v = (Tx[0] - wtab_at(Tx, -1.0f, iper)) * (real)bore::FS;
+	s.y = Ty[0];
+	s.vy = (Ty[0] - wtab_at(Ty, -1.0f, iper)) * (real)bore::FS;
+	s.um = w.um;
+	s.xlp = s.x + s.y;
+	s.xhp = w.dc[3] + w.dc[4];
+	s.xprev = s.xlp - s.xhp;
+	s.tlast = -1e4f;
+	s.pprev = per;
+	const real o1r = w.re[3][0] + w.re[4][0], o1i = w.im[3][0] + w.im[4][0];
+	s.xamp = g[0] * fsqrt(o1r * o1r + o1i * o1i);
+	s.df = s.dprev = df;
+	s.dnl = clampr(df - knl * wtab_at(Tf, -df, iper), 1.0f, DMAXC); // the steepened read, where it would be
+	s.vmix = 1.0f;
+	s.n1 = 0.0f;
+}
 
 static inline void process_player(Engine& e, int i) {
 	Player& s = e.pl[i];
@@ -764,7 +965,7 @@ static inline void process_player(Engine& e, int i) {
 	s.note = held ? note : s.note;
 
 	// fingering (keeps the current one while it is still reasonable: lip bends within a partial)
-	const Fingering fg = choose_fingering(e, target, s, s.active && s.gate > 0.01f);
+	const Fingering fg = choose_fingering(e, target, s, s.active && s.gate > 0.01f && s.seed == 0.0f);
 	const bool newfing = fg.combo != s.combo || fg.ext != s.ext || fg.k != s.k;
 	const bool newvalves = fg.combo != s.combo || fg.ext != s.ext;
 	if (newfing) {
@@ -782,6 +983,34 @@ static inline void process_player(Engine& e, int i) {
 		(void)old_nom;
 	}
 	s.nominal = fg.nominal;
+	// warm start: a tongued note from silence, seeded for the breath the strike announces (the key
+	// pressure takes 10-30 ms to arrive); the player holds that breath through the attack
+	WarmSeed wseed;
+	bool wfill = false;
+	real wbright = 0.0f;
+	if (s.seed > 0.0f && held) {
+		const real h = s.wdyn;
+		real dyn = clampr(rmax(WARM_D0 + WARM_D1 * h, pres), 0.05f, 1.3f);
+#ifdef TRUMPET_DEBUG
+		if (dbg_force_dyn > 0.0f) dyn = dbg_force_dyn;
+#endif
+		if (warm_lookup(e, target, dyn, fg, wseed)) {
+			wfill = true;
+			s.warm = 1;
+			s.wdyn = dyn;
+			s.trim = wseed.trim;
+			s.bfloor = WARM_BF_K * dyn;
+			s.b1 = 0.0f;
+			s.b2 = WARM_BF_K * dyn;
+			s.gate = 1.0f;
+			s.rf = s.rf1 = 0.0f;
+			s.rf_tau = WARM_FADE_SOFT + (WARM_FADE_HARD - WARM_FADE_SOFT) * clampr(h, 0.0f, 1.0f);
+			wbright = clampr(h + 1.5f * (dyn - 0.45f), 0.0f, 1.0f);
+#ifdef TRUMPET_DEBUG
+			if (dbg_bright >= 0.0f) wbright = dbg_bright;
+#endif
+		}
+	}
 	const real off_c = 100.0f * (target - s.nominal); // cents the slide/lips must add
 	const real f_t = midi_hz(target);
 
@@ -831,7 +1060,7 @@ static inline void process_player(Engine& e, int i) {
 		// a tongued note starts on the breath the player built up behind the tongue: the strike tells
 		// how hard (the key pressure itself takes ~10 ms to arrive); it hands over to the pressure
 		bl = clampr(rmax(bl, s.bfloor), 0.0f, 1.5f);
-		s.bfloor *= 1.0f - e.block_dt / BFLOOR_T;
+		s.bfloor *= 1.0f - e.block_dt / (s.warm ? WARM_BF_T : BFLOOR_T);
 	}
 	const real pthr = cp.pthr; // Pa
 	const real p_lo = pthr * P.p_soft;
@@ -873,6 +1102,22 @@ static inline void process_player(Engine& e, int i) {
 	const real lnl = (b.dpure + 60.0f) * (C0 / (real)bore::FS) + 0.3f;
 	const real knl = clampr(P.brassy, 0.0f, 8.0f) * 1.2f * lnl / (RHO * C0 * C0 * C0) * (real)bore::FS / fsqrt(reg);
 
+	if (wfill) {
+		// this block: the seed instead of the sound (the next block starts in the oscillation)
+		warm_fill(e, i, wseed, (real)bore::FS / f_t, d_target, loss_b, knl, wbright);
+		s.seed = 0.0f;
+		s.pm = pm_end;
+		s.w2 = w2_t;
+		s.peak = 0.0f;
+		s.idle_blocks = 0;
+#ifdef TRUMPET_DEBUG
+		for (int n = 0; n < NS && dbg_pc && dbg_n < dbg_len; n++, dbg_n++) {
+			dbg_pc[dbg_n] = 0.0f;
+			if (dbg_u) dbg_u[dbg_n] = dbg_x[dbg_n] = 0.0f;
+		}
+#endif
+		return;
+	}
 	if (s.seed > 0.0f) {
 		// the lips start in their swing (phase: opening, through the rest position), with roughly the
 		// amplitude they will settle at; the lip motion locks onto the horn within a few periods
@@ -942,6 +1187,15 @@ static inline void process_player(Engine& e, int i) {
 	// a real player and room even that out to a few dB per octave
 	const real gout = clampr(exp2s(-(target - 70.0f) * (target < 70.0f ? 1.5f / 12 : 1.0f / 12)), 0.25f, 5.0f);
 	real* __restrict__ mix = e.mix;
+	// radiated fade-in of a warm start (two one-poles at block rate, linear within the block)
+	real gr = gout * s.rf;
+	if (s.rf < 1.0f) {
+		const real a = rmin(e.block_dt / rmax(s.rf_tau, 1e-4f), 1.0f);
+		s.rf1 += a * (1.0f - s.rf1);
+		s.rf += a * (s.rf1 - s.rf);
+		if (s.rf > 0.9999f) s.rf = s.rf1 = 1.0f;
+	}
+	const real dgr = (gout * s.rf - gr) * (1.0f / NS);
 	const real rl = 1.5f, ru = 0.9f;
 	for (int n = 0; n < NS; n++) {
 		pm += dpm;
@@ -967,6 +1221,10 @@ static inline void process_player(Engine& e, int i) {
 			if (dbg_u) {
 				dbg_u[dbg_n] = u0;
 				dbg_x[dbg_n] = x + y;
+			}
+			if (dbg_xo) {
+				dbg_xo[dbg_n] = x;
+				dbg_y[dbg_n] = y;
 			}
 		}
 		dbg_n++;
@@ -1012,6 +1270,9 @@ static inline void process_player(Engine& e, int i) {
 		const real fa = s.ff[nsec - 1][(w - (uint32_t)b.sec_d[nsec - 1]) & SMASK];
 		const real tj = b.sec_k[nsec - 1] * (fa - cbv);
 		CF[w & CMASK] = fa + tj;
+#ifdef TRUMPET_DEBUG
+		if (dbg_f && dbg_n - 1 < dbg_len) dbg_f[dbg_n - 1] = fa + tj;
+#endif
 		s.fb[nsec - 1][w & SMASK] = cbv + tj;
 		// forward wave at the bell entry: the linear wave closes the loop (the bell reflects mostly
 		// low frequencies), the steepened read (crests travel faster) radiates; keeping the loop
@@ -1082,9 +1343,13 @@ static inline void process_player(Engine& e, int i) {
 		if (dbg_norefl) rfl = 0.0f;
 #endif
 		CB[w & CMASK] = rfl * loss_b;
+#ifdef TRUMPET_DEBUG
+		if (dbg_r && dbg_n - 1 < dbg_len) dbg_r[dbg_n - 1] = rfl * loss_b;
+#endif
 		w++;
 		// radiated: the forward wave at the bell entry
-		mix[n] += gout * yb;
+		gr += dgr;
+		mix[n] += gr * yb;
 		peak = rmax(peak, fabsf(yb));
 		// pitch tracker: lip displacement, low-passed, DC removed, upward zero crossings
 		xlp += a_lp * (x + y - xlp);
@@ -1276,6 +1541,7 @@ static inline void key_on(Engine& e, int key, real strike) {
 		s.v = 0.0f;
 		s.y = 0.0f;
 		s.vy = 0.0f;
+		s.rf = s.rf1 = 1.0f;
 	}
 	start_note(e, i, rmax(strike, 0.15f), true, from_silence);
 }
