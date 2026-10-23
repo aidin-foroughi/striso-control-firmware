@@ -93,30 +93,43 @@
 #define STM32_PLL1_DIVP_VALUE               2
 #define STM32_PLL1_DIVQ_VALUE               8
 #define STM32_PLL1_DIVR_VALUE               8
+/*
+ * PLL2: audio clock only (SAI1). HSE 8 MHz / 5 = 1.6 MHz reference (range 1-2 MHz),
+ * x 192 = 307.2 MHz VCO (medium range), / 5 = 61.44 MHz = 1280 x 48 kHz exactly.
+ * SAI1 divides by MCKDIV 5: MCLK 12.288 MHz = 256 fs, fs = 48000 Hz (codec_tlv320aic3x_SAI.c).
+ * Q and R (38.4 MHz) are unused.
+ * Before: PLL2 = 8 / 4 x 400 = 800 MHz fed only the ADCs (P / 40 = 20 MHz), SAI1 ran from
+ * PLL1_Q 100 MHz / 8 / 256 = 48828.125 Hz.
+ */
 #define STM32_PLL2_ENABLED                  TRUE
 #define STM32_PLL2_P_ENABLED                TRUE
 #define STM32_PLL2_Q_ENABLED                TRUE
 #define STM32_PLL2_R_ENABLED                TRUE
-#define STM32_PLL2_DIVM_VALUE               4
-#define STM32_PLL2_DIVN_VALUE               400
+#define STM32_PLL2_DIVM_VALUE               5
+#define STM32_PLL2_DIVN_VALUE               192
 #define STM32_PLL2_FRACN_VALUE              0
-#if !defined(STM32_ENFORCE_H7_REV_XY)
-#define STM32_PLL2_DIVP_VALUE               40
-#else /* defined(STM32_ENFORCE_H7_REV_XY) */
-#define STM32_PLL2_DIVP_VALUE               80
-#endif
+#define STM32_PLL2_DIVP_VALUE               5
 #define STM32_PLL2_DIVQ_VALUE               8
 #define STM32_PLL2_DIVR_VALUE               8
+/*
+ * PLL3: USB and ADCs. 8 MHz / 4 = 2 MHz reference, x 240 = 480 MHz VCO (wide range),
+ * Q / 10 = 48 MHz USB (exact, as before: 8 / 8 x 336 / 7), R / 24 = 20 MHz ADC kernel clock
+ * (exact, as before from PLL2_P; / 48 = 10 MHz on revision Y), P / 2 = 240 MHz unused.
+ */
 #define STM32_PLL3_ENABLED                  TRUE
 #define STM32_PLL3_P_ENABLED                TRUE
 #define STM32_PLL3_Q_ENABLED                TRUE
 #define STM32_PLL3_R_ENABLED                TRUE
-#define STM32_PLL3_DIVM_VALUE               8
-#define STM32_PLL3_DIVN_VALUE               336
+#define STM32_PLL3_DIVM_VALUE               4
+#define STM32_PLL3_DIVN_VALUE               240
 #define STM32_PLL3_FRACN_VALUE              0
 #define STM32_PLL3_DIVP_VALUE               2
-#define STM32_PLL3_DIVQ_VALUE               7
-#define STM32_PLL3_DIVR_VALUE               2
+#define STM32_PLL3_DIVQ_VALUE               10
+#if !defined(STM32_ENFORCE_H7_REV_XY)
+#define STM32_PLL3_DIVR_VALUE               24
+#else /* defined(STM32_ENFORCE_H7_REV_XY) */
+#define STM32_PLL3_DIVR_VALUE               48
+#endif
 
 /*
  * Core clocks dynamic settings (can be changed at runtime).
@@ -155,7 +168,7 @@
 #define STM32_SPI45SEL                      STM32_SPI45SEL_PCLK2
 #define STM32_SPI123SEL                     STM32_SPI123SEL_PLL1_Q_CK
 #define STM32_SAI23SEL                      STM32_SAI23SEL_PLL1_Q_CK
-#define STM32_SAI1SEL                       STM32_SAI1SEL_PLL1_Q_CK
+#define STM32_SAI1SEL                       STM32_SAI1SEL_PLL2_P_CK
 #define STM32_LPTIM1SEL                     STM32_LPTIM1SEL_PCLK1
 #define STM32_CECSEL                        STM32_CECSEL_LSI_CK
 #define STM32_USBSEL                        STM32_USBSEL_PLL3_Q_CK
@@ -166,7 +179,7 @@
 #define STM32_SPI6SEL                       STM32_SPI6SEL_PCLK4
 #define STM32_SAI4BSEL                      STM32_SAI4BSEL_PLL1_Q_CK
 #define STM32_SAI4ASEL                      STM32_SAI4ASEL_PLL1_Q_CK
-#define STM32_ADCSEL                        STM32_ADCSEL_PLL2_P_CK
+#define STM32_ADCSEL                        STM32_ADCSEL_PLL3_R_CK
 #define STM32_LPTIM345SEL                   STM32_LPTIM345SEL_PCLK4
 #define STM32_LPTIM2SEL                     STM32_LPTIM2SEL_PCLK4
 #define STM32_I2C4SEL                       STM32_I2C4SEL_PCLK4

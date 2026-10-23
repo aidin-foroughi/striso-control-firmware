@@ -136,6 +136,13 @@ The tools are in that checkout's `tools/`; the worktrees are next to it in `../w
   instruments as presets over continuous morphs). Level-match presets (median active RMS +-3 dB).
 - The user plays and judges by ear; they value realism and subtlety.
 
+## Updates (2026-10-22): sample rate 48000 Hz
+
+- The board now runs at exactly **48000 Hz** (was 48828): the codec clock comes from its own PLL
+  (cfg/mcuconf.h), for USB audio output. Engines get the rate in `init()`; never hard-code it
+  (`e.sr`, `e.inv_sr`). The harness renders at 48000 Hz (performance headers, compare.py). The CPU
+  budget per 32-sample block grows by 1.7% (266.7k cycles).
+
 ## Your report (final message)
 
 1. What the voice is and how it works (a paragraph).

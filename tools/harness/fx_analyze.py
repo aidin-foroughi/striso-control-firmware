@@ -1,4 +1,4 @@
-"""Analysis of fx_test renders (stereo interleaved float32 at 48828 Hz).
+"""Analysis of fx_test renders (stereo interleaved float32 at 48000 Hz).
 
   fx_analyze.py ir X.f32 [--skip MS]        reverb impulse response: energy, RT60 (T30 from the Schroeder
                                             curve), envelope flutter, persistent spectral peaks (ringing)
@@ -9,7 +9,7 @@
 import sys
 import numpy as np
 
-SR = 48828
+SR = 48000
 
 
 def load(p):

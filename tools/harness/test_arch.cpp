@@ -22,8 +22,8 @@ struct UI {
 <<includeIntrinsic>>
 <<includeclass>>
 int main(int argc, char** argv) {
-	static mydsp d; d.init(48828);
-	int no = d.getNumOutputs(), n = (int)(atof(argv[2]) * 48828), B = 32;
+	static mydsp d; d.init(48000);
+	int no = d.getNumOutputs(), n = (int)(atof(argv[2]) * 48000), B = 32;
 	std::vector<float> buf(no * B), out, inb(3 * B); std::vector<float*> outs(no), ins(3);
 	for (int c = 0; c < no; c++) outs[c] = &buf[c * B];
 	for (int c = 0; c < 3; c++) ins[c] = &inb[c * B];
@@ -31,7 +31,7 @@ int main(int argc, char** argv) {
 	for (int i = 0; i < n; i += B) {
 		// identical float inputs for single and double builds: noise, cutoff sweep 200..16000 Hz, Q 1..9
 		for (int k = 0; k < B; k++) {
-			double t = (double)(i + k) / 48828;
+			double t = (double)(i + k) / 48000;
 			s = s * 1664525u + 1013904223u;
 			inb[k] = (float)((int)s * (1.0 / 2147483648.0));
 			inb[B + k] = (float)(200 + 7900 * (1 + sin(2 * M_PI * 0.37 * t)));

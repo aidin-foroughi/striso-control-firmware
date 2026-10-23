@@ -9,7 +9,7 @@ import re
 import sys
 import numpy as np
 
-SR = 48828
+SR = 48000
 ROOT = "."
 BASE = "src=sine freq=220 amp=2 seconds=1.2 drive=0.3 phmix=0.5 chmix=0.5 trdepth=0.5 dlmix=0.5 dltime=100 rvmix=0.5".split()
 

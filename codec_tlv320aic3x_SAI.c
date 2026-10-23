@@ -23,6 +23,18 @@
 #include "codec_tlv320aic3x.h"
 #include "codec.h"
 
+// SAI1 master clock divider (H7: MCLK = kernel clock / MCKDIV, fs = MCLK / 256 with a 64 bit frame)
+#if SAMPLERATE == 48000
+#define SAI1_MCKDIV 5   // PLL2_P 61.44 MHz / 5 = 12.288 MHz = 256 x 48000
+#elif SAMPLERATE == 48828
+#define SAI1_MCKDIV 8   // PLL1_Q 100 MHz / 8 = 12.5 MHz = 256 x 48828.125
+#else
+#error "no SAI clock settings for this SAMPLERATE"
+#endif
+#if STM32_SAI1CLK / SAI1_MCKDIV / 256 != SAMPLERATE
+#error "SAI1 kernel clock (cfg/mcuconf.h) does not give SAMPLERATE"
+#endif
+
 // #define STM32_SAI_A_DMA_STREAM STM32_DMA_STREAM_ID(2, 1)
 // #define STM32_SAI_B_DMA_STREAM STM32_DMA_STREAM_ID(2, 4)
 #define STM32_SAI_A_DMA_STREAM STM32_DMA_STREAM_ID_ANY
@@ -202,7 +214,7 @@ void codec_i2s_init(uint16_t sampleRate) {
 // SAI1_A is master transmitter
 // SAI1_B is synchronous slave receiver
   SAI1_Block_A->CR1 = SAI_xCR1_DS_32
-      | SAI_xCR1_MCKDIV_(16) // should be 4 for 48kHz, 2 for 44.1kHz // TODO: find out why it's 3.5 times faster than it should be, and the clock dividers doesn't seem to have influence.
+      | (SAI1_MCKDIV << SAI_xCR1_MCKDIV_Pos) // the field is the divider itself on the H7
       | SAI_xCR1_DMAEN | SAI_xCR1_CKSTR;
   SAI1_Block_B->CR1 = SAI_xCR1_DS_32
       | SAI_xCR1_SYNCEN_SYNCINT | SAI_xCR1_MODE_SLAVE_RX // synchronous slave receiver

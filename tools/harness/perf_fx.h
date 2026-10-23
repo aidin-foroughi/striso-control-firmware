@@ -7,7 +7,7 @@
 #define PERFORMANCE_H_
 #include <math.h>
 
-#define SAMPLERATE 48828
+#define SAMPLERATE 48000
 #define BLOCK 32
 #define NVOICES_MAX 15
 #define pmax(x,y) ((x)>(y)?(x):(y))

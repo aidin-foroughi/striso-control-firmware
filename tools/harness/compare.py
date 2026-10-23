@@ -6,7 +6,7 @@ import sys
 import wave
 import numpy as np
 
-SR, SEG = 48828, 0.5
+SR, SEG = 48000, 0.5
 
 def load(p):
     return np.fromfile(p, dtype=np.float32).astype(np.float64)

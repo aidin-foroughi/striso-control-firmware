@@ -126,6 +126,7 @@ LDSCRIPT= STM32H743xI_uf2.ld
 CSRC = $(ALLCSRC) \
 	$(CHIBIOS)/os/various/syscalls.c \
 	usbcfg.c \
+	usb_audio.c \
 	pconnection.c \
 	bulk_usb.c \
 	midi_usb.c \

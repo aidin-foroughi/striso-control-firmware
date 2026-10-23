@@ -595,7 +595,7 @@ static inline void process_voice(Engine& e, int v) {
 		b.cbs = 1.0f; b.gs = 0.997f;
 	}
 	// release: once the breath is gone, the bore dies out in ~0.1 s whatever its length
-	const real rel = clampr(1.0f - ps * 20.0f, 0.0f, 1.0f) * (9.97f / (0.1f * 48828.0f));
+	const real rel = clampr(1.0f - ps * 20.0f, 0.0f, 1.0f) * (9.97f / 0.1f) * e.inv_sr;
 	b.g = clampr(q.loss, 0.5f, 0.999f);
 
 	// reed (mass-spring, centered differences, stable for omega*T < 2)

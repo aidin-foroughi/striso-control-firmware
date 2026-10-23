@@ -248,7 +248,7 @@ struct Engine {
 	int preset;
 	Params p;                   // parameters as set (presets, live edits)
 	Params ps;                  // smoothed copy used by the DSP (de-zippers live edits, ~13 ms)
-	real pi_sr, ph_scale, ctrl_dt, block_dt;
+	real pi_sr, ph_scale, ctrl_dt, block_dt, sr;
 	real vib_inc, pwm_inc;
 	strisy::SvfCoef lv_c, ty_c;
 	real shake_pk, shake, gyro;  // global motion envelopes
@@ -305,6 +305,7 @@ static inline void set_preset(Engine& e, int i) {
 
 static inline void init(Engine& e, int sample_rate, int nvoices) {
 	const real sr = (real)sample_rate;
+	e.sr = sr;
 	e.pi_sr = 3.14159265f / sr;
 	e.ph_scale = 4294967296.0f / sr;
 	e.ctrl_dt = (real)CTRL / sr;
@@ -409,7 +410,7 @@ static inline void process_voice(Engine& e, int v) {
 	const real nC = nA + P.c_det + P.c_drift * drift[1] + P.gyro_det * e.gyro;
 #endif
 	const bool bsync = P.b_sync > 0.5f;
-	const real fmaxA = 0.45f * 48828.0f, fmaxB = 0.35f * 48828.0f;
+	const real fmaxA = 0.45f * e.sr, fmaxB = 0.35f * e.sr;
 	const real fA = rmin(note_freq(nA), fmaxA);
 	real fB;
 	if (bsync) {

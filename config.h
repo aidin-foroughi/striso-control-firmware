@@ -34,10 +34,15 @@
 #define USE_LSM6DSL
 // #define USE_WS2812
 
-// #define SAMPLERATE 44100
-// #define SAMPLERATE 48000
-#define SAMPLERATE 48828    // 48828.125 TODO: find clock settings to get 48000 Hz
+// Codec sample rate. 48000 is exact: SAI1 MCLK 12.288 MHz from PLL2 (cfg/mcuconf.h). 48828
+// (48828.125, the old rate from PLL1_Q 100 MHz) needs STM32_SAI1SEL_PLL1_Q_CK in mcuconf.h.
+#define SAMPLERATE 48000
 #define SAMPLINGFREQ SAMPLERATE
+// USB audio (usb_audio.c) gets the post-volume signal, sample for sample what the jack gets.
+// Set to 1 to send it before the volume control instead, at a fixed gain (USB_AUDIO_GAIN, 0.25 is
+// the jack at the usual volume setting), so the recording level does not follow the volume knob.
+#define USB_AUDIO_PRE_VOLUME 0
+#define USB_AUDIO_GAIN 0.25f
 #define CHANNEL_BUFFER_SIZE		32
 #define PLAYBACK_BUFFER_SIZE	(CHANNEL_BUFFER_SIZE*2)
 #define CODEC_ENABLE_INPUT    TRUE

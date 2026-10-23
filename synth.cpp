@@ -24,6 +24,7 @@ extern "C" {
     #include "ch.h"
     #include "hal.h"
     #include "synth.h"
+    #include "usb_audio.h"
     #include "chprintf.h"
 }
 
@@ -1005,6 +1006,9 @@ static void synthThread(void *arg) {  // THE SYNTH THREAD
 
 		volume_filtered = VOLUME_FILTER * volume_filtered + (1 - VOLUME_FILTER) * volume;
 
+		// USB audio: the same samples, NULL if no host is streaming
+		int32_t* usb = usb_audio_write_ptr();
+
 		// convert float to int with scale, clamp and round
 		for (int n = 0; n < CHANNEL_BUFFER_SIZE; n++) {
 			tmp = (int32_t)(output0[n] * volume_filtered * MAX_VAL);
@@ -1016,7 +1020,9 @@ static void synthThread(void *arg) {  // THE SYNTH THREAD
 			}
 			// make both audio channels the same
 			outbuf[2*n] = outbuf[2*n+1] = tmp * (1<<8);
+			if (usb) usb[2*n] = usb[2*n+1] = tmp * (1<<8);
 		}
+		if (usb) usb_audio_write_commit();
 
 		rtcnt_t t_block = chSysGetRealtimeCounterX() - t_start;
 		chSysLock();

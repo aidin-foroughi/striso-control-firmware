@@ -20,6 +20,7 @@
 #include "hal.h"
 #include "usbcfg.h"
 #include "config.h"
+#include "usb_audio.h"
 
 /*
  * Serial over USB Driver structure.
@@ -38,7 +39,9 @@ static const uint8_t vcom_device_descriptor_data[18] = {
                          0x40,          /* bMaxPacketSize.                  */
                          0xF055,        /* idVendor (FOSS).                 */
                          0x57C0,        /* idProduct.                       */
-                         0x0200,        /* bcdDevice.                       */
+                         0x0201,        /* bcdDevice (2.01: + USB audio; a new
+                                           value makes Windows re-read the
+                                           descriptors instead of its cache). */
                          1,             /* iManufacturer.                   */
                          2,             /* iProduct.                        */
                          3,             /* iSerialNumber.                   */
@@ -53,11 +56,43 @@ static const USBDescriptor vcom_device_descriptor = {
   vcom_device_descriptor_data
 };
 
+/*
+ * Configuration: 5 interfaces in 3 functions.
+ *   IAD 0..1 MIDI:   0 AudioControl (no audio streaming), 1 MIDIStreaming (EP 0x01/0x81 bulk)
+ *   IAD 2    vendor: 2 bulk console/stream (EP 0x02/0x82, WinUSB via the MS OS descriptors)
+ *   IAD 3..4 audio:  3 AudioControl (UAC 1.0), 4 AudioStreaming (EP 0x83 isochronous IN,
+ *                    asynchronous; alt 0 zero bandwidth, alt 1 48 kHz 24 bit, alt 2 48 kHz 16 bit)
+ * The audio function is added after the existing ones so interfaces 0..2, their endpoints and
+ * the MS OS descriptors (which name interface 2) are unchanged.
+ * Checked by tools/usbaudio/check_descriptors.py.
+ */
+#define UA_CONFIG_TOTAL_LENGTH  282
+#define UA_AS_ALT(alt, subframe, bits, maxpacket)                               \
+  /* Interface 4, alternate setting alt: one isochronous endpoint. */         \
+  USB_DESC_INTERFACE(UA_AS_INTERFACE, alt, 0x01,                              \
+                     0x01,      /* bInterfaceClass (Audio).                */ \
+                     0x02,      /* bInterfaceSubClass (AudioStreaming).    */ \
+                     0x00, 0),                                                \
+  /* Class-specific AS General (UAC1 4.5.2): linked to the USB streaming    \
+     output terminal 2, 1 frame delay, PCM. */                                \
+  0x07, 0x24, 0x01, 0x02, 0x01, USB_DESC_WORD(0x0001),                        \
+  /* Type I format (UAC1 Formats 2.2.5): 2 channels, subframe bytes,       \
+     resolution, one discrete sampling frequency: 48000 Hz. */                \
+  0x0B, 0x24, 0x02, 0x01, 0x02, subframe, bits, 0x01,                         \
+  USB_DESC_BYTE(48000 & 0xFF), USB_DESC_BYTE((48000 >> 8) & 0xFF),            \
+  USB_DESC_BYTE(48000 >> 16),                                                 \
+  /* Standard AS isochronous audio data endpoint (UAC1 4.6.1.1): 0x83 IN,   \
+     isochronous asynchronous, 49 frames max, every frame. */                 \
+  0x09, 0x05, 0x80 | UA_EP, 0x05, USB_DESC_WORD(maxpacket), 0x01, 0x00, 0x00, \
+  /* Class-specific AS isochronous endpoint (UAC1 4.6.1.2): no sampling     \
+     frequency/pitch control, no lock delay. */                               \
+  0x07, 0x25, 0x01, 0x00, 0x00, USB_DESC_WORD(0x0000)
+
 static const uint8_t vcom_configuration_descriptor_data[]=
 {
  /* Configuration Descriptor.*/
- USB_DESC_CONFIGURATION(140,            /* wTotalLength.                    */
-                        0x03,          /* bNumInterfaces.                  */
+ USB_DESC_CONFIGURATION(UA_CONFIG_TOTAL_LENGTH, /* wTotalLength.            */
+                        0x05,          /* bNumInterfaces.                  */
                         0x01,          /* bConfigurationValue.             */
                         0,             /* iConfiguration.                  */
                         0xC0,          /* bmAttributes (self powered).     */
@@ -106,9 +141,50 @@ static const uint8_t vcom_configuration_descriptor_data[]=
   USB_DESC_ENDPOINT     (USBD2_DATA_REQUEST_EP|0x80,    /* bEndpointAddress.*/
                          0x02,          /* bmAttributes (Bulk).             */
                          0x0040,        /* wMaxPacketSize.                  */
-                         0x00)          /* bInterval.                       */
+                         0x00),         /* bInterval.                       */
 
+  /* Interface Association Descriptor: USB audio (synth to host).*/
+  USB_DESC_INTERFACE_ASSOCIATION(UA_AC_INTERFACE, /* bFirstInterface.       */
+                                 0x02, /* bInterfaceCount.                  */
+                                 0x01, /* bFunctionClass (Audio).           */
+                                 0x02, /* bFunctionSubClass (AudioStreaming,
+                                          as the MIDI IAD uses MIDIStreaming). */
+                                 0x00, /* bFunctionProcotol                 */
+                                 5),   /* iFunction ("Striso Synth").       */
+  /* Interface 3: AudioControl, no endpoints.*/
+  USB_DESC_INTERFACE    (UA_AC_INTERFACE, /* bInterfaceNumber.              */
+                         0x00,          /* bAlternateSetting.               */
+                         0x00,          /* bNumEndpoints.                   */
+                         0x01,          /* bInterfaceClass (Audio).         */
+                         0x01,          /* bInterfaceSubClass (AudioControl). */
+                         0x00,          /* bInterfaceProtocol.              */
+                         5),            /* iInterface ("Striso Synth").     */
+  /* Class-specific AC Interface Header (UAC1 4.3.2): bcdADC 1.00,
+     wTotalLength 9 + 12 + 9 = 30, one streaming interface: 4.*/
+  0x09, 0x24, 0x01, USB_DESC_WORD(0x0100), USB_DESC_WORD(30), 0x01, UA_AS_INTERFACE,
+  /* Input Terminal (UAC1 4.3.2.1): ID 1, Line connector (0x0603), no
+     associated terminal, 2 channels (left front, right front), iTerminal 5.*/
+  0x0C, 0x24, 0x02, 0x01, USB_DESC_WORD(0x0603), 0x00, 0x02,
+  USB_DESC_WORD(0x0003), 0x00, 5,
+  /* Output Terminal (UAC1 4.3.2.2): ID 2, USB streaming (0x0101), source:
+     terminal 1.*/
+  0x09, 0x24, 0x03, 0x02, USB_DESC_WORD(0x0101), 0x00, 0x01, 0x00,
+  /* Interface 4, alternate setting 0: zero bandwidth.*/
+  USB_DESC_INTERFACE    (UA_AS_INTERFACE, /* bInterfaceNumber.              */
+                         0x00,          /* bAlternateSetting.               */
+                         0x00,          /* bNumEndpoints.                   */
+                         0x01,          /* bInterfaceClass (Audio).         */
+                         0x02,          /* bInterfaceSubClass (AudioStreaming). */
+                         0x00,          /* bInterfaceProtocol.              */
+                         0),            /* iInterface.                      */
+  /* alt 1: 24 bit in 3 byte subframes, 49 * 2 * 3 = 294 bytes max.*/
+  UA_AS_ALT(UA_ALT_24BIT, 3, 24, 294),
+  /* alt 2: 16 bit, 49 * 2 * 2 = 196 bytes max.*/
+  UA_AS_ALT(UA_ALT_16BIT, 2, 16, 196)
 };
+
+_Static_assert(sizeof(vcom_configuration_descriptor_data) == UA_CONFIG_TOTAL_LENGTH,
+               "wTotalLength must match the configuration descriptor");
 
 /*
  * Configuration Descriptor wrapper.
@@ -170,6 +246,16 @@ static const uint8_t vcom_string4[] = {
   'I', 0, 'n', 0, 't', 0, 'e', 0, 'r', 0, 'f', 0, 'a', 0, 'c', 0, 'e', 0,
 };
 
+/*
+ * Audio function string (IAD iFunction, AudioControl iInterface, input terminal iTerminal).
+ */
+static const uint8_t vcom_string5[] = {
+  USB_DESC_BYTE(26),                    /* bLength.                         */
+  USB_DESC_BYTE(USB_DESCRIPTOR_STRING), /* bDescriptorType.                 */
+  'S', 0, 't', 0, 'r', 0, 'i', 0, 's', 0, 'o', 0, ' ', 0,
+  'S', 0, 'y', 0, 'n', 0, 't', 0, 'h', 0,
+};
+
 /* WCID implementation reference:
  *  https://github.com/pbatard/libwdi/wiki/WCID-Devices
  */
@@ -188,7 +274,8 @@ static const USBDescriptor vcom_strings[] = {
   {sizeof descriptor_manufacturer_string, descriptor_manufacturer_string},
   {sizeof descriptor_product_string, descriptor_product_string},
   {sizeof descriptor_serial_string, descriptor_serial_string},
-  {sizeof vcom_string4, vcom_string4}
+  {sizeof vcom_string4, vcom_string4},
+  {sizeof vcom_string5, vcom_string5}
 };
 
 static const USBDescriptor wcid_descriptor = {sizeof wcid_string, wcid_string};
@@ -243,7 +330,7 @@ static const USBDescriptor *get_descriptor(USBDriver *usbp,
   case USB_DESCRIPTOR_CONFIGURATION:
     return &vcom_configuration_descriptor;
   case USB_DESCRIPTOR_STRING:
-    if (dindex < 5)
+    if (dindex < sizeof vcom_strings / sizeof vcom_strings[0])
       return &vcom_strings[dindex];
     if (dindex == 0xEE)
       return &wcid_descriptor;
@@ -324,6 +411,7 @@ static void usb_event(USBDriver *usbp, usbevent_t event) {
 
       bduConfigureHookI(&BDU1);
       mduConfigureHookI(&MDU1);
+      usb_audio_configured_hookI(usbp);
     } else if (usbp->state == USB_SELECTED) {
       usbDisableEndpointsI(usbp);
     }
@@ -338,6 +426,10 @@ static void usb_event(USBDriver *usbp, usbevent_t event) {
     /* Disconnection event on suspend.*/
     bduSuspendHookI(&BDU1);
     mduSuspendHookI(&MDU1);
+    if (event == USB_EVENT_SUSPEND)
+      usb_audio_suspend_hookI();
+    else
+      usb_audio_reset_hookI();
 
     chSysUnlockFromISR();
     return;
@@ -346,6 +438,7 @@ static void usb_event(USBDriver *usbp, usbevent_t event) {
     /* Connection event on wakeup.*/
     bduWakeupHookI(&BDU1);
     mduWakeupHookI(&MDU1);
+    usb_audio_wakeup_hookI(usbp);
 
     chSysUnlockFromISR();
     return;
@@ -438,7 +531,8 @@ static bool specialRequestsHook(USBDriver *usbp) {
     return TRUE;
   }
 
-  return FALSE;
+  /* USB audio: SET/GET_INTERFACE of interfaces 3 and 4, sampling frequency.*/
+  return usb_audio_requests_hook(usbp);
 }
 
 /*
@@ -446,11 +540,10 @@ static bool specialRequestsHook(USBDriver *usbp) {
  */
 static void sof_handler(USBDriver *usbp) {
 
-  (void)usbp;
-
   osalSysLockFromISR();
   bduSOFHookI(&BDU1);
   mduSOFHookI(&MDU1);
+  usb_audio_sof_hookI(usbp);
   osalSysUnlockFromISR();
 }
 

@@ -328,7 +328,7 @@ static inline void process_voice(Engine& e, int v) {
 	// end reflections. At tiny amplitudes the Bernoulli reed is an open end (p = 0), so after
 	// release the tubes would ring on their own end losses for seconds: when the breath is gone,
 	// add a loss that makes them die out in ~0.1 s (T60), whatever the tube length
-	const real rel = clampr(1.0f - ps * 20.0f, 0.0f, 1.0f) * (9.97f / (0.1f * 48828.0f));
+	const real rel = clampr(1.0f - ps * 20.0f, 0.0f, 1.0f) * (9.97f / 0.1f) / e.sr;
 	const real g = 0.985f * pow2(-rel * D1);
 	const real gs = GS * pow2(-rel * D2);
 	const real d1s = s.d1, d2s = s.d2;
@@ -351,7 +351,7 @@ static inline void process_voice(Engine& e, int v) {
 	if (s.growl < 1e-6f) s.growl = 0.0f;
 	const real gdep = 0.45f * s.growl;
 	const real gf = clampr(0.5f * f0 + 3.0f, 25.0f, 140.0f);
-	const uint32_t ginc = (uint32_t)(gf * (4294967296.0f / 48828.0f));
+	const uint32_t ginc = (uint32_t)(gf * (4294967296.0f / e.sr));
 	// output gain: more dynamic range than the physical amplitude alone
 	const real outg_t = 1.2f * (0.30f + 0.70f * clampr(ps, 0.0f, 1.2f));
 	// presence band: k * bandpass, Q 0.9, around 2.2 (clarinet) .. 2.6 kHz (sax)

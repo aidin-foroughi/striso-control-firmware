@@ -19,6 +19,7 @@
 #include "ch.h"
 #include "hal.h"
 #include "chprintf.h"
+#include "usb_audio.h"
 #include "pconnection.h"
 #include "usbcfg.h"
 #include "midi.h"
@@ -306,6 +307,14 @@ void PExReceiveByte(unsigned char c) {
                  blocks, blocks ? (uint32_t)(sum / blocks) : 0, peak, SYNTH_BLOCK_CYCLES);
       }
 #endif
+      else if (c == 'U') { // USB audio status and statistics since the last 'U'
+        usb_audio_print_status(&BDU1);
+      }
+      else if (c == 'u') { // USB audio source: toggle the test tone (the jack keeps the synth)
+        usb_audio_set_tone(!usb_audio_tone());
+        chprintf((BaseSequentialStream *)&BDU1, "usb audio source: %s\r\n",
+                 usb_audio_tone() ? "test tone (L 1 kHz, R 500 Hz, -6 dBFS)" : "synth");
+      }
       else if (c == 'C') { // Calibration mode
         buttonSetCalibration();
       }

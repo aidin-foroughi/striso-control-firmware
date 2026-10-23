@@ -35,6 +35,7 @@ extern "C" {
     #include "ch.h"
     #include "hal.h"
     #include "synth.h"
+    #include "usb_audio.h"
 }
 
 // per-section cycle counts for the 'P' console command (see synth_profile_print)
@@ -293,18 +294,32 @@ static void synthThread(void *arg) {  // THE SYNTH THREAD
 
 		volume_filtered = VOLUME_FILTER * volume_filtered + (1 - VOLUME_FILTER) * volume;
 
+		// USB audio: the same 24 bit samples (or pre-volume, see config.h), NULL if not streaming
+		int32_t* usb = usb_audio_write_ptr();
+
 		// convert float to int with scale, clamp and round; left and right interleaved
 		for (int n = 0; n < CHANNEL_BUFFER_SIZE; n++) {
 			for (int ch = 0; ch < 2; ch++) {
-				tmp = (int32_t)((ch ? out_r[n] : out_l[n]) * volume_filtered * MAX_VAL);
+				const float x = ch ? out_r[n] : out_l[n];
+				tmp = (int32_t)(x * volume_filtered * MAX_VAL);
 				if (tmp <= -MAX_VAL) {
 					tmp = -(MAX_VAL-1);
 				} else if (tmp >= MAX_VAL) {
 					tmp = MAX_VAL-1;
 				}
 				outbuf[2*n+ch] = tmp * (1<<8);
+#if USB_AUDIO_PRE_VOLUME
+				if (usb) {
+					int32_t u = (int32_t)(x * (USB_AUDIO_GAIN * MAX_VAL));
+					u = u <= -MAX_VAL ? -(MAX_VAL-1) : (u >= MAX_VAL ? MAX_VAL-1 : u);
+					usb[2*n+ch] = u * (1<<8);
+				}
+#else
+				if (usb) usb[2*n+ch] = tmp * (1<<8);
+#endif
 			}
 		}
+		if (usb) usb_audio_write_commit();
 
 		rtcnt_t t_block = chSysGetRealtimeCounterX() - t_start;
 		chSysLock();
