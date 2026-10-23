@@ -122,7 +122,8 @@ static constexpr real WARM_D0 = 0.2f, WARM_D1 = 0.5f, WARM_BF_K = 0.7f, WARM_BF_
 #else
 static constexpr real WARM_D0 = TRUMPET_WARM_D0, WARM_D1 = TRUMPET_WARM_D1, WARM_BF_K = TRUMPET_WARM_BFK, WARM_BF_T = TRUMPET_WARM_BFT;
 #endif
-static constexpr real WARM_FADE_HARD = 0.001f, WARM_FADE_SOFT = 0.004f;
+static constexpr real WARM_FADE_HARD = 0.001f, WARM_FADE_SOFT = 0.004f, WARM_OV_T = 0.004f;
+static constexpr int WARM_PER_BLOCK = 1;
 #ifndef TRUMPET_WARM_NPRE
 static constexpr int WARM_NPRE = 192;
 #else
@@ -371,6 +372,7 @@ struct Player {
 	real gate, gate_t; // breath gate (tongue) and its target
 	real tau_on;       // current gate time constant (s)
 	real ov;           // overshoot envelope
+	real ovt;          // its target, rising in over a few ms (warm start; 0 otherwise)
 	real tn;           // tongue noise envelope
 	int stop_blocks;   // re-tongue: blocks with the tongue against the lips
 	real seed;         // tongued start from silence: seed strength, applied in the next block
@@ -408,6 +410,10 @@ struct Player {
 	real wdyn;    // the strike, then the breath the seed was chosen for (key pressure units)
 	real rf, rf1; // radiated fade-in (two one-poles at block rate; 1 = full)
 	real rf_tau;  // its time constant (s)
+	float wt[2][68];     // one period of the seeded cylinder waves (forward input, reflection)
+	uint32_t wfi, wbi;   // next sample of the forward / backward line still to seed
+	int wfn, wbn;        // samples left to seed
+	real wfu, wbu, winc; // their table phases, the phase step per sample
 	real level; // smoothed output level (stealing)
 };
 
@@ -455,7 +461,8 @@ struct Engine {
 	real room_lp, dc;
 	uint32_t room_w;
 	real quiet; // blocks without sound (state flush)
-	float wtab[seed::NSIG][68]; // warm start: one period of each seeded signal
+	int wseeds; // warm starts in this block (at most WARM_PER_BLOCK: the others wait a block)
+	float wtab[68]; // warm start: one period of the seeded cup pressure (scratch)
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -713,6 +720,7 @@ static inline void start_note(Engine& e, int i, real hard, bool tongue, bool fro
 		s.wdyn = h; // the strike, until the warm start picks the breath
 		s.tau_on = 0.012f * exp2s(-3.3f * h); // 12 ms "d" .. 1.2 ms "t"
 		s.ov = P.overshoot * h;
+		s.ovt = 0.0f;
 		s.bfloor = from_silence || s.gate < 0.3f ? clampr(SEED_BREATH * h, 0.0f, 0.9f) : 0.0f;
 		s.tn = h;
 		if (!from_silence && s.gate > 0.05f) s.stop_blocks = 6 + (int)(10.0f * (1.0f - rmin(h, 1.0f))); // re-tongue
@@ -821,104 +829,235 @@ static inline bool warm_lookup(const Engine& e, real note, real dyn, const Finge
 	return true;
 }
 
-// one period table (64 points, linear interpolation), read at t samples from now
-[[nodiscard]] static inline real wtab_at(const float* T, real t, real iper) {
+// a phase into a 64-point period table (64 frac(t / per)) and a read of the table there
+[[nodiscard]] static inline real wph(real t, real iper) {
 	real u = t * iper;
 	u -= (real)(int)u;
 	if (u < 0.0f) u += 1.0f;
-	u *= 64.0f;
+	return u * 64.0f;
+}
+[[nodiscard]] static inline real wlerp(const float* T, real u) {
 	const int j = (int)u & 63;
 	return T[j] + (u - (real)j) * (T[j + 1] - T[j]);
 }
 
-// fills one cylinder line backwards from the write index: L[w - n] = T(-n), n = 1..len
-static inline void wtab_fill(float* __restrict__ L, uint32_t w, int len, const float* __restrict__ T, real per) {
-	const real inc = 64.0f / per;
-	real u = 0.0f;
-	for (int n = 1; n <= len; n++) {
-		u -= inc;
-		if (u < 0.0f) u += 64.0f;
-		const int j = (int)u & 63;
-		L[(w - (uint32_t)n) & CMASK] = T[j] + (u - (real)j) * (T[j + 1] - T[j]);
+// one period (64 points and the wrap point) of a seeded signal, harmonic k weighted by g[k]
+static inline void wtab_make(float* __restrict__ T, real dc, const real* re, const real* im, const real* g) {
+	constexpr int NH = seed::NH;
+	real ca[NH], sb[NH];
+	for (int k = 0; k < NH; k++) {
+		ca[k] = g[k] * re[k];
+		sb[k] = g[k] * im[k];
+	}
+	// T[j] = dc + sum a cos(2 pi (k + 1) j / 64) - b sin(..); T[64 - j]: the same cosines, sines negated
+	for (int j = 0; j <= 32; j++) {
+		real c = 0.0f, sn = 0.0f;
+		int ci = 0;
+		for (int k = 0; k < NH; k++) {
+			ci = (ci + j) & 63;
+			c += ca[k] * seed::COS64[ci];
+			sn += sb[k] * seed::COS64[(ci + 48) & 63];
+		}
+		T[j] = dc + c - sn;
+		if (j > 0 && j < 32) T[64 - j] = dc + c + sn;
+	}
+	T[64] = T[0];
+}
+
+// a seeded cylinder line, filled from its oldest sample on (spread over the blocks after the seed,
+// ahead of the reads)
+static inline void wline_fill(float* __restrict__ L, uint32_t& idx, int& left, real& u, real inc, const float* __restrict__ T, int n) {
+	n = n < left ? n : left;
+	left -= n;
+	uint32_t j = idx;
+	real v = u;
+	for (; n > 0; n--) {
+		L[j & CMASK] = wlerp(T, v);
+		j++;
+		v += inc;
+		if (v >= 64.0f) v -= 64.0f;
+	}
+	idx = j;
+	u = v;
+}
+
+// a seeded lip mode at t = 0 and t = -1 (x, v): its harmonics summed, cos / sin of k 2 pi / per by
+// recurrence from a short series (per >= ~60 samples)
+static inline void wlip(const WarmSeed& w, int q, const real* g, real per, real& x0, real& v0) {
+	const real th = 2.0f * PI / per, t2 = th * th;
+	const real c1 = 1.0f - t2 * (0.5f - t2 * (1.0f / 24)), s1 = th * (1.0f - t2 * (1.0f / 6 - t2 * (1.0f / 120)));
+	real ck = 1.0f, sk = 0.0f, a = w.dc[q], m1 = w.dc[q];
+	for (int k = 0; k < seed::NH; k++) {
+		const real cn = ck * c1 - sk * s1;
+		sk = sk * c1 + ck * s1;
+		ck = cn;
+		a += g[k] * w.re[q][k];
+		m1 += g[k] * (w.re[q][k] * ck + w.im[q][k] * sk); // the harmonic one sample earlier
+	}
+	x0 = a;
+	v0 = (a - m1) * (real)bore::FS;
+}
+
+// cos and sin of 2 pi ph (polynomial, ~1e-3)
+static inline void wcs(real ph, real& c, real& sn) {
+	ph -= (real)(int)ph;
+	if (ph < 0.0f) ph += 1.0f;
+	sn = psin(ph);
+	ph += 0.25f;
+	if (ph >= 1.0f) ph -= 1.0f;
+	c = psin(ph);
+}
+
+// the front end's steady state for the seeded waves at the cylinder junction: per harmonic (and the
+// mean), from the junction back to the cup, each Kelly-Lochbaum junction solved for the waves
+// arriving at it (ff[j + 1] = fa + t, fb[j] = ba + t, t = k (fa - ba)), the sections' delays as
+// phase turns; then the rings' last d samples (all the ladder reads) synthesised
+static inline void warm_front(Player& s, const bore::Bore& b, const WarmSeed& w, const real* g, real per, real df) {
+	constexpr int NH = seed::NH;
+	const int nsec = b.nsec;
+	const real iper = 1.0f / per;
+	// per harmonic: the forward wave into the cylinder, the wave returning from it (r delayed by df)
+	real fre[NH + 1], fim[NH + 1], bre[NH + 1], bim[NH + 1]; // index 0: the mean
+	fre[0] = w.dc[0];
+	fim[0] = 0.0f;
+	bre[0] = w.dc[1];
+	bim[0] = 0.0f;
+	for (int k = 1; k <= NH; k++) {
+		real c, sn;
+		wcs(-(real)k * df * iper, c, sn);
+		fre[k] = g[k - 1] * w.re[0][k - 1];
+		fim[k] = g[k - 1] * w.im[0][k - 1];
+		const real rr = g[k - 1] * w.re[1][k - 1], ri = g[k - 1] * w.im[1][k - 1];
+		bre[k] = rr * c - ri * sn;
+		bim[k] = rr * sn + ri * c;
+	}
+	// junctions from the cylinder end: harmonics of ff[j] and fb[j] (at t = 0)
+	real FFr[MAXSEC][NH + 1], FFi[MAXSEC][NH + 1], FBr[MAXSEC][NH + 1], FBi[MAXSEC][NH + 1];
+	for (int k = 0; k <= NH; k++) {
+		real outr = fre[k], outi = fim[k], bar = bre[k], bai = bim[k]; // the wave leaving right, arriving from right
+		for (int j = nsec - 1; j >= 0; j--) {
+			const real kj = b.sec_k[j], ik = 1.0f / (1.0f + kj);
+			const real far = (outr + kj * bar) * ik, fai = (outi + kj * bai) * ik;
+			FBr[j][k] = bar + kj * (far - bar);
+			FBi[j][k] = bai + kj * (fai - bai);
+			// ff[j] arrives at the junction d_j later: ff[j](t) = fa(t + d_j)
+			real c = 1.0f, sn = 0.0f;
+			if (k > 0) wcs((real)(k * b.sec_d[j]) * iper, c, sn);
+			FFr[j][k] = far * c - fai * sn;
+			FFi[j][k] = far * sn + fai * c;
+			if (j > 0) {
+				// next junction to the left: its outgoing right wave is ff[j], the wave arriving from
+				// its right is fb[j] delayed d_j
+				outr = FFr[j][k];
+				outi = FFi[j][k];
+				real c2 = 1.0f, s2 = 0.0f;
+				if (k > 0) wcs(-(real)(k * b.sec_d[j]) * iper, c2, s2);
+				bar = FBr[j][k] * c2 - FBi[j][k] * s2;
+				bai = FBr[j][k] * s2 + FBi[j][k] * c2;
+			}
+		}
+	}
+	// the rings: samples t = -1 .. -(d + 1) of each wave (the ladder reads w - d)
+	real sc[NH + 1], ss[NH + 1]; // e^{-i k 2 pi / per}
+	sc[0] = 1.0f;
+	ss[0] = 0.0f;
+	for (int k = 1; k <= NH; k++) {
+		wcs(-(real)k * iper, sc[k], ss[k]);
+	}
+	const uint32_t w0 = s.w;
+	for (int j = 0; j < MAXSEC; j++) {
+		for (int n = 0; n < SLEN; n++) s.ff[j][n] = s.fb[j][n] = 0.0f;
+		if (j >= nsec) continue;
+		const int len = b.sec_d[j] + 1;
+		for (int q = 0; q < 2; q++) {
+			float* R = q ? s.fb[j] : s.ff[j];
+			real zr[NH + 1], zi[NH + 1];
+			for (int k = 1; k <= NH; k++) {
+				zr[k] = q ? FBr[j][k] : FFr[j][k];
+				zi[k] = q ? FBi[j][k] : FFi[j][k];
+			}
+			const real dc = q ? FBr[j][0] : FFr[j][0];
+			for (int t = 1; t <= len; t++) {
+				real v = dc;
+				for (int k = 1; k <= NH; k++) {
+					const real nr = zr[k] * sc[k] - zi[k] * ss[k];
+					zi[k] = zr[k] * ss[k] + zi[k] * sc[k];
+					zr[k] = nr;
+					v += nr;
+				}
+				R[(w0 - (uint32_t)t) & SMASK] = v;
+			}
+		}
 	}
 }
 
-// writes the seed into player i: the cylinder lines, the front end (run in on the seeded cup pressure
-// and the returning wave), the bell's multirate filter histories, the cup, both lip modes and the
-// tracker. Signals (trumpet_seed.h): 0 the cylinder's forward input, 1 the bell's reflection, 2 the
-// cup pressure, 3 and 4 the outward and inward lip modes.
-// bright 0..1: the seeded harmonics (0: the first two, 1: all NH)
+// writes the seed into player i: the cylinder lines (the oldest parts now, the rest ahead of the
+// reads in the next blocks), the front end (run in on the seeded cup pressure and the returning
+// wave), the bell's multirate filter histories, the cup, both lip modes and the tracker. Signals
+// (trumpet_seed.h): 0 the cylinder's forward input, 1 the bell's reflection, 2 the cup pressure,
+// 3 and 4 the outward and inward lip modes. bright 0..1: the seeded harmonics (0: the first two,
+// 1: all NH)
 static inline void warm_fill(Engine& e, int i, const WarmSeed& w, real per, real df, real loss_b, real knl, real bright) {
 	Player& s = e.pl[i];
 	const bore::Bore& b = bore_of(e);
 	constexpr int NH = seed::NH;
 	real g[NH];
 	for (int k = 0; k < NH; k++) g[k] = clampr(bright * (real)(NH - 2) + 2.0f - (real)k, 0.0f, 1.0f);
-	for (int q = 0; q < seed::NSIG; q++) {
-		float* T = e.wtab[q];
-		for (int j = 0; j < 64; j++) {
-			real v = w.dc[q];
-			for (int k = 0; k < NH; k++) {
-				const int ci = ((k + 1) * j) & 63;
-				v += g[k] * (w.re[q][k] * seed::COS64[ci] - w.im[q][k] * seed::COS64[(ci + 48) & 63]);
-			}
-			T[j] = v;
-		}
-		T[64] = T[0];
-	}
-	const float* Tf = e.wtab[0];
-	const float* Tr = e.wtab[1];
-	const float* Tp = e.wtab[2];
-	const float* Tx = e.wtab[3];
-	const float* Ty = e.wtab[4];
-	const real iper = 1.0f / per;
+	float* Tf = s.wt[0];
+	float* Tr = s.wt[1];
+	wtab_make(Tf, w.dc[0], w.re[0], w.im[0], g);
+	wtab_make(Tr, w.dc[1], w.re[1], w.im[1], g);
+	const real iper = 1.0f / per, inc = 64.0f * iper;
 	const uint32_t w0 = s.w;
-	constexpr int NPRE = WARM_NPRE;
-	// cylinder: forward line as far back as the (steepened) reads reach, backward line for the reads
-	// and the front-end run-in
-	wtab_fill(cyl_f[i], w0, (int)rmin(df + 96.0f, (real)(CLEN - 2)), Tf, per);
-	wtab_fill(cyl_b[i], w0, (int)rmin(df + (real)(NPRE + 4), (real)(CLEN - 2)), Tr, per);
-	// front end: run the ladder in for NPRE samples on the seeded cup pressure and the returning wave
-	const int nsec = b.nsec;
-	int dl[MAXSEC];
-	real kl[MAXSEC];
-	for (int j = 0; j < MAXSEC; j++) {
-		dl[j] = j < nsec ? b.sec_d[j] : 1;
-		kl[j] = j < nsec ? b.sec_k[j] : 0.0f;
-		for (int n = 0; n < SLEN; n++) s.ff[j][n] = s.fb[j][n] = 0.0f;
+	// cylinder lines: the forward one as far back as the (steepened) reads reach, the backward one
+	// for its reads (seeded in the next blocks, ahead of the reads)
+	const int lf = (int)rmin(df + 96.0f, (real)(CLEN - 2)), lb = (int)rmin(df + 4.0f, (real)(CLEN - 2));
+	s.winc = inc;
+	s.wfi = w0 - (uint32_t)lf;
+	s.wfn = lf;
+	s.wfu = wph(-(real)lf, iper);
+	s.wbi = w0 - (uint32_t)lb;
+	s.wbn = lb;
+	s.wbu = wph(-(real)lb, iper);
+	// front end: the steady waves of every section, harmonic by harmonic, back from the cylinder
+	// junction (the forward wave into the cylinder and the one returning from it are seeded): each
+	// Kelly-Lochbaum junction solved for its incoming waves, the sections' delays as phase turns
+	warm_front(s, b, w, g, per, df);
+	// bell: the decimator input (the wave arriving at the bell), the 12 kHz history (the decimator
+	// delays 23.5 samples), the interpolator input (the reflection 23.5 samples ahead of its output)
+	{
+		real u = wph(-1.0f - df, iper);
+		for (int m = 0; m < DHL; m++) {
+			const int j = (s.dpos - 1 - m) & (DHL - 1);
+			s.dh[j] = s.dh[j + DHL] = wlerp(Tf, u);
+			u -= inc;
+			if (u < 0.0f) u += 64.0f;
+		}
+		const real td = (real)(-1 - s.phase);
+		const real inc8 = 8.0f * inc - 64.0f * (real)(int)(8.0f * iper);
+		u = wph(td - 23.5f - df, iper);
+		for (int m = 0; m < H12L; m++) {
+			const int j = (s.hpos - 1 - m) & (H12L - 1);
+			s.h12[j] = s.h12[j + H12L] = wlerp(Tf, u);
+			u -= inc8;
+			if (u < 0.0f) u += 64.0f;
+		}
+		const real il = 1.0f / rmax(loss_b, 0.3f);
+		u = wph(td + 23.5f, iper);
+		for (int m = 0; m < 8; m++) {
+			s.ih[m] = m < 6 ? wlerp(Tr, u) * il : 0.0f;
+			u -= inc8;
+			if (u < 0.0f) u += 64.0f;
+		}
 	}
-	const float* CB = cyl_b[i];
-	const int i0 = (int)df;
-	const real fr = df - (real)i0;
-	for (int t = -NPRE; t <= -1; t++) {
-		const uint32_t ww = w0 + (uint32_t)t;
-		const real b0 = s.fb[0][(ww - (uint32_t)b.sec_d[0]) & SMASK];
-		s.ff[0][ww & SMASK] = wtab_at(Tp, (real)(t + 1), iper) - b0;
-		ladder<0>(s, ww, dl, kl, nsec);
-		const real c0 = CB[(ww - (uint32_t)i0) & CMASK], c1 = CB[(ww - (uint32_t)i0 - 1u) & CMASK];
-		const real cbv = c0 + fr * (c1 - c0);
-		const real fa = s.ff[nsec - 1][(ww - (uint32_t)b.sec_d[nsec - 1]) & SMASK];
-		s.fb[nsec - 1][ww & SMASK] = cbv + b.sec_k[nsec - 1] * (fa - cbv);
+	// cup, lips, tracker
+	{
+		real pc0 = w.dc[2];
+		for (int k = 0; k < NH; k++) pc0 += g[k] * w.re[2][k];
+		s.pc = pc0;
 	}
-	// bell: decimator input (the wave arriving at the bell), 12 kHz history (the decimator delays
-	// 23.5 samples), interpolator input (the reflection 23.5 samples ahead of its output)
-	for (int m = 0; m < DHL; m++) {
-		const int j = (s.dpos - 1 - m) & (DHL - 1);
-		s.dh[j] = s.dh[j + DHL] = wtab_at(Tf, (real)(-1 - m) - df, iper);
-	}
-	const real td = (real)(-1 - s.phase);
-	for (int m = 0; m < H12L; m++) {
-		const int j = (s.hpos - 1 - m) & (H12L - 1);
-		s.h12[j] = s.h12[j + H12L] = wtab_at(Tf, td - 8.0f * (real)m - 23.5f - df, iper);
-	}
-	const real il = 1.0f / rmax(loss_b, 0.3f);
-	for (int m = 0; m < 8; m++) s.ih[m] = m < 6 ? wtab_at(Tr, td - 8.0f * (real)m + 23.5f, iper) * il : 0.0f;
-	// cup, lips (x and v from the last two samples), tracker
-	s.pc = Tp[0];
-	s.x = Tx[0];
-	s.v = (Tx[0] - wtab_at(Tx, -1.0f, iper)) * (real)bore::FS;
-	s.y = Ty[0];
-	s.vy = (Ty[0] - wtab_at(Ty, -1.0f, iper)) * (real)bore::FS;
+	wlip(w, 3, g, per, s.x, s.v);
+	wlip(w, 4, g, per, s.y, s.vy);
 	s.um = w.um;
 	s.xlp = s.x + s.y;
 	s.xhp = w.dc[3] + w.dc[4];
@@ -928,9 +1067,21 @@ static inline void warm_fill(Engine& e, int i, const WarmSeed& w, real per, real
 	const real o1r = w.re[3][0] + w.re[4][0], o1i = w.im[3][0] + w.im[4][0];
 	s.xamp = g[0] * fsqrt(o1r * o1r + o1i * o1i);
 	s.df = s.dprev = df;
-	s.dnl = clampr(df - knl * wtab_at(Tf, -df, iper), 1.0f, DMAXC); // the steepened read, where it would be
+	s.dnl = clampr(df - knl * wlerp(Tf, wph(-df, iper)), 1.0f, DMAXC); // the steepened read, where it would be
 	s.vmix = 1.0f;
 	s.n1 = 0.0f;
+}
+
+// a block without this player's samples (warm start): the debug capture stays in time with the output
+static inline void warm_skip_debug() {
+#ifdef TRUMPET_DEBUG
+	for (int n = 0; n < NS && dbg_pc && dbg_n < dbg_len; n++, dbg_n++) {
+		dbg_pc[dbg_n] = 0.0f;
+		if (dbg_u) dbg_u[dbg_n] = dbg_x[dbg_n] = 0.0f;
+		if (dbg_xo) dbg_xo[dbg_n] = dbg_y[dbg_n] = 0.0f;
+		if (dbg_f) dbg_f[dbg_n] = dbg_r[dbg_n] = 0.0f;
+	}
+#endif
 }
 
 static inline void process_player(Engine& e, int i) {
@@ -995,13 +1146,21 @@ static inline void process_player(Engine& e, int i) {
 		if (dbg_force_dyn > 0.0f) dyn = dbg_force_dyn;
 #endif
 		if (warm_lookup(e, target, dyn, fg, wseed)) {
+			if (e.wseeds >= WARM_PER_BLOCK) {
+				// another player was seeded in this block (CPU): this one starts in the next
+				warm_skip_debug();
+				return;
+			}
+			e.wseeds++;
 			wfill = true;
 			s.warm = 1;
 			s.wdyn = dyn;
 			s.trim = wseed.trim;
 			s.bfloor = WARM_BF_K * dyn;
 			s.b1 = 0.0f;
-			s.b2 = WARM_BF_K * dyn;
+			s.b2 = dyn; // the breath the seed was captured at; the floor below it
+			s.ovt = s.ov; // the overshoot rises in (a step in the breath would click through the seeded bore)
+			s.ov = 0.0f;
 			s.gate = 1.0f;
 			s.rf = s.rf1 = 0.0f;
 			s.rf_tau = WARM_FADE_SOFT + (WARM_FADE_HARD - WARM_FADE_SOFT) * clampr(h, 0.0f, 1.0f);
@@ -1082,6 +1241,8 @@ static inline void process_player(Engine& e, int i) {
 		s.gate *= 1.0f - rmin(e.block_dt / rmax(P.release, 0.005f), 1.0f);
 	}
 	s.ov *= 1.0f - e.block_dt / 0.04f;
+	s.ovt *= 1.0f - e.block_dt / 0.04f;
+	if (s.ovt > s.ov) s.ov += (s.ovt - s.ov) * rmin(e.block_dt * (1.0f / WARM_OV_T), 1.0f);
 	s.tn *= 1.0f - e.block_dt / 0.006f;
 	// growl: throat flutter, band-passed noise around 45 Hz on the mouth pressure
 	const real growl = clampr(P.growl * (-yv - 0.4f) * 1.67f, 0.0f, 1.0f);
@@ -1110,13 +1271,16 @@ static inline void process_player(Engine& e, int i) {
 		s.w2 = w2_t;
 		s.peak = 0.0f;
 		s.idle_blocks = 0;
-#ifdef TRUMPET_DEBUG
-		for (int n = 0; n < NS && dbg_pc && dbg_n < dbg_len; n++, dbg_n++) {
-			dbg_pc[dbg_n] = 0.0f;
-			if (dbg_u) dbg_u[dbg_n] = dbg_x[dbg_n] = 0.0f;
-		}
-#endif
+		warm_skip_debug();
 		return;
+	}
+	if (s.wfn > 0 || s.wbn > 0) {
+		// a warm start's cylinder lines: seeded ahead of this block's reads (all at once if the bore changes)
+		const bool all = newfing || s.vmix < 1.0f;
+		const int nf = all ? s.wfn : (int)rmax((real)(int32_t)(s.w + (uint32_t)(NS + 96) - (uint32_t)(int)s.df - s.wfi), 0.0f);
+		const int nb = all ? s.wbn : (int)rmax((real)(int32_t)(s.w + (uint32_t)(NS + 4) - (uint32_t)(int)s.df - s.wbi), 0.0f);
+		wline_fill(cyl_f[i], s.wfi, s.wfn, s.wfu, s.winc, s.wt[0], nf);
+		wline_fill(cyl_b[i], s.wbi, s.wbn, s.wbu, s.winc, s.wt[1], nb);
 	}
 	if (s.seed > 0.0f) {
 		// the lips start in their swing (phase: opening, through the rest position), with roughly the
@@ -1790,6 +1954,7 @@ static inline void process(Engine& e, real* __restrict__ output) {
 	const real sh = clampr(e.g.acc_abs - 1.1f, 0.0f, 1.0f);
 	e.shake_pk = rmax(sh, e.shake_pk * (1.0f - e.block_dt * 2.5f));
 	e.shake += 0.03f * (e.shake_pk - e.shake);
+	e.wseeds = 0;
 	process_keys(e);
 	for (int n = 0; n < NS; n++) e.mix[n] = 0.0f;
 	for (int i = 0; i < NP; i++)
