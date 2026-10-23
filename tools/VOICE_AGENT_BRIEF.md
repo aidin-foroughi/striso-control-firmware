@@ -152,3 +152,24 @@ The tools are in that checkout's `tools/`; the worktrees are next to it in `../w
 5. WAV path(s) to listen to on the PC.
 6. Branch + commit hash; any shared-file changes or tool requests.
 7. Known limitations and ideas for a next iteration.
+
+## Updates (2026-10-23): CMake, new layout, GCC 14, tests (these override the text above)
+
+- **Layout:** engines live in `dsp/include/striso_dsp/voice_<voice>.h` (with `strisy.h`, `fx.h`,
+  `fastpow.h`); include siblings as `#include "strisy.h"`. The synth glue is
+  `src/synth/synth_strisy.cpp`. A new `voice_<name>.h` that defines `namespace <name>` is picked
+  up by the renderers and tests automatically (CMake reconfigures).
+- **Build:** `FW_DIR=../worktrees/fw-<voice> tools/build.sh VOICE=<voice>` (no `uf2` needed) ->
+  `build/firmware/striso_control.uf2`. The guards are part of the build: a failed check fails the
+  build and writes no .uf2. The toolchain is now the Arm GNU Toolchain 14.2 (GCC 14), C++20,
+  `-fno-exceptions -fno-rtti`.
+- **Parameters:** a `ParamDesc`'s last field is `strisy::ParamKind::continuous` / `steps` /
+  `toggle` (was 0 / 1 / 2). Mark value-returning helpers `[[nodiscard]]`, use `static constexpr`
+  for constants; no new `#define` constants (an `#ifdef FOO` override of a constexpr is fine).
+- **Host render:** `FW_DIR=... VOICE=<voice> [PERF=perf_<voice>.h] tools/harness/render_strisy.sh <name> [flags] [--preset N] [--nv 10] [--rec /src/tools/harness/rec/<take>.csv] [--wav /out/<name>.wav]`
+  -> `tools/harness/out/<name>.f32`. PERF headers are looked up next to the script first.
+- **Tests:** `FW_DIR=... tools/test.sh` (and `host-asan`) runs every engine and preset through the
+  default, stale and recorded performances (finite, peak <= 8, silent after release, golden
+  checksum) plus the live-parameter fuzz. A new engine needs its goldens: `tools/update_goldens.sh`
+  (say why in the commit). `tools/review_voice.sh <voice>` runs the build, the tests and a render.
+- Format with `tools/format.sh`, check with `tools/tidy.sh`.

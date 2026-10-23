@@ -102,22 +102,62 @@ The UF2 bootloader is at https://github.com/striso/uf2-ChibiOS.
 
 ## Building
 
-The build runs in Docker (Ubuntu 22.04, arm-gcc 10.3, Faust 2.37.3). Built from the official v2.2.4 source, this toolchain reproduces the official release byte for byte. To build:
+The firmware is a CMake project (CMake 3.25 or newer, presets in `CMakePresets.json`). The easy way builds in Docker, with the toolchain pinned in `tools/build-env/Dockerfile`: the Arm GNU Toolchain 14.2.rel1, CMake 3.31.6, Ninja, Faust 2.37.3 and QEMU (for the target renders below). The archives are checksum verified.
 
 ```sh
 git submodule update --init
-tools/build.sh uf2 VOICE=all      # all voices; VOICE=strisy (default) or VOICE=<name> builds one
+tools/build.sh VOICE=all          # all voices; VOICE=strisy (default) or VOICE=<name> builds one
+tools/striso.py flash build/firmware/striso_control.uf2
 ```
 
-After the build, `tools/build.sh` checks the firmware. If any check fails, it deletes the `.uf2` so it can't be flashed. It checks that:
+The firmware lands in `build/firmware/striso_control.uf2`, next to the `.elf`, `.bin`, `.hex` and `.map`. Other options: `SYNTH_ENGINE=faust`, `PRESET=firmware-debug` (`-Og`, no LTO, the synth DSP still `-O3`), `SYNTH_OPT="..."`, or any `-D<CMake option>`. The old `make`-style arguments (`uf2`, `clean`) still work. Each run configures from its arguments, so an option you leave out goes back to its default, as with make.
+
+The build checks the firmware. If a check fails, the build fails and no `.uf2` is written, so it can't be flashed. It checks that:
 
 - no soft-float helper code got in (the DSP must use the FPU);
 - the synth thread's stack is large enough (a call-graph check);
 - the load address is right.
 
-On Windows, clone with `git config core.autocrlf false`. Otherwise CRLF line endings end up in the generated config editor.
+The version string the board reports is `<commit date>_<git describe>[_<voice>]`, e.g. `2026-10-23_v2.2.4-80-gf36b997_all`. `tools/striso.py flash` checks it after flashing.
 
-Requirements without Docker: gcc-arm-none-eabi, faust (only for the Faust engine), git (for the version number) and python3 (for the UF2 file).
+Without Docker you need cmake, ninja, the arm-none-eabi toolchain, python3 and git, plus faust for the Faust engine:
+
+```sh
+cmake --preset firmware -DSTRISO_VOICE=all && cmake --build --preset firmware
+make VOICE=all                    # the same, through the thin Makefile wrapper (also prog_*, gdb)
+```
+
+CMake options: `STRISO_VOICE` (strisy, all, or a name), `STRISO_SYNTH_ENGINE` (strisy, faust), `STRISO_SYNTH_OPT`/`STRISO_SYNTH_LTO` (flags of the synth DSP file), `STRISO_FAUST_REGENERATE`, `STRISO_USB_AUDIO_PRE_VOLUME`, `STRISO_LISTING`. Every build exports `compile_commands.json` for clangd and IDEs.
+
+### Tests
+
+```sh
+tools/test.sh                     # host tests (ctest --preset host), in Docker
+tools/test.sh host-asan           # the same under AddressSanitizer and UndefinedBehaviorSanitizer
+```
+
+The host tests render every engine and preset on the PC: the default, stale-input and recorded performances (`tools/harness/rec`). They check that the output is finite, the peak is bounded and released voices fall silent. Each render is compared with a golden checksum (`tests/golden/renders.txt`), so any change to a voice's sound shows up. Unit tests (doctest) cover the live-parameter fuzz, the bowed engine's bounds, the config record format, the tuning math and `tools/striso.py`. The USB audio core has a simulation test.
+
+`ctest --preset firmware` (after building the firmware and `--target target_renders`) checks the USB descriptors and the UF2. It also runs every engine compiled for the board's CPU under QEMU, as a Cortex-M7 with the board's FPU settings, and compares the output with `tests/golden/target_renders.txt`. That shows what a compiler change does to the board's arithmetic. After an intended change to the sound, `tools/update_goldens.sh` rewrites both golden files.
+
+`tools/format.sh` (clang-format) and `tools/tidy.sh` (clang-tidy) cover our C++. CI (`.github/workflows/firmware.yml`) runs all of it on every push and attaches the UF2s to a release for every `v*` tag.
+
+### Layout
+
+| Path | What |
+|---|---|
+| `src/app` | main, the USB console and protocol (pconnection), messaging, configuration, the config editor page |
+| `src/drivers` | codec, key scanning (ADC), motion sensor, LEDs, aux jack, serial MIDI |
+| `src/usb` | USB descriptors, bulk console, USB MIDI, USB audio |
+| `src/synth` | the synth thread and controls (`synth_strisy.cpp`, `synth_control.cpp`), the tuning math; `faust/` the Faust synth |
+| `dsp/include/striso_dsp` | the DSP library: strisy, the voice engines (`voice_<name>.h`), the master effects. Header only, C++20, no HAL |
+| `board`, `cfg`, `ld` | board definition, ChibiOS configuration, linker script |
+| `cmake` | toolchain file, ChibiOS integration (from its own make fragments), version, post-build checks |
+| `tests` | host tests and golden checksums |
+| `tools` | PC tools, the Docker build environment, the renderers |
+| `third_party` | ChibiOS and uf2 (submodules), doctest |
+
+In a checkout from before this layout, `git submodule update --init` puts the submodules under `third_party/` (the old top-level `ChibiOS/` and `uf2/` directories can then be deleted). Blame skips the formatting commit when you run `git config blame.ignoreRevsFile .git-blame-ignore-revs`.
 
 ## Tools
 
@@ -128,7 +168,9 @@ Requirements without Docker: gcc-arm-none-eabi, faust (only for the Faust engine
   - list and set live parameters (`params`, `set`) and select voices (`voice`);
   - save touch settings (`save-touch`);
   - flash safely (`flash`). It backs up first, refuses blocks outside the app region and health-checks the board after the reboot.
-- `tools/harness/`: renders the voice engines on the PC from scripted or recorded performances (`render_strisy.sh`), with stress and stale-input tests. `tools/harness/rec/` has real key-stream recordings for replay.
+- `tools/harness/`: renders the voice engines on the PC from scripted or recorded performances (`VOICE=<name> tools/harness/render_strisy.sh <name> "" --preset 2 --rec /src/tools/harness/rec/<take>.csv`). It has stress and stale-input tests and a test of the master effects (`fx_test.sh`, `fx_suite.sh`). `cmake --build --preset host --target render_wavs` writes a WAV of every engine. `tools/harness/rec/` has real key-stream recordings for replay.
+- `tools/target_render/`: the engines compiled for the board's CPU and run under QEMU (see Tests).
+- `tools/build.sh`, `tools/test.sh`, `tools/update_goldens.sh`, `tools/format.sh`, `tools/tidy.sh`: run in Docker (see Building).
 - `tools/record_keys.py`: records the key stream from the board to CSV.
 - `tools/review_voice.sh`: builds and checks a voice engine before it may be flashed.
 - `tools/usbaudio/`: USB audio descriptor checks, a simulation of the audio buffer and clock-rate matching (servo), and a test-tone analyzer.
