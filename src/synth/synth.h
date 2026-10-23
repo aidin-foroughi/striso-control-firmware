@@ -91,6 +91,10 @@ const char* synth_touch_info(int i, float* lo, float* hi);
 float synth_touch_get(int i);
 int synth_touch_set(int i, float v);
 
+// The active tuning and every key's pitch (console command StcN, read only; line format in
+// src/synth/tuning.h) to a BaseSequentialStream.
+void synth_tuning_print(void *chp);
+
 int synth_message(int size, int* msg);
 void synth_tick(void);
 void midi_config(void);

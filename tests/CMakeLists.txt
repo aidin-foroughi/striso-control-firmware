@@ -1,6 +1,7 @@
 # Host tests (ctest --preset host, or host-asan under ASan + UBSan).
 #
 #   unit.*      doctest cases (striso_tests): live-parameter fuzz of every engine and the effects,
+#               the tuning math of the StcN command (every key's pitch matches its name),
 #               the bowed engine's seed bounds, the parameter tables, the config record format
 #               (config_store.c), the DSP headers compiling on their own
 #   usb_audio_core   tools/usbaudio/test_core.c: the USB audio ring and clock servo simulation
@@ -36,6 +37,7 @@ add_executable(striso_tests
   test_params.cpp
   test_bowed_bounds.cpp
   test_config_store.cpp
+  test_tuning.cpp
   config_defaults.c
   "${PROJECT_SOURCE_DIR}/src/app/config_store.c")
 target_include_directories(striso_tests PRIVATE
@@ -43,7 +45,8 @@ target_include_directories(striso_tests PRIVATE
   "${PROJECT_SOURCE_DIR}/third_party/doctest"
   "${PROJECT_SOURCE_DIR}/tools/harness"
   "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
-  "${PROJECT_SOURCE_DIR}/src/app")
+  "${PROJECT_SOURCE_DIR}/src/app"
+  "${PROJECT_SOURCE_DIR}/src/synth")
 target_compile_definitions(striso_tests PRIVATE "STRISO_REC_DIR=\"${PROJECT_SOURCE_DIR}/tools/harness/rec\"")
 target_link_libraries(striso_tests PRIVATE striso::dsp striso_host_options)
 # the DSP as the renderers build it (reproducible float results)

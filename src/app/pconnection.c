@@ -257,6 +257,9 @@ void PExReceiveByte(unsigned char c) {
       else if (c == 'I') { // thread info
         cmd_threads((BaseSequentialStream *)&BDU1);
       }
+      else if (c == 'N') { // the active tuning and every key's pitch (read only, src/synth/tuning.h)
+        synth_tuning_print(&BDU1);
+      }
 #ifdef USE_INTERNAL_SYNTH
       else if (c == 'P') { // synth engine profile per section since last read
         synth_profile_print(&BDU1);

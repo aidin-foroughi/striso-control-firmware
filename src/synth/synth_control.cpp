@@ -37,6 +37,11 @@ extern "C" {
 #include "midi_usb.h"
 #include "midi_serial.h"
 #include "midi.h"
+#include "tuning.h"
+#include "chprintf.h"
+
+#include <bit>
+#include <cstdint>
 
 #ifndef USE_WS2812
 #define ws2812_write_led(n,r,g,b) led_rgb3(14*r,14*g,14*b)
@@ -341,7 +346,7 @@ class Instrument {
         float velo_sensitivity = 1.0f;
         int midi_velo_offset = 0;
 
-        Instrument(int* c0, int* c1, int n_buttons, synth_interface_t* si) {
+        Instrument(const int* c0, const int* c1, int n_buttons, synth_interface_t* si) {
             int n;
             for (n = 0; n < n_buttons; n++) {
                 buttons[n].coord0 = c0[n];
@@ -1104,22 +1109,13 @@ class Instrument {
         }
 };
 
-int c0_dis[68] = {
-    6, 5, 5, 4, 4, 3,  2,  2,  1,  1,  0,  0, -1, -2, -2, -3, -3,
-    5, 4, 4, 3, 3, 2,  1,  1,  0,  0, -1, -1, -2, -3, -3, -4, -4,
-    4, 3, 3, 2, 2, 1,  0,  0, -1, -1, -2, -2, -3, -4, -4, -5, -5,
-    3, 2, 2, 1, 1, 0, -1, -1, -2, -2, -3, -3, -4, -5, -5, -6, -6};
-
-int c1_dis[68] = {
-    -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8,
-    -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8,
-    -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8,
-    -8, -7, -6, -5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 7, 8};
+// the layout coordinates per button: striso::tuning::coord0/coord1 (tuning.h)
+static_assert(BUTTONCOUNT == striso::tuning::BUTTON_COUNT, "one coordinate pair per button");
 
 #ifdef USE_INTERNAL_SYNTH
-Instrument dis(c0_dis, c1_dis, BUTTONCOUNT, &synth_interface);
+Instrument dis(striso::tuning::coord0, striso::tuning::coord1, BUTTONCOUNT, &synth_interface);
 #else
-Instrument dis(c0_dis, c1_dis, BUTTONCOUNT, NULL);
+Instrument dis(striso::tuning::coord0, striso::tuning::coord1, BUTTONCOUNT, NULL);
 #endif
 MotionSensor motion;
 
@@ -2295,6 +2291,30 @@ int synth_touch_set(int i, float v) {
     case 4: config.zero_offset = (int32_t)(v * (1 << 24)); break;
     }
     return 1;
+}
+
+// StcN: the active tuning and every key's pitch, for tuning-aware note labels (Striso Live).
+// Read only (a tuning change in the middle of the print can mix old and new lines; print again).
+// Line format: src/synth/tuning.h.
+void synth_tuning_print(void* chp) {
+    BaseSequentialStream* out = (BaseSequentialStream*)chp;
+    const auto bits = [](float f) { return (unsigned long)std::bit_cast<uint32_t>(f); };
+    striso::tuning::Tuning t;
+    t.octave = dis.notegen0;
+    t.fifth = dis.notegen1;
+    t.offset = dis.note_offset;
+    t.base = dis.start_note_offset;
+    chprintf(out, "tuning %d %08lx %08lx %08lx %06x %08lx %d\r\n", dis.cur_tuning, bits(t.fifth),
+             bits(t.octave), bits(t.offset), dis.tuning_color & 0xffffff, bits(t.base),
+             striso::tuning::KEY_COUNT);
+    for (int n = 0; n < striso::tuning::KEY_COUNT; n++) {
+        char name[4];
+        put_button_name(n, name);
+        name[3] = 0;
+        const Button& b = dis.buttons[button_number_map[n]];
+        const float pitch = striso::tuning::key_pitch(t, b.tuning_note_offset, b.coord0, b.coord1);
+        chprintf(out, "%d %s %08lx %08lx\r\n", n, name, bits(pitch), bits(b.tuning_note_offset));
+    }
 }
 
 void synth_control_init(void) {
