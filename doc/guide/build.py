@@ -506,7 +506,10 @@ def git_describe():
 def page_cover():
     return '''
 <div class="cover-head">
-  <img class="logo" src="../logo.svg" alt="Striso">
+  <div class="brand">
+    <img class="logo" src="../logo.svg" alt="Striso">
+    <div class="fork-tag">unofficial fork</div>
+  </div>
   <div>
     <h1>Quick start guide</h1>
     <div class="kicker">Striso board with the expressive synth fork firmware</div>
@@ -776,6 +779,7 @@ p.lead { font-size: 9.1pt; margin: 3.5mm 0 3mm; }
 .kicker { font-size: 9pt; color: var(--dim); margin-top: 1.2mm; }
 .cover-head { display: flex; align-items: center; gap: 5mm; padding-bottom: 2.5mm; border-bottom: 0.3mm solid var(--rule); }
 .cover-head .logo { width: 31mm; height: auto; display: block; }
+.cover-head .fork-tag { font-size: 8pt; font-weight: 600; letter-spacing: 0.04em; color: var(--dim); text-align: center; margin-top: 0.8mm; }
 .board { display: block; margin: 1mm auto 2.5mm; }
 .caption { font-size: 7.6pt; color: var(--dim); line-height: 1.35; }
 .caption b { color: var(--ink); }
