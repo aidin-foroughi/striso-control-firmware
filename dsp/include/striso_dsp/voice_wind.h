@@ -59,18 +59,18 @@
 
 namespace wind {
 
-typedef float real;
-static const int BLOCK = strisy::BLOCK;
-static const int MAX_VOICES = 10;
+using real = float;
+static constexpr int BLOCK = strisy::BLOCK;
+static constexpr int MAX_VOICES = 10;
 
 // delay lines (AXI SRAM): main bore up to a period (cone, flute) or half a period (cylinder) of
 // the lowest note (MIDI 20: 1881 samples), short line for the cone apex / the flute's jet
-static const int MAIN_LEN = 2048;
-static const int SHORT_LEN = 1024;
-static const real NOTE_MIN = 18.0f;
-static const real NOTE_MAX = 122.0f;
-static const real G_TH = 0.36f;          // gamma near the reeds' oscillation threshold
-static const real G_TH_JET = 0.42f;      // jet drive near the flute's threshold
+static constexpr int MAIN_LEN = 2048;
+static constexpr int SHORT_LEN = 1024;
+static constexpr real NOTE_MIN = 18.0f;
+static constexpr real NOTE_MAX = 122.0f;
+static constexpr real G_TH = 0.36f;          // gamma near the reeds' oscillation threshold
+static constexpr real G_TH_JET = 0.42f;      // jet drive near the flute's threshold
 
 enum { KIND_CYL = 0, KIND_CONE = 1, KIND_JET = 2 };
 
@@ -78,16 +78,16 @@ enum { KIND_CYL = 0, KIND_CONE = 1, KIND_JET = 2 };
 // inversion; the jet is deflected against the acoustic flow (sign -1) and travels half a period to
 // the edge, which keeps the fundamental in tune whatever the breath; gain, amplitude and the
 // asymmetry term give about -12 dB 2nd and -18 dB 3rd harmonic at mezzo forte.
-static const real JET_GAIN = 6.0f;
-static const real JET_AMP = 0.05f;
-static const real JET_H2 = 1.0f;
+static constexpr real JET_GAIN = 6.0f;
+static constexpr real JET_AMP = 0.05f;
+static constexpr real JET_H2 = 1.0f;
 
 
 using strisy::rmax;
 using strisy::rmin;
-static inline real clampr(real x, real lo, real hi) { return rmin(rmax(x, lo), hi); }
+[[nodiscard]] static inline real clampr(real x, real lo, real hi) { return rmin(rmax(x, lo), hi); }
 
-static inline real fsqrt(real x) {
+[[nodiscard]] static inline real fsqrt(real x) {
 #if defined(__arm__) && defined(__ARM_FP)
 	real r;
 	__asm__("vsqrt.f32 %0, %1" : "=t"(r) : "t"(x));
@@ -98,7 +98,7 @@ static inline real fsqrt(real x) {
 }
 
 // 2^p for |p| < 60, relative error ~1e-7 (block rate)
-static inline real pow2(real p) {
+[[nodiscard]] static inline real pow2(real p) {
 	p = clampr(p, -60.0f, 60.0f);
 	int w = (int)p;
 	if ((real)w > p) w--;
@@ -107,37 +107,37 @@ static inline real pow2(real p) {
 	union { uint32_t i; float f; } e = { (uint32_t)(w + 127) << 23 };
 	return f * e.f;
 }
-static inline real cos_poly(real x) {
+[[nodiscard]] static inline real cos_poly(real x) {
 	real x2 = x * x;
 	return 1.0f + x2 * (-0.5f + x2 * (1.0f / 24 + x2 * (-1.0f / 720 + x2 * (1.0f / 40320))));
 }
-static inline real sin_poly(real x) {
+[[nodiscard]] static inline real sin_poly(real x) {
 	real x2 = x * x;
 	return x * (1.0f + x2 * (-1.0f / 6 + x2 * (1.0f / 120 + x2 * (-1.0f / 5040 + x2 * (1.0f / 362880)))));
 }
 // sine of a phase in turns (any value), block rate
-static inline real sin_turns(real ph) {
+[[nodiscard]] static inline real sin_turns(real ph) {
 	ph -= (real)(int)ph;
 	if (ph < 0.0f) ph += 1.0f;
 	// fold to [-1/4, 1/4] turn
 	real x = ph < 0.25f ? ph : (ph < 0.75f ? 0.5f - ph : ph - 1.0f);
 	return sin_poly(6.2831853f * x);
 }
-static inline real atan_pos(real t) {
+[[nodiscard]] static inline real atan_pos(real t) {
 	bool inv = t > 1.0f;
 	real z = inv ? 1.0f / t : t;
 	real z2 = z * z;
 	real r = z * (0.99997726f + z2 * (-0.33262347f + z2 * (0.19354346f + z2 * (-0.11643287f + z2 * (0.05265332f + z2 * (-0.01172120f))))));
 	return inv ? 1.5707963f - r : r;
 }
-static inline real atan2_r(real y, real x) {
+[[nodiscard]] static inline real atan2_r(real y, real x) {
 	const real ax = fabsf(x), ay = fabsf(y);
 	if (ax + ay <= 0.0f) return 0.0f;
 	real a = ax >= ay ? atan_pos(ay / ax) : 1.5707963f - atan_pos(ax / ay);
 	if (x < 0.0f) a = 3.1415927f - a;
 	return y < 0.0f ? -a : a;
 }
-static inline real db2lin(real db) { return pow2(db * 0.16609640f); }
+[[nodiscard]] static inline real db2lin(real db) { return pow2(db * 0.16609640f); }
 
 // ---------------------------------------------------------------------------------------------
 // Sound design parameters (all live, see param_table)
@@ -183,7 +183,7 @@ struct Params {
 	real vib_hz;
 	real vib_breath;   // automatic breath (amplitude) vibrato
 };
-static const int NPARAMS = sizeof(Params) / sizeof(real);
+static constexpr int NPARAMS = sizeof(Params) / sizeof(real);
 
 struct PresetInfo {
 	const char* name;
@@ -191,8 +191,8 @@ struct PresetInfo {
 	real low_note;     // lowest note of the instrument (sets the cone apex length)
 };
 
-static const int NUM_PRESETS = 9;
-static const PresetInfo preset_info[NUM_PRESETS] = {
+static constexpr int NUM_PRESETS = 9;
+static constexpr PresetInfo preset_info[NUM_PRESETS] = {
 	{"clarinet", KIND_CYL, 50},
 	{"bass clarinet", KIND_CYL, 34},
 	{"soprano sax", KIND_CONE, 56},
@@ -204,11 +204,11 @@ static const PresetInfo preset_info[NUM_PRESETS] = {
 	{"flute", KIND_JET, 60},
 };
 
-static inline const char* preset_name(int i) {
+[[nodiscard]] static inline const char* preset_name(int i) {
 	return (i >= 0 && i < NUM_PRESETS) ? preset_info[i].name : preset_info[0].name;
 }
 
-static inline Params base_params() {
+[[nodiscard]] static inline Params base_params() {
 	Params p;
 	p.level = 1.0f; p.speak = 0.12f; p.dyn = 0.75f; p.attack = 3.0f; p.dyn_gain = 0.6f;
 	p.tongue = 0.35f; p.tongue_noise = 0.5f;
@@ -222,7 +222,7 @@ static inline Params base_params() {
 	return p;
 }
 
-static inline Params preset_params(int i) {
+[[nodiscard]] static inline Params preset_params(int i) {
 	Params p = base_params();
 	switch (i) {
 	default:
@@ -286,7 +286,7 @@ static inline Params preset_params(int i) {
 // measured tuning correction per preset: samples of extra loop delay at notes 20 + 7k
 #include "voice_wind_tune.h"
 
-static inline real tuning_corr(int preset, real note) {
+[[nodiscard]] static inline real tuning_corr(int preset, real note) {
 	const real* t = CORR[preset];
 	real k = clampr((note - 20.0f) * (1.0f / 7.0f), 0.0f, 12.999f);
 	int i = (int)k;
@@ -374,8 +374,11 @@ static inline void set_preset(Engine& e, int i) {
 	}
 }
 
-#ifndef WIND_PRESET
-#define WIND_PRESET 0
+// preset after init() (host renders: -DWIND_PRESET=n)
+#ifdef WIND_PRESET
+static constexpr int DEFAULT_PRESET = WIND_PRESET;
+#else
+static constexpr int DEFAULT_PRESET = 0;
 #endif
 
 static inline void init(Engine& e, int sample_rate, int nvoices) {
@@ -393,20 +396,20 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 		e.vs[v].note_prev = 69.0f;
 		reset_voice(e, v, true);
 	}
-	e.kind = preset_info[WIND_PRESET < NUM_PRESETS ? WIND_PRESET : 0].kind;
-	set_preset(e, WIND_PRESET);
+	e.kind = preset_info[DEFAULT_PRESET < NUM_PRESETS ? DEFAULT_PRESET : 0].kind;
+	set_preset(e, DEFAULT_PRESET);
 }
 
 // breath pressure -> drive (gamma for the reeds, jet gain for the flute); linear to the speaking
 // pressure, then linear to q.dyn at pressure 1
-static inline real drive_of(const Params& q, real p, int kind, real inv_p0, real inv_1mp0) {
+[[nodiscard]] static inline real drive_of(const Params& q, real p, int kind, real inv_p0, real inv_1mp0) {
 	const real p0 = clampr(q.speak, 0.02f, 0.6f);
 	const real th = kind == KIND_JET ? G_TH_JET : G_TH;
 	return p < p0 ? p * th * inv_p0 : th + (q.dyn - th) * (p - p0) * inv_1mp0;
 }
 
 // 3rd order Lagrange read at delay d (>= 2) behind write index w
-static inline real lagrange_read(const float* __restrict__ buf, uint32_t w, real dl) {
+[[nodiscard]] static inline real lagrange_read(const float* __restrict__ buf, uint32_t w, real dl) {
 	const int i0 = (int)dl - 1;
 	const real d = dl - (real)i0;
 	const real dm1 = d - 1.0f, dm2 = d - 2.0f, dm3 = d - 3.0f;
@@ -428,7 +431,7 @@ struct BlockCoef {
 };
 
 template <int KIND>
-static inline real run_voice(Engine& e, int v, const BlockCoef& c) {
+[[nodiscard]] static inline real run_voice(Engine& e, int v, const BlockCoef& c) {
 	VoiceState& s = e.vs[v];
 	float* __restrict__ mb = wind_main[v];
 	float* __restrict__ sb = wind_short[v];
@@ -677,13 +680,13 @@ static inline void process_voice(Engine& e, int v) {
 	}
 }
 
-static inline int active_voices(const Engine& e) {
+[[nodiscard]] static inline int active_voices(const Engine& e) {
 	int n = 0;
 	for (int v = 0; v < e.nvoices; v++) n += e.vs[v].active;
 	return n;
 }
 
-static inline strisy::SvfCoef svf_hz(real hz, real sr, real Q) {
+[[nodiscard]] static inline strisy::SvfCoef svf_hz(real hz, real sr, real Q) {
 	return strisy::svf_from_g(strisy::tan0(clampr(hz, 20.0f, 0.4f * sr) * 3.1415927f / sr), Q);
 }
 
@@ -764,52 +767,52 @@ struct ParamEntry {
 	real Params::* m;
 };
 
-static const ParamEntry param_table[] = {
-	{{"level", "breath", 0.1f, 4.0f, 0}, &Params::level},
-	{{"speak", "breath", 0.03f, 0.5f, 0}, &Params::speak},          // pressure where the tone speaks
-	{{"dyn", "breath", 0.4f, 1.5f, 0}, &Params::dyn},               // drive at full pressure (reeds <= 0.94)
-	{{"attack", "breath", 0.5f, 60.0f, 0}, &Params::attack},        // breath smoothing (ms)
-	{{"dyn_gain", "breath", 0.0f, 1.0f, 0}, &Params::dyn_gain},     // loudness also scaled by breath
-	{{"tongue", "artic", 0.0f, 1.0f, 0}, &Params::tongue},          // pressure kick of a fast strike
-	{{"tongue_noise", "artic", 0.0f, 2.0f, 0}, &Params::tongue_noise},
-	{{"reed_open", "reed", 0.08f, 0.7f, 0}, &Params::reed_open},    // embouchure looseness
-	{{"reed_freq", "reed", 1500.0f, 8000.0f, 0}, &Params::reed_freq},
-	{{"reed_damp", "reed", 0.2f, 1.5f, 0}, &Params::reed_damp},
-	{{"loss", "bore", 0.9f, 0.995f, 0}, &Params::loss},
-	{{"lattice", "bore", 300.0f, 6000.0f, 0}, &Params::lattice},    // tone-hole cutoff (Hz)
-	{{"lat_breath", "bore", 0.0f, 1.5f, 0}, &Params::lat_breath},   // octaves brighter per pressure
-	{{"apex", "bore", 0.15f, 0.45f, 0}, &Params::apex},             // cone apex share (lowest note)
-	{{"apex_lp", "bore", 1.5f, 20.0f, 0}, &Params::apex_lp},
-	{{"jet", "bore", 0.4f, 0.6f, 0}, &Params::jet},                 // flute jet delay (of period)
-	{{"jet_off", "bore", 0.0f, 0.8f, 0}, &Params::jet_off},         // flute jet offset
-	{{"body", "tone", 0.0f, 2.0f, 0}, &Params::body},
-	{{"rad_hp", "tone", 20.0f, 2000.0f, 0}, &Params::rad_hp},
-	{{"bright", "tone", 500.0f, 16000.0f, 0}, &Params::bright},
-	{{"br_breath", "tone", 0.0f, 8.0f, 0}, &Params::br_breath},
-	{{"f1_hz", "tone", 150.0f, 5000.0f, 0}, &Params::f1_hz},
-	{{"f1_db", "tone", -12.0f, 15.0f, 0}, &Params::f1_db},
-	{{"f2_hz", "tone", 300.0f, 8000.0f, 0}, &Params::f2_hz},
-	{{"f2_db", "tone", -12.0f, 15.0f, 0}, &Params::f2_db},
-	{{"f_q", "tone", 0.5f, 6.0f, 0}, &Params::f_q},
-	{{"breath", "noise", 0.0f, 3.0f, 0}, &Params::breath},          // audible breath
-	{{"turb", "noise", 0.0f, 0.15f, 0}, &Params::turb},             // turbulence on the drive
-	{{"noise_hz", "noise", 300.0f, 8000.0f, 0}, &Params::noise_hz},
-	{{"tilt_bright", "expr", 0.0f, 1.0f, 0}, &Params::tilt_bright},
-	{{"tilt_breath", "expr", 0.0f, 1.0f, 0}, &Params::tilt_breath},
-	{{"growl", "expr", 0.0f, 0.8f, 0}, &Params::growl},
-	{{"growl_from", "expr", 0.5f, 1.5f, 0}, &Params::growl_from},
-	{{"vib", "mod", 0.0f, 0.6f, 0}, &Params::vib},                  // automatic vibrato, semitones
-	{{"vib_hz", "mod", 2.0f, 8.0f, 0}, &Params::vib_hz},
-	{{"vib_breath", "mod", 0.0f, 0.3f, 0}, &Params::vib_breath},
+static constexpr ParamEntry param_table[] = {
+	{{"level", "breath", 0.1f, 4.0f, strisy::ParamKind::continuous}, &Params::level},
+	{{"speak", "breath", 0.03f, 0.5f, strisy::ParamKind::continuous}, &Params::speak},          // pressure where the tone speaks
+	{{"dyn", "breath", 0.4f, 1.5f, strisy::ParamKind::continuous}, &Params::dyn},               // drive at full pressure (reeds <= 0.94)
+	{{"attack", "breath", 0.5f, 60.0f, strisy::ParamKind::continuous}, &Params::attack},        // breath smoothing (ms)
+	{{"dyn_gain", "breath", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::dyn_gain},     // loudness also scaled by breath
+	{{"tongue", "artic", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::tongue},          // pressure kick of a fast strike
+	{{"tongue_noise", "artic", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::tongue_noise},
+	{{"reed_open", "reed", 0.08f, 0.7f, strisy::ParamKind::continuous}, &Params::reed_open},    // embouchure looseness
+	{{"reed_freq", "reed", 1500.0f, 8000.0f, strisy::ParamKind::continuous}, &Params::reed_freq},
+	{{"reed_damp", "reed", 0.2f, 1.5f, strisy::ParamKind::continuous}, &Params::reed_damp},
+	{{"loss", "bore", 0.9f, 0.995f, strisy::ParamKind::continuous}, &Params::loss},
+	{{"lattice", "bore", 300.0f, 6000.0f, strisy::ParamKind::continuous}, &Params::lattice},    // tone-hole cutoff (Hz)
+	{{"lat_breath", "bore", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::lat_breath},   // octaves brighter per pressure
+	{{"apex", "bore", 0.15f, 0.45f, strisy::ParamKind::continuous}, &Params::apex},             // cone apex share (lowest note)
+	{{"apex_lp", "bore", 1.5f, 20.0f, strisy::ParamKind::continuous}, &Params::apex_lp},
+	{{"jet", "bore", 0.4f, 0.6f, strisy::ParamKind::continuous}, &Params::jet},                 // flute jet delay (of period)
+	{{"jet_off", "bore", 0.0f, 0.8f, strisy::ParamKind::continuous}, &Params::jet_off},         // flute jet offset
+	{{"body", "tone", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::body},
+	{{"rad_hp", "tone", 20.0f, 2000.0f, strisy::ParamKind::continuous}, &Params::rad_hp},
+	{{"bright", "tone", 500.0f, 16000.0f, strisy::ParamKind::continuous}, &Params::bright},
+	{{"br_breath", "tone", 0.0f, 8.0f, strisy::ParamKind::continuous}, &Params::br_breath},
+	{{"f1_hz", "tone", 150.0f, 5000.0f, strisy::ParamKind::continuous}, &Params::f1_hz},
+	{{"f1_db", "tone", -12.0f, 15.0f, strisy::ParamKind::continuous}, &Params::f1_db},
+	{{"f2_hz", "tone", 300.0f, 8000.0f, strisy::ParamKind::continuous}, &Params::f2_hz},
+	{{"f2_db", "tone", -12.0f, 15.0f, strisy::ParamKind::continuous}, &Params::f2_db},
+	{{"f_q", "tone", 0.5f, 6.0f, strisy::ParamKind::continuous}, &Params::f_q},
+	{{"breath", "noise", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::breath},          // audible breath
+	{{"turb", "noise", 0.0f, 0.15f, strisy::ParamKind::continuous}, &Params::turb},             // turbulence on the drive
+	{{"noise_hz", "noise", 300.0f, 8000.0f, strisy::ParamKind::continuous}, &Params::noise_hz},
+	{{"tilt_bright", "expr", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::tilt_bright},
+	{{"tilt_breath", "expr", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::tilt_breath},
+	{{"growl", "expr", 0.0f, 0.8f, strisy::ParamKind::continuous}, &Params::growl},
+	{{"growl_from", "expr", 0.5f, 1.5f, strisy::ParamKind::continuous}, &Params::growl_from},
+	{{"vib", "mod", 0.0f, 0.6f, strisy::ParamKind::continuous}, &Params::vib},                  // automatic vibrato, semitones
+	{{"vib_hz", "mod", 2.0f, 8.0f, strisy::ParamKind::continuous}, &Params::vib_hz},
+	{{"vib_breath", "mod", 0.0f, 0.3f, strisy::ParamKind::continuous}, &Params::vib_breath},
 };
-static const int NUM_LIVE_PARAMS = sizeof(param_table) / sizeof(param_table[0]);
+static constexpr int NUM_LIVE_PARAMS = sizeof(param_table) / sizeof(param_table[0]);
 static_assert(NUM_LIVE_PARAMS == NPARAMS, "every Params field is exposed once");
 
 } // namespace wind
 
 namespace strisy {
 template <> struct EngineParams<wind::Engine> {
-	static const int count = wind::NUM_LIVE_PARAMS;
+	static constexpr int count = wind::NUM_LIVE_PARAMS;
 	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &wind::param_table[i].d : 0; }
 	static float* ptr(wind::Engine& e, int i) { return (i >= 0 && i < count) ? &(e.p.*(wind::param_table[i].m)) : 0; }
 	static void changed(wind::Engine&, int) {}   // the DSP follows e.p through its smoothed copy

@@ -54,11 +54,11 @@
 
 namespace fx {
 
-typedef float real;
-static const int BLOCK = strisy::BLOCK;
-static const int HB = BLOCK / 2;          // half-rate samples per block
-static const int LSEG = 16;               // limiter segment = look-ahead
-static const int PH_CTRL = 8;             // phaser coefficient update interval
+using real = float;
+static constexpr int BLOCK = strisy::BLOCK;
+static constexpr int HB = BLOCK / 2;          // half-rate samples per block
+static constexpr int LSEG = 16;               // limiter segment = look-ahead
+static constexpr int PH_CTRL = 8;             // phaser coefficient update interval
 
 using strisy::rmax;
 using strisy::rmin;
@@ -66,11 +66,11 @@ using strisy::rmin;
 // ---------------------------------------------------------------------------------------------
 // Buffers
 
-static const int CH_LEN = 1024, CH_MASK = CH_LEN - 1;          // chorus, full rate (in Engine)
-static const int DL_LEN = 32768, DL_MASK = DL_LEN - 1;         // delay, half rate, int16
-static const int PD_LEN = 4096, PD_MASK = PD_LEN - 1;          // reverb pre-delay, half rate
-static const int RV_LEN = 16384, RV_MASK = RV_LEN - 1;         // reverb ring, half rate
-static const float DL_SCALE = 4096.0f;                        // int16 full scale = +-8
+static constexpr int CH_LEN = 1024, CH_MASK = CH_LEN - 1;          // chorus, full rate (in Engine)
+static constexpr int DL_LEN = 32768, DL_MASK = DL_LEN - 1;         // delay, half rate, int16
+static constexpr int PD_LEN = 4096, PD_MASK = PD_LEN - 1;          // reverb pre-delay, half rate
+static constexpr int RV_LEN = 16384, RV_MASK = RV_LEN - 1;         // reverb ring, half rate
+static constexpr float DL_SCALE = 4096.0f;                        // int16 full scale = +-8
 
 static int16_t dl_buf[DL_LEN] __attribute__((aligned(32), section(".ram1_clear")));
 static float pd_buf[PD_LEN] __attribute__((aligned(32), section(".ram1_clear")));
@@ -96,51 +96,51 @@ struct ParamInfo {
 	float off;      // value forced while bypassed (NO_OFF: keep)
 	uint8_t smooth; // 1: smoothed per block, 0: used directly (rates, times, switches)
 };
-static const float NO_OFF = -1e9f;
+static constexpr float NO_OFF = -1e9f;
 
-static const ParamInfo PARAMS[NPARAM] = {
-	{{"drive",    "drive",  0.0f,   1.0f, 0},    0.0f,   0.0f, 1},   // saturation amount
-	{{"tilt",     "drive", -1.0f,   1.0f, 0},    0.0f,   0.0f, 1},   // tilt EQ around 700 Hz, +-6 dB
-	{{"phmix",    "phaser", 0.0f,   1.0f, 0},    0.0f,   0.0f, 1},   // 1 = classic 50/50 (deepest notches)
-	{{"phrate",   "phaser", 0.05f,  8.0f, 0},    0.5f, NO_OFF, 0},   // Hz
-	{{"phdepth",  "phaser", 0.0f,   1.0f, 0},    0.7f, NO_OFF, 1},   // sweep +-1.5 octaves at 1
-	{{"phfb",     "phaser", 0.0f,   0.85f, 0},   0.3f, NO_OFF, 1},   // feedback (resonance)
-	{{"phfreq",   "phaser", 100.0f, 4000.0f, 0}, 600.0f, NO_OFF, 1}, // sweep centre, Hz
-	{{"chmix",    "chorus", 0.0f,   1.0f, 0},    0.25f,  0.0f, 1},   // wet amount
-	{{"chrate",   "chorus", 0.05f,  5.0f, 0},    0.3f, NO_OFF, 0},   // Hz
-	{{"chdepth",  "chorus", 0.0f,   1.0f, 0},    0.25f, NO_OFF, 1},  // 0..3 ms modulation
-	{{"chens",    "chorus", 0.0f,   1.0f, 0},    0.0f, NO_OFF, 1},   // fast 6 Hz ensemble shimmer
-	{{"trdepth",  "trem",   0.0f,   1.0f, 0},    0.0f,   0.0f, 1},
-	{{"trrate",   "trem",   0.5f,  12.0f, 0},    4.5f, NO_OFF, 0},   // Hz
-	{{"trstereo", "trem",   0.0f,   1.0f, 0},    1.0f, NO_OFF, 1},   // 0 tremolo, 1 auto-pan
-	{{"dlmix",    "delay",  0.0f,   1.0f, 0},    0.0f,   0.0f, 1},   // echo level
-	{{"dltime",   "delay", 20.0f, 650.0f, 0},  330.0f, NO_OFF, 0},   // ms per repeat
-	{{"dlfb",     "delay",  0.0f,   0.95f, 0},   0.35f, NO_OFF, 1},  // feedback per repeat
-	{{"dltone",   "delay",  0.0f,   1.0f, 0},    0.5f, NO_OFF, 1},   // feedback low-pass 1..12 kHz
-	{{"dlpp",     "delay",  0.0f,   1.0f, 0},    1.0f, NO_OFF, 1},   // 0 mono echo, 1 ping-pong
-	{{"rvmix",    "reverb", 0.0f,   1.0f, 0},    0.15f,  0.0f, 1},   // reverb level
-	{{"rvpre",    "reverb", 0.0f, 150.0f, 0},   12.0f, NO_OFF, 0},   // pre-delay, ms
-	{{"rvdecay",  "reverb", 0.2f,  15.0f, 0},    2.0f, NO_OFF, 1},   // RT60, s
-	{{"rvdamp",   "reverb", 0.0f,   1.0f, 0},    0.45f, NO_OFF, 1},  // tank damping 12 kHz..375 Hz
-	{{"rvlowcut", "reverb", 20.0f, 600.0f, 0},  150.0f, NO_OFF, 1},  // input low cut, Hz
-	{{"rvmod",    "reverb", 0.0f,   1.0f, 0},    0.5f, NO_OFF, 1},   // tank modulation
-	{{"level",    "out",    0.0f,   2.0f, 0},    1.0f,   1.0f, 1},   // output gain
-	{{"width",    "out",    0.0f,   2.0f, 0},    1.0f,   1.0f, 1},   // stereo width
-	{{"bypass",   "out",    0.0f,   1.0f, 2},    0.0f, NO_OFF, 0},
+static constexpr ParamInfo PARAMS[NPARAM] = {
+	{{"drive",    "drive",  0.0f,   1.0f, strisy::ParamKind::continuous},    0.0f,   0.0f, 1},   // saturation amount
+	{{"tilt",     "drive", -1.0f,   1.0f, strisy::ParamKind::continuous},    0.0f,   0.0f, 1},   // tilt EQ around 700 Hz, +-6 dB
+	{{"phmix",    "phaser", 0.0f,   1.0f, strisy::ParamKind::continuous},    0.0f,   0.0f, 1},   // 1 = classic 50/50 (deepest notches)
+	{{"phrate",   "phaser", 0.05f,  8.0f, strisy::ParamKind::continuous},    0.5f, NO_OFF, 0},   // Hz
+	{{"phdepth",  "phaser", 0.0f,   1.0f, strisy::ParamKind::continuous},    0.7f, NO_OFF, 1},   // sweep +-1.5 octaves at 1
+	{{"phfb",     "phaser", 0.0f,   0.85f, strisy::ParamKind::continuous},   0.3f, NO_OFF, 1},   // feedback (resonance)
+	{{"phfreq",   "phaser", 100.0f, 4000.0f, strisy::ParamKind::continuous}, 600.0f, NO_OFF, 1}, // sweep centre, Hz
+	{{"chmix",    "chorus", 0.0f,   1.0f, strisy::ParamKind::continuous},    0.25f,  0.0f, 1},   // wet amount
+	{{"chrate",   "chorus", 0.05f,  5.0f, strisy::ParamKind::continuous},    0.3f, NO_OFF, 0},   // Hz
+	{{"chdepth",  "chorus", 0.0f,   1.0f, strisy::ParamKind::continuous},    0.25f, NO_OFF, 1},  // 0..3 ms modulation
+	{{"chens",    "chorus", 0.0f,   1.0f, strisy::ParamKind::continuous},    0.0f, NO_OFF, 1},   // fast 6 Hz ensemble shimmer
+	{{"trdepth",  "trem",   0.0f,   1.0f, strisy::ParamKind::continuous},    0.0f,   0.0f, 1},
+	{{"trrate",   "trem",   0.5f,  12.0f, strisy::ParamKind::continuous},    4.5f, NO_OFF, 0},   // Hz
+	{{"trstereo", "trem",   0.0f,   1.0f, strisy::ParamKind::continuous},    1.0f, NO_OFF, 1},   // 0 tremolo, 1 auto-pan
+	{{"dlmix",    "delay",  0.0f,   1.0f, strisy::ParamKind::continuous},    0.0f,   0.0f, 1},   // echo level
+	{{"dltime",   "delay", 20.0f, 650.0f, strisy::ParamKind::continuous},  330.0f, NO_OFF, 0},   // ms per repeat
+	{{"dlfb",     "delay",  0.0f,   0.95f, strisy::ParamKind::continuous},   0.35f, NO_OFF, 1},  // feedback per repeat
+	{{"dltone",   "delay",  0.0f,   1.0f, strisy::ParamKind::continuous},    0.5f, NO_OFF, 1},   // feedback low-pass 1..12 kHz
+	{{"dlpp",     "delay",  0.0f,   1.0f, strisy::ParamKind::continuous},    1.0f, NO_OFF, 1},   // 0 mono echo, 1 ping-pong
+	{{"rvmix",    "reverb", 0.0f,   1.0f, strisy::ParamKind::continuous},    0.15f,  0.0f, 1},   // reverb level
+	{{"rvpre",    "reverb", 0.0f, 150.0f, strisy::ParamKind::continuous},   12.0f, NO_OFF, 0},   // pre-delay, ms
+	{{"rvdecay",  "reverb", 0.2f,  15.0f, strisy::ParamKind::continuous},    2.0f, NO_OFF, 1},   // RT60, s
+	{{"rvdamp",   "reverb", 0.0f,   1.0f, strisy::ParamKind::continuous},    0.45f, NO_OFF, 1},  // tank damping 12 kHz..375 Hz
+	{{"rvlowcut", "reverb", 20.0f, 600.0f, strisy::ParamKind::continuous},  150.0f, NO_OFF, 1},  // input low cut, Hz
+	{{"rvmod",    "reverb", 0.0f,   1.0f, strisy::ParamKind::continuous},    0.5f, NO_OFF, 1},   // tank modulation
+	{{"level",    "out",    0.0f,   2.0f, strisy::ParamKind::continuous},    1.0f,   1.0f, 1},   // output gain
+	{{"width",    "out",    0.0f,   2.0f, strisy::ParamKind::continuous},    1.0f,   1.0f, 1},   // stereo width
+	{{"bypass",   "out",    0.0f,   1.0f, strisy::ParamKind::toggle},    0.0f, NO_OFF, 0},
 };
 
 // ---------------------------------------------------------------------------------------------
 // Math helpers (no libm)
 
-static inline float clampf(float x, float lo, float hi) { return rmin(rmax(x, lo), hi); }  // NaN -> lo
+[[nodiscard]] static inline float clampf(float x, float lo, float hi) { return rmin(rmax(x, lo), hi); }  // NaN -> lo
 
-static inline float floorf_(float x) {
+[[nodiscard]] static inline float floorf_(float x) {
 	float t = (float)(int)x;
 	return t > x ? t - 1.0f : t;
 }
 
 // 2^x, |x| < 100, relative error ~1e-5
-static inline float exp2_(float x) {
+[[nodiscard]] static inline float exp2_(float x) {
 	x = clampf(x, -100.0f, 100.0f);
 	const float fl = floorf_(x);
 	const float f = x - fl;
@@ -151,7 +151,7 @@ static inline float exp2_(float x) {
 }
 
 // sin(2 pi x) for any |x| < 2^22, error < 4e-6
-static inline float sin2pi(float x) {
+[[nodiscard]] static inline float sin2pi(float x) {
 	x -= floorf_(x + 0.5f);              // [-0.5, 0.5)
 	const float ax = fabsf(x);
 	float u = ax > 0.25f ? 0.5f - ax : ax; // sin(pi - a) = sin(a)
@@ -161,7 +161,7 @@ static inline float sin2pi(float x) {
 }
 
 // sqrt(x) for 0 <= x < 1e18 (control rate): bit-level estimate + 3 Newton steps, rel. error < 1e-6
-static inline float sqrt_(float x) {
+[[nodiscard]] static inline float sqrt_(float x) {
 	x = rmax(x, 0.0f);
 	union { float f; int32_t i; } u;
 	u.f = x;
@@ -172,12 +172,12 @@ static inline float sqrt_(float x) {
 }
 
 // one-pole low-pass coefficient for cutoff fc at rate sr: 1 - exp(-2 pi fc / sr)
-static inline float onepole(float fc, float sr) {
+[[nodiscard]] static inline float onepole(float fc, float sr) {
 	return 1.0f - exp2_(-9.0647202f * fc / sr);   // 2 pi / ln 2
 }
 
 // 4-point cubic Hermite interpolation between y1 (f = 0) and y2 (f = 1)
-static inline float hermite(float y0, float y1, float y2, float y3, float f) {
+[[nodiscard]] static inline float hermite(float y0, float y1, float y2, float y3, float f) {
 	const float c1 = 0.5f * (y2 - y0);
 	const float c2 = y0 - 2.5f * y1 + 2.0f * y2 - 0.5f * y3;
 	const float c3 = 0.5f * (y3 - y0) + 1.5f * (y1 - y2);
@@ -185,7 +185,7 @@ static inline float hermite(float y0, float y1, float y2, float y3, float f) {
 }
 
 // linear below K, smooth quadratic knee above, flat at K + C (C1 continuous, branch free)
-static inline float softlimit(float x, float K, float C) {
+[[nodiscard]] static inline float softlimit(float x, float K, float C) {
 	const float xp = rmax(x - K, 0.0f), xn = rmin(x + K, 0.0f);
 	const float up = rmin(xp, 2.0f * C), un = rmax(xn, -2.0f * C);
 	const float q = 0.25f / C;
@@ -197,7 +197,7 @@ static inline float softlimit(float x, float K, float C) {
 // from the HIIR design method for 6 coefficients, transition 0.04): passband 0..10.25 kHz,
 // stopband from 14.6 kHz at -74.5 dB.
 
-static const float HB_C[6] = {0.0682040760f, 0.2402703580f, 0.4486762359f, 0.6411223671f, 0.7999975637f, 0.9344822355f};
+static constexpr float HB_C[6] = {0.0682040760f, 0.2402703580f, 0.4486762359f, 0.6411223671f, 0.7999975637f, 0.9344822355f};
 struct HbState { float x[6], y[6]; };
 
 // 2:1 decimation of BLOCK samples into HB samples
@@ -243,21 +243,21 @@ static inline void hb_up_add(HbState& h, const float* __restrict__ in, float* __
 // single decrementing pointer: line k is written at ring[p + off[k]] and read at delay d from
 // ring[p + off[k] + d].
 
-static const float RV_SIZE = 0.87f;
-static const int RV_EXC = 13;   // max modulation excursion of the tank allpasses (samples)
-static const float RV_DEXC = 0.6f;   // relative excursion of the long delays
+static constexpr float RV_SIZE = 0.87f;
+static constexpr int RV_EXC = 13;   // max modulation excursion of the tank allpasses (samples)
+static constexpr float RV_DEXC = 0.6f;   // relative excursion of the long delays
 enum { RV_AP1, RV_AP2, RV_AP3, RV_AP4, RV_LAP1, RV_LD1, RV_LAP2, RV_LD2, RV_RAP1, RV_RD1, RV_RAP2, RV_RD2, RV_NLINES };
-static const int16_t RV_LEN0[RV_NLINES] = {142, 107, 379, 277, 672, 4453, 1800, 3720, 908, 4217, 2656, 3163};
+static constexpr int16_t RV_LEN0[RV_NLINES] = {142, 107, 379, 277, 672, 4453, 1800, 3720, 908, 4217, 2656, 3163};
 // output taps: line, position at 29761 Hz, sign (the sign pattern is hardcoded in stage_reverb)
-static const int RV_NTAPS = 7;
-static const int16_t RV_TAPS_L[RV_NTAPS][3] = {
+static constexpr int RV_NTAPS = 7;
+static constexpr int16_t RV_TAPS_L[RV_NTAPS][3] = {
 	{RV_RD1, 266, 1}, {RV_RD1, 2974, 1}, {RV_RAP2, 1913, -1}, {RV_RD2, 1996, 1},
 	{RV_LD1, 1990, -1}, {RV_LAP2, 187, -1}, {RV_LD2, 1066, -1}};
-static const int16_t RV_TAPS_R[RV_NTAPS][3] = {
+static constexpr int16_t RV_TAPS_R[RV_NTAPS][3] = {
 	{RV_LD1, 353, 1}, {RV_LD1, 3627, 1}, {RV_LAP2, 1228, -1}, {RV_LD2, 2673, 1},
 	{RV_RD1, 2111, -1}, {RV_RAP2, 335, -1}, {RV_RD2, 121, -1}};
 // wet gain: Dattorro's 0.6 per tap, scaled so an undamped 2 s decay has an impulse response energy of ~1
-static const float RV_OUT = 0.6f * 1.2f;
+static constexpr float RV_OUT = 0.6f * 1.2f;
 
 // ---------------------------------------------------------------------------------------------
 
@@ -363,7 +363,7 @@ static FX_NOINLINE void stage_drive(Engine& e) {
 	}
 }
 
-static inline float phaser_coef(const Engine& e, float phase) {
+[[nodiscard]] static inline float phaser_coef(const Engine& e, float phase) {
 	float f = e.s[P_PH_FREQ] * exp2_(1.5f * e.s[P_PH_DEPTH] * sin2pi(phase));
 	f = clampf(f, 20.0f, 7000.0f);
 	const float t = strisy::tan0(3.14159265f * f * e.inv_sr);
@@ -419,7 +419,7 @@ static inline void chorus_delays(const Engine& e, float* d) {
 }
 
 // a (re)started chorus, delay or reverb fades its input in over 32 blocks (21 ms)
-static const float FADE_STEP = 1.0f / 32.0f;
+static constexpr float FADE_STEP = 1.0f / 32.0f;
 
 static FX_NOINLINE void stage_chorus(Engine& e, float* __restrict__ L, float* __restrict__ R) {
 	const float* __restrict__ M = e.M;
@@ -494,17 +494,17 @@ static FX_NOINLINE void stage_trem(Engine& e, float* __restrict__ L, float* __re
 }
 
 // delay line read at fractional delay d (>= 2) behind write index w (sample at w = newest)
-static inline float dl_read(const int16_t* __restrict__ buf, uint32_t w, float d) {
+[[nodiscard]] static inline float dl_read(const int16_t* __restrict__ buf, uint32_t w, float d) {
 	const int di = (int)d;
 	const float f = d - (float)di;
 	const uint32_t b = w - (uint32_t)di;
 	return hermite((float)buf[(b + 1) & DL_MASK], (float)buf[b & DL_MASK], (float)buf[(b - 1) & DL_MASK], (float)buf[(b - 2) & DL_MASK], f);
 }
 
-static const float DL_XF_STEP = 1.0f / 48.0f;   // crossfade over 48 blocks (31 ms)
+static constexpr float DL_XF_STEP = 1.0f / 48.0f;   // crossfade over 48 blocks (31 ms)
 
 // feedback low-pass coefficient: 1 kHz .. 12 kHz, fully open at 1
-static inline float dl_tone_coef(const Engine& e, float tone) {
+[[nodiscard]] static inline float dl_tone_coef(const Engine& e, float tone) {
 	return tone >= 0.999f ? 1.0f : onepole(1000.0f * exp2_(3.585f * tone), e.sr2);
 }
 
@@ -737,7 +737,7 @@ static FX_NOINLINE void stage_half(Engine& e, float* __restrict__ L, float* __re
 	hb_up_add(e.hb_upr, e.wr, R);
 }
 
-static inline float limiter_gain(float peak) {
+[[nodiscard]] static inline float limiter_gain(float peak) {
 	// soft knee from 3.6, output peak never above 4.4
 	const float K = 3.6f, C = 0.8f;
 	if (peak <= K) return 1.0f;
@@ -982,7 +982,7 @@ static inline void process(Engine& e, const real* __restrict__ in, real* __restr
 
 namespace strisy {
 template <> struct EngineParams<fx::Engine> {
-	static const int count = fx::NPARAM;
+	static constexpr int count = fx::NPARAM;
 	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &fx::PARAMS[i].d : 0; }
 	static float* ptr(fx::Engine& e, int i) { return (i >= 0 && i < count) ? &e.p[i] : 0; }
 	static void changed(fx::Engine&, int) {}   // process() clamps and smooths every block

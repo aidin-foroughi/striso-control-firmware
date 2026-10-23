@@ -49,10 +49,10 @@
 
 namespace ep {
 
-typedef float real;
-static const int BLOCK = strisy::BLOCK;
-static const int MAX_VOICES = 10;
-static const int NM = 4;            // modes per voice
+using real = float;
+static constexpr int BLOCK = strisy::BLOCK;
+static constexpr int MAX_VOICES = 10;
+static constexpr int NM = 4;            // modes per voice
 
 using strisy::rmax;
 using strisy::rmin;
@@ -94,10 +94,10 @@ struct Params {
 	// mod
 	real wobble;    // tape wow + flutter depth (cents)
 };
-static const int NUM_PARAMS = 25;
+static constexpr int NUM_PARAMS = 25;
 static_assert(sizeof(Params) == NUM_PARAMS * sizeof(real), "Params must be plain floats");
 
-static inline Params base_params() {
+[[nodiscard]] static inline Params base_params() {
 	Params p;
 	p.hard = 1.0f; p.vsens = 1.4f; p.dyn = 0.8f;
 	p.decay = 7.0f; p.dkey = 0.65f; p.prompt = 0.35f;
@@ -110,16 +110,16 @@ static inline Params base_params() {
 	return p;
 }
 
-static const int NUM_PRESETS = 14;
+static constexpr int NUM_PRESETS = 14;
 
-static inline const char* preset_name(int i) {
-	static const char* const names[NUM_PRESETS] = {
+[[nodiscard]] static inline const char* preset_name(int i) {
+	static constexpr const char* names[NUM_PRESETS] = {
 		"stage", "suitcase", "mk2", "dyno", "ballad", "bark", "neosoul",
 		"fm80s", "lofi", "wurli", "wurlibark", "pianet", "felt", "celesta"};
 	return (i >= 0 && i < NUM_PRESETS) ? names[i] : names[0];
 }
 
-static inline Params preset_params(int i) {
+[[nodiscard]] static inline Params preset_params(int i) {
 	Params p = base_params();
 	switch (i) {
 	case 1:  // suitcase: rounder, more low-mid body, darker speaker, a little amp grit
@@ -198,28 +198,31 @@ static inline Params preset_params(int i) {
 	return p;
 }
 
-#ifndef EP_PRESET
-#define EP_PRESET 0
+// preset after init() (host renders: -DEP_PRESET=n)
+#ifdef EP_PRESET
+static constexpr int DEFAULT_PRESET = EP_PRESET;
+#else
+static constexpr int DEFAULT_PRESET = 0;
 #endif
 
 // ---------------------------------------------------------------------------------------------
 // Constants
 
-static const real F_HI0 = 14000.0f, F_HI1 = 19000.0f;  // upper modes fade out between these
-static const real STRIKE_THR = 0.15f;   // vpres re-striking a held (re-armed) key
-static const real DAMP_PRES = 0.06f;    // below this key pressure the damper starts to touch
-static const int ARM_BLOCKS = 2;        // strike fires at the vpres peak, at most 2 blocks later
-static const int FADE_BLOCKS = 3;       // fade-out of a voice taken over by a new key (2 ms)
-static const real VEL_MIN = 0.06f;      // softest note (a very slow press still sounds)
-static const real PROMPT_SIG = 7.0f;    // extra decay rate (1/s) of the prompt stage at prompt = 1
-static const real PROMPT_TAU = 0.3f;    // prompt stage time constant at C4 (s)
-static const real DAMP_SIG = 40.0f;     // damper decay rate (1/s, T60 0.17 s) at C4, damper = 1
-static const real DIG_MAX = 0.6f;       // pressure -> drive: up to +60 % at dig = 1
-static const real HAMMER_C = 0.25f;     // f0 * contact time at vel 0 is HAMMER_C * 1.5 / hard
-static const real U_REF = 0.225f;       // f0 * contact time of the reference strike (vel 0.6)
-static const real ENERGY_CAP = 12.0f;   // soft cap on the mode energy (sum |z|^2) of a voice
-static const real ENERGY_BAD = 1e4f;    // above this (or NaN) the voice is reset
-static const real GATE_ENERGY = 1e-11f; // a voice below this goes idle (about -110 dB)
+static constexpr real F_HI0 = 14000.0f, F_HI1 = 19000.0f;  // upper modes fade out between these
+static constexpr real STRIKE_THR = 0.15f;   // vpres re-striking a held (re-armed) key
+static constexpr real DAMP_PRES = 0.06f;    // below this key pressure the damper starts to touch
+static constexpr int ARM_BLOCKS = 2;        // strike fires at the vpres peak, at most 2 blocks later
+static constexpr int FADE_BLOCKS = 3;       // fade-out of a voice taken over by a new key (2 ms)
+static constexpr real VEL_MIN = 0.06f;      // softest note (a very slow press still sounds)
+static constexpr real PROMPT_SIG = 7.0f;    // extra decay rate (1/s) of the prompt stage at prompt = 1
+static constexpr real PROMPT_TAU = 0.3f;    // prompt stage time constant at C4 (s)
+static constexpr real DAMP_SIG = 40.0f;     // damper decay rate (1/s, T60 0.17 s) at C4, damper = 1
+static constexpr real DIG_MAX = 0.6f;       // pressure -> drive: up to +60 % at dig = 1
+static constexpr real HAMMER_C = 0.25f;     // f0 * contact time at vel 0 is HAMMER_C * 1.5 / hard
+static constexpr real U_REF = 0.225f;       // f0 * contact time of the reference strike (vel 0.6)
+static constexpr real ENERGY_CAP = 12.0f;   // soft cap on the mode energy (sum |z|^2) of a voice
+static constexpr real ENERGY_BAD = 1e4f;    // above this (or NaN) the voice is reset
+static constexpr real GATE_ENERGY = 1e-11f; // a voice below this goes idle (about -110 dB)
 
 struct VoiceState {
 	real re[NM], im[NM];   // mode states; im is the displacement
@@ -263,26 +266,26 @@ struct Engine {
 // ---------------------------------------------------------------------------------------------
 // Helpers (no libm)
 
-static inline real clampr(real x, real lo, real hi) { return rmin(rmax(x, lo), hi); }
+[[nodiscard]] static inline real clampr(real x, real lo, real hi) { return rmin(rmax(x, lo), hi); }
 
 // cos and sin for |x| <= pi/2 (Taylor to x^8 / x^9, error below 4e-6)
-static inline real cos_poly(real x) {
+[[nodiscard]] static inline real cos_poly(real x) {
 	real x2 = x * x;
 	return 1.0f + x2 * (-0.5f + x2 * (1.0f / 24 + x2 * (-1.0f / 720 + x2 * (1.0f / 40320))));
 }
-static inline real sin_poly(real x) {
+[[nodiscard]] static inline real sin_poly(real x) {
 	real x2 = x * x;
 	return x * (1.0f + x2 * (-1.0f / 6 + x2 * (1.0f / 120 + x2 * (-1.0f / 5040 + x2 * (1.0f / 362880)))));
 }
 // sin(2 pi p) for p in [0, 1)
-static inline real sin_turn(real p) {
+[[nodiscard]] static inline real sin_turn(real p) {
 	real x = 6.2831853f * p - 3.1415927f;
 	if (x > 1.5707963f) x = 3.1415927f - x;
 	else if (x < -1.5707963f) x = -3.1415927f - x;
 	return -sin_poly(x);
 }
 // 2^p for |p| < 100, relative error ~2e-7
-static inline real exp2_poly(real p) {
+[[nodiscard]] static inline real exp2_poly(real p) {
 	p = clampr(p, -100.0f, 100.0f);
 	int i = (int)p;
 	if ((real)i > p) i--;
@@ -293,7 +296,7 @@ static inline real exp2_poly(real p) {
 	return y * s.f;
 }
 // 1/sqrt(x) for x > 0, relative error ~5e-6
-static inline real rsqrt_fast(real x) {
+[[nodiscard]] static inline real rsqrt_fast(real x) {
 	union { float f; uint32_t i; } u = { x };
 	u.i = 0x5f375a86u - (u.i >> 1);
 	real y = u.f;
@@ -302,33 +305,33 @@ static inline real rsqrt_fast(real x) {
 	return y;
 }
 // tan(x) for 0 <= x < 1.5 ([7/6] Pade, as strisy::svf_pade)
-static inline real tan_pade(real x) {
+[[nodiscard]] static inline real tan_pade(real x) {
 	const real x2 = x * x;
 	return x * (135135.0f + x2 * (-17325.0f + x2 * (378.0f - x2))) /
 	       (135135.0f + x2 * (-62370.0f + x2 * (3150.0f - 28.0f * x2)));
 }
 // soft clipper: x - 4/27 x^3 on |x| <= 1.5, +-1 beyond (C1, slope 1 at 0)
-static inline real sat(real x) {
+[[nodiscard]] static inline real sat(real x) {
 	x = clampr(x, -1.5f, 1.5f);
 	return x * (1.0f - 0.148148148f * x * x);
 }
 // electrostatic pickup curve: tanh Pade x(27+x^2)/(27+9x^2), +-1 at |x| >= 3 (C1)
-static inline real wcurve(real x) {
+[[nodiscard]] static inline real wcurve(real x) {
 	x = clampr(x, -3.0f, 3.0f);
 	const real x2 = x * x;
 	return x * (27.0f + x2) / (27.0f + 9.0f * x2);
 }
-static inline real wslope(real x) {
+[[nodiscard]] static inline real wslope(real x) {
 	x = clampr(x, -3.0f, 3.0f);
 	const real x2 = x * x;
 	const real d = 27.0f + 9.0f * x2;
 	return ((27.0f + 3.0f * x2) * d - (27.0f + x2) * 18.0f * x2) / (d * d);
 }
 // hammer contact spectrum weight of a mode at f * contact time u (smooth low-pass)
-static inline real hammer_w(real u) { const real u2 = u * u; return 1.0f / (1.0f + u2 * (4.0f + u2)); }
+[[nodiscard]] static inline real hammer_w(real u) { const real u2 = u * u; return 1.0f / (1.0f + u2 * (4.0f + u2)); }
 // level of a mode with frequency ratio relative to the reference strike, soft-limited to 3x
 // (a very hard hammer cannot make the upper modes louder without bound)
-static inline real hammer_rel(real ratio, real u1) {
+[[nodiscard]] static inline real hammer_rel(real ratio, real u1) {
 	const real h = hammer_w(ratio * u1) / hammer_w(ratio * U_REF);
 	return 3.0f * h / (h + 2.0f);
 }
@@ -394,12 +397,12 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 		s.arm = 0; s.rearm = 1; s.held_prev = 0;
 		s.vpk = 0.0f; s.ppk = 0.0f; s.ty = 0.0f; s.ps = 0.0f;
 	}
-	set_preset(e, EP_PRESET);
+	set_preset(e, DEFAULT_PRESET);
 }
 
 // pickup values for alignment a and drive scale
 struct Pick { real D, A, B, P0, NG, W; };
-static inline Pick pickup_vals(const Params& P, real a, real dig_gain, real reg, real rs_reg) {
+[[nodiscard]] static inline Pick pickup_vals(const Params& P, real a, real dig_gain, real reg, real rs_reg) {
 	Pick k;
 	k.W = clampr(P.wurli, 0.0f, 1.0f);
 	k.A = a;
@@ -417,7 +420,7 @@ static inline Pick pickup_vals(const Params& P, real a, real dig_gain, real reg,
 
 // the modes and the pickup over one block; returns the sum of the output
 template <int MODE>   // 0: magnetic only, 1: electrostatic only, 2: both (morph)
-static inline real render(VoiceState& s, const Pick& p0, const Pick& p1, real* __restrict__ out) {
+[[nodiscard]] static inline real render(VoiceState& s, const Pick& p0, const Pick& p1, real* __restrict__ out) {
 	real r0 = s.re[0], q0 = s.im[0], r1 = s.re[1], q1 = s.im[1];
 	real r2 = s.re[2], q2 = s.im[2], r3 = s.re[3], q3 = s.im[3];
 	const real c0 = s.cc[0], c1 = s.cc[1], c2 = s.cc[2], c3 = s.cc[3];
@@ -465,7 +468,7 @@ static inline real render_any(VoiceState& s, const Pick& p0, const Pick& p1, rea
 	return render<2>(s, p0, p1, out);
 }
 
-static inline Pick last_pick(const VoiceState& s) {
+[[nodiscard]] static inline Pick last_pick(const VoiceState& s) {
 	Pick k = {s.pD, s.pA, s.pB, s.pP0, s.pNG, s.pW};
 	return k;
 }
@@ -640,7 +643,7 @@ static inline void process_voice(Engine& e, int v) {
 	if (energy < GATE_ENERGY && s.arm == 0) reset_voice(s);
 }
 
-static inline int active_voices(const Engine& e) {
+[[nodiscard]] static inline int active_voices(const Engine& e) {
 	int n = 0;
 	for (int v = 0; v < e.nvoices; v++) n += e.vs[v].active;
 	return n;
@@ -701,34 +704,34 @@ static inline void process(Engine& e, real* __restrict__ output) {
 
 namespace strisy {
 template <> struct EngineParams<ep::Engine> {
-	static const int count = ep::NUM_PARAMS;
+	static constexpr int count = ep::NUM_PARAMS;
 	static const ParamDesc* desc(int i) {
-		static const ParamDesc d[ep::NUM_PARAMS] = {
-			{"hard", "hammer", 0.3f, 3.0f, 0},
-			{"vsens", "hammer", 0.5f, 4.0f, 0},
-			{"dyn", "hammer", 0.0f, 1.0f, 0},
-			{"decay", "tine", 0.2f, 30.0f, 0},
-			{"dkey", "tine", 0.0f, 1.5f, 0},
-			{"prompt", "tine", 0.0f, 1.0f, 0},
-			{"bell", "tine", 0.0f, 2.0f, 0},
-			{"bratio", "tine", 2.0f, 16.0f, 0},
-			{"bdecay", "tine", 0.05f, 5.0f, 0},
-			{"tick", "tine", 0.0f, 1.5f, 0},
-			{"tratio", "tine", 6.0f, 30.0f, 0},
-			{"beat", "tonebar", 0.0f, 0.5f, 0},
-			{"bcents", "tonebar", 0.0f, 25.0f, 0},
-			{"align", "pickup", 0.3f, 1.6f, 0},
-			{"tilt", "pickup", 0.0f, 0.6f, 0},
-			{"drive", "pickup", 0.2f, 4.0f, 0},
-			{"dig", "pickup", 0.0f, 1.0f, 0},
-			{"wurli", "pickup", 0.0f, 1.0f, 0},
-			{"damper", "damper", 0.0f, 3.0f, 0},
-			{"gain", "amp", 0.0f, 8.0f, 0},
-			{"grit", "amp", 0.0f, 1.0f, 0},
-			{"tone", "amp", 800.0f, 16000.0f, 0},
-			{"bodyhz", "amp", 60.0f, 4000.0f, 0},
-			{"body", "amp", -0.9f, 2.0f, 0},
-			{"wobble", "mod", 0.0f, 40.0f, 0},
+		static constexpr ParamDesc d[ep::NUM_PARAMS] = {
+			{"hard", "hammer", 0.3f, 3.0f, strisy::ParamKind::continuous},
+			{"vsens", "hammer", 0.5f, 4.0f, strisy::ParamKind::continuous},
+			{"dyn", "hammer", 0.0f, 1.0f, strisy::ParamKind::continuous},
+			{"decay", "tine", 0.2f, 30.0f, strisy::ParamKind::continuous},
+			{"dkey", "tine", 0.0f, 1.5f, strisy::ParamKind::continuous},
+			{"prompt", "tine", 0.0f, 1.0f, strisy::ParamKind::continuous},
+			{"bell", "tine", 0.0f, 2.0f, strisy::ParamKind::continuous},
+			{"bratio", "tine", 2.0f, 16.0f, strisy::ParamKind::continuous},
+			{"bdecay", "tine", 0.05f, 5.0f, strisy::ParamKind::continuous},
+			{"tick", "tine", 0.0f, 1.5f, strisy::ParamKind::continuous},
+			{"tratio", "tine", 6.0f, 30.0f, strisy::ParamKind::continuous},
+			{"beat", "tonebar", 0.0f, 0.5f, strisy::ParamKind::continuous},
+			{"bcents", "tonebar", 0.0f, 25.0f, strisy::ParamKind::continuous},
+			{"align", "pickup", 0.3f, 1.6f, strisy::ParamKind::continuous},
+			{"tilt", "pickup", 0.0f, 0.6f, strisy::ParamKind::continuous},
+			{"drive", "pickup", 0.2f, 4.0f, strisy::ParamKind::continuous},
+			{"dig", "pickup", 0.0f, 1.0f, strisy::ParamKind::continuous},
+			{"wurli", "pickup", 0.0f, 1.0f, strisy::ParamKind::continuous},
+			{"damper", "damper", 0.0f, 3.0f, strisy::ParamKind::continuous},
+			{"gain", "amp", 0.0f, 8.0f, strisy::ParamKind::continuous},
+			{"grit", "amp", 0.0f, 1.0f, strisy::ParamKind::continuous},
+			{"tone", "amp", 800.0f, 16000.0f, strisy::ParamKind::continuous},
+			{"bodyhz", "amp", 60.0f, 4000.0f, strisy::ParamKind::continuous},
+			{"body", "amp", -0.9f, 2.0f, strisy::ParamKind::continuous},
+			{"wobble", "mod", 0.0f, 40.0f, strisy::ParamKind::continuous},
 		};
 		return (i >= 0 && i < ep::NUM_PARAMS) ? &d[i] : 0;
 	}

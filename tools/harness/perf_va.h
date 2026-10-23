@@ -297,7 +297,7 @@ static void va_test_hook(Engine& e) {
 			float x = u < 0.25f ? orig + (d->min - orig) * u * 4 : u < 0.75f ? d->min + (d->max - d->min) * (u - 0.25f) * 2
 			          : d->max + (orig - d->max) * (u - 0.75f) * 4;
 			if (j + 4 >= seg) x = orig;
-			if (d->kind == 2) x = u < 0.5f ? 1.0f - orig : orig;
+			if (d->kind == strisy::ParamKind::toggle) x = u < 0.5f ? 1.0f - orig : orig;
 #ifdef VA_LIVE_LOG
 			if (j == 0) fprintf(stderr, "W %d %s %g\n", b, d->name, orig);
 #endif
@@ -310,8 +310,8 @@ static void va_test_hook(Engine& e) {
 		const int i = (int)(rnd() * EP::count);
 		const strisy::ParamDesc* d = EP::desc(i);
 		const float a = rnd();
-		float x = d->kind == 2 ? (a < 0.5f ? 0.0f : 1.0f) : a < 0.1f ? d->min : a < 0.2f ? d->max : d->min + (d->max - d->min) * rnd();
-		if (d->kind == 1) x = (float)(int)(x + 0.5f);
+		float x = d->kind == strisy::ParamKind::toggle ? (a < 0.5f ? 0.0f : 1.0f) : a < 0.1f ? d->min : a < 0.2f ? d->max : d->min + (d->max - d->min) * rnd();
+		if (d->kind == strisy::ParamKind::steps) x = (float)(int)(x + 0.5f);
 #ifdef VA_LIVE_LOG
 		fprintf(stderr, "W %d %s %g\n", b, d->name, x);
 #endif

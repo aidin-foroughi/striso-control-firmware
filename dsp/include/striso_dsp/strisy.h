@@ -5,7 +5,7 @@
  * - voice-major processing: each voice runs over the whole block with its state in locals
  *   (registers) instead of all voices advancing one sample at a time
  * - block-constant values computed once per block
- * - silent voices are skipped (STRISY_GATING)
+ * - silent voices are skipped (GATING)
  * - every filter is a trapezoidal state-variable filter. fast.lib's LPF/HPF/BPF(K,Q) are bilinear
  *   transforms of 2-pole analog filters, which is exactly the SVF with g = K, but the direct form II
  *   biquads lose precision at low cutoffs in real (the 40 Hz accelerometer smoothing had a DC gain
@@ -22,16 +22,6 @@
 #include <stdint.h>
 #include <math.h>
 
-#ifndef STRISY_GATING
-#define STRISY_GATING 1
-#endif
-
-// STRISY_OSC_FAUST=1: float oscillator phase with the exact expressions of the Faust code
-// (bit-identical output, used by the harness); default: fixed-point phase
-#ifndef STRISY_OSC_FAUST
-#define STRISY_OSC_FAUST 0
-#endif
-
 // optional profiling hooks (the firmware maps them to the cycle counter)
 #ifndef STRISY_PROF_START
 #define STRISY_PROF_START()
@@ -42,32 +32,49 @@ namespace strisy {
 
 // sample type: float on the board; the host harness can build with STRISY_REAL=double to check the
 // algorithm against Faust's -double output independent of float rounding
-#ifndef STRISY_REAL
-#define STRISY_REAL float
+#ifdef STRISY_REAL
+using real = STRISY_REAL;
+#else
+using real = float;
 #endif
-typedef STRISY_REAL real;
 
-static const int BLOCK = 32;
-static const int TABLESIZE = 4096;
-static const int MAX_VOICES = 16;
+// silent voices are skipped (host experiments: -DSTRISY_GATING=0 runs every voice all the time)
+#ifdef STRISY_GATING
+static constexpr bool GATING = STRISY_GATING;
+#else
+static constexpr bool GATING = true;
+#endif
+
+// -DSTRISY_OSC_FAUST=1: float oscillator phase with the exact expressions of the Faust code
+// (bit-identical output, used by the harness); default: fixed-point phase
+#ifdef STRISY_OSC_FAUST
+static constexpr bool OSC_FAUST = STRISY_OSC_FAUST;
+#else
+static constexpr bool OSC_FAUST = false;
+#endif
+
+static constexpr int BLOCK = 32;
+static constexpr int TABLESIZE = 4096;
+static constexpr int MAX_VOICES = 16;
 
 // Control rate divider: smoothers, envelope and filter coefficients run every CTRL samples and are
 // linearly interpolated to audio rate. Their inputs are smoothed below ~100 Hz; against the
 // double-precision reference the deviation is about -60 dB at CTRL = 8 (6.1 kHz control rate) and
 // -64 dB at CTRL = 4. CTRL = 1 is the exact per-sample path.
-#ifndef STRISY_CTRL
-#define STRISY_CTRL 8
+#ifdef STRISY_CTRL
+static constexpr int CTRL = STRISY_CTRL;
+#else
+static constexpr int CTRL = 8;
 #endif
-static const int CTRL = STRISY_CTRL;
-static const int NCTRL = BLOCK / CTRL;
+static constexpr int NCTRL = BLOCK / CTRL;
 static_assert(BLOCK % CTRL == 0, "STRISY_CTRL must divide the block size");
-static const int NCV = 9;    // interpolated control values per voice
-static const int PHASE_FRAC = 19;  // fixed-point oscillator phase: 13 integer bits (period <= 4096 plus jumps)
+static constexpr int NCV = 9;    // interpolated control values per voice
+static constexpr int PHASE_FRAC = 19;  // fixed-point oscillator phase: 13 integer bits (period <= 4096 plus jumps)
 
 // ---------------------------------------------------------------------------------------------
 // Approximations from fast.lib / fastpow.h, kept identical so the sound matches synth.dsp
 
-static inline float fastpow2(float p) {
+[[nodiscard]] static inline float fastpow2(float p) {
 	int w = p;
 	float z = p - w;
 	union { uint32_t i; float f; } v = { static_cast<uint32_t>((1 << 23) * (p + 121.2740575f + 27.7280233f / (4.84252568f - z) - 1.49012907f * z)) };
@@ -75,7 +82,7 @@ static inline float fastpow2(float p) {
 }
 
 // Taylor approximation of tan used by fast.lib's K_f0
-static inline real tan0(real a) {
+[[nodiscard]] static inline real tan0(real a) {
 	real a2 = a * a;
 	return ((0.2033f * a2 + 0.31755f) * a2 + 1.0f) * a;
 }
@@ -89,7 +96,7 @@ static inline real tan0(real a) {
 struct SvfCoef { real a, ga, g2a, k; };
 struct SvfState { real ic1, ic2; };
 
-static inline SvfCoef svf_from_g(real g, real Q) {
+[[nodiscard]] static inline SvfCoef svf_from_g(real g, real Q) {
 	real k = 1.0f / Q;
 	real a = 1.0f / (1.0f + g * (g + k));
 	return {a, g * a, g * g * a, k};
@@ -97,7 +104,7 @@ static inline SvfCoef svf_from_g(real g, real Q) {
 
 // per-sample version for modulated cutoffs: g = x*N(x^2)/D(x^2) ([7/6] Pade of tan(x), x = pi*F/SR)
 // folded into one division; k is not needed for the lowpass and raw bandpass outputs
-static inline SvfCoef svf_pade(real x, real Q) {
+[[nodiscard]] static inline SvfCoef svf_pade(real x, real Q) {
 	real x2 = x * x;
 	real gN = x * (135135.0f + x2 * (-17325.0f + x2 * (378.0f - x2)));
 	real D = 135135.0f + x2 * (-62370.0f + x2 * (3150.0f - 28.0f * x2));
@@ -108,8 +115,8 @@ static inline SvfCoef svf_pade(real x, real Q) {
 
 // max/min as single vmaxnm/vminnm instructions (a ternary select needs vcmp + vmrs, which waits
 // for the FPU pipeline to drain); identical results for the non-NaN values used here
-static inline real rmax(real a, real b) { return sizeof(real) == sizeof(float) ? (real)fmaxf((float)a, (float)b) : (real)fmax(a, b); }
-static inline real rmin(real a, real b) { return sizeof(real) == sizeof(float) ? (real)fminf((float)a, (float)b) : (real)fmin(a, b); }
+[[nodiscard]] static inline real rmax(real a, real b) { return sizeof(real) == sizeof(float) ? (real)fmaxf((float)a, (float)b) : (real)fmax(a, b); }
+[[nodiscard]] static inline real rmin(real a, real b) { return sizeof(real) == sizeof(float) ? (real)fminf((float)a, (float)b) : (real)fmin(a, b); }
 
 #define SVF_TICK(v0, st_ic1, st_ic2, c, v1, v2) do { \
 		real e_ = (v0) - st_ic2; \
@@ -122,34 +129,41 @@ static inline real rmin(real a, real b) { return sizeof(real) == sizeof(float) ?
 // ---------------------------------------------------------------------------------------------
 // Parameters of synth.dsp (its hsliders are compiled as constants)
 
-static const real minFreq = 200.0f;
-static const real filtQ = 1.0f;
-static const real filtFF = 1.0f;
-static const real filt2Freq = 3000.0f;
-static const real filt2Q = 2.0f;
-static const real filt2level = 0.8f;
-static const real bfQ[3] = {5.0f, 8.0f, 8.0f};
-static const real bflevel = 6.0f;
-static const real accDecay = 0.10f;
+static constexpr real minFreq = 200.0f;
+static constexpr real filtQ = 1.0f;
+static constexpr real filtFF = 1.0f;
+static constexpr real filt2Freq = 3000.0f;
+static constexpr real filt2Q = 2.0f;
+static constexpr real filt2level = 0.8f;
+static constexpr real bfQ[3] = {5.0f, 8.0f, 8.0f};
+static constexpr real bflevel = 6.0f;
+static constexpr real accDecay = 0.10f;
 
 // Gating threshold on the voice level envelope (output is level * filters, so about -120 dB)
-static const real GATE_LEVEL = 1e-6f;
+static constexpr real GATE_LEVEL = 1e-6f;
 
 // Live-editable parameters (tools/app). An engine with parameters specializes
 // strisy::EngineParams<its Engine>; the default here means "no parameters".
 // ptr() returns the live value, changed() is called (in the synth thread) after it was written,
 // so the engine can recompute derived values. Values are clamped to [min, max] before writing.
+// What a parameter's values mean; the number is what the USB console reports (tools/striso.py).
+enum class ParamKind : uint8_t {
+	continuous = 0,  // any value in [min, max]
+	steps = 1,       // integers (writes are rounded)
+	toggle = 2,      // on/off: min or max
+};
+
 struct ParamDesc {
 	const char* name;   // short id, e.g. "cutoff"
 	const char* group;  // UI group, e.g. "filter"
 	float min, max;
-	uint8_t kind;       // 0: continuous, 1: integer steps, 2: on/off
+	ParamKind kind;
 };
 
 template <class E> struct EngineParams {
-	static const int count = 0;
-	static const ParamDesc* desc(int) { return 0; }
-	static float* ptr(E&, int) { return 0; }
+	static constexpr int count = 0;
+	[[nodiscard]] static const ParamDesc* desc(int) { return nullptr; }
+	[[nodiscard]] static float* ptr(E&, int) { return nullptr; }
 	static void changed(E&, int) {}
 };
 
@@ -164,7 +178,7 @@ struct GlobalControls {
 };
 
 struct VoiceState {
-	real phase;                 // oscillator phase (STRISY_OSC_FAUST)
+	real phase;                 // oscillator phase (OSC_FAUST)
 	uint32_t phase_fx;           // oscillator phase, fixed point with PHASE_FRAC fraction bits
 	real note_prev;
 	real env;                   // velocity envelope (envdecay)
@@ -208,7 +222,7 @@ struct Engine {
 	float table[TABLESIZE];      // noise wavetable
 };
 
-static inline real K_f0(const Engine& e, real f0) { return tan0(e.pi_sr * f0); }
+[[nodiscard]] static inline real K_f0(const Engine& e, real f0) { return tan0(e.pi_sr * f0); }
 
 // rand_hoaglin from fastpow.h, same seed, so the noise table equals synth.dsp's
 static inline void fill_noise_table(float* table) {
@@ -284,15 +298,15 @@ static inline void process_voice(Engine& e, int v) {
 
 	const real vpres1 = c.vpres - 0.02f > 0.0f ? c.vpres - 0.02f : 0.0f;
 	const real vplev = vpres1 / (0.5f + vpres1);
-#if STRISY_GATING
-	if (!s.active) {
-		if (c.pres <= 0.0f && vplev <= 0.0f) {
-			s.note_prev = c.note;
-			return;
+	if constexpr (GATING) {
+		if (!s.active) {
+			if (c.pres <= 0.0f && vplev <= 0.0f) {
+				s.note_prev = c.note;
+				return;
+			}
+			s.active = 1;
 		}
-		s.active = 1;
 	}
-#endif
 	// block-rate values
 	const real p2 = fastpow2(0.083333333333333329f * c.note);
 	const real periodf = e.c_period / p2;
@@ -405,39 +419,39 @@ static inline void process_voice(Engine& e, int v) {
 	}
 	STRISY_PROF_MARK(7);  // 1b coefficients
 	{	// 2a: periodic noise oscillator
-#if STRISY_OSC_FAUST
-		// same float expressions as the Faust code (bit-identical), for comparisons in the harness
-		real phase = s.phase;
-		for (int n = 0; n < BLOCK; n++) {
-			phase = inc + (phase - (real)(period * ((inc + phase) > fperiod)));
-			int i0 = (int)phase;
-			int i1 = i0 + 1;  // (i0 + 1) % period; the slow path only runs right after a big pitch jump
-			if (i1 >= period) { i1 -= period; if (i1 >= period) i1 %= period; }
-			i0 &= TABLESIZE - 1;  // phase == period == 4096 can only happen for notes below ~12 Hz
-			real t0 = table[i0];
-			w.osc[n] = t0 + (phase - (real)i0) * (table[i1] - t0);
+		if constexpr (OSC_FAUST) {
+			// same float expressions as the Faust code (bit-identical), for comparisons in the harness
+			real phase = s.phase;
+			for (int n = 0; n < BLOCK; n++) {
+				phase = inc + (phase - (real)(period * ((inc + phase) > fperiod)));
+				int i0 = (int)phase;
+				int i1 = i0 + 1;  // (i0 + 1) % period; the slow path only runs right after a big pitch jump
+				if (i1 >= period) { i1 -= period; if (i1 >= period) i1 %= period; }
+				i0 &= TABLESIZE - 1;  // phase == period == 4096 can only happen for notes below ~12 Hz
+				real t0 = table[i0];
+				w.osc[n] = t0 + (phase - (real)i0) * (table[i1] - t0);
+			}
+			s.phase = phase;
+		} else {
+			// same oscillator with a fixed-point phase: integer compare and index instead of a float
+			// compare (which stalls on the FPSCR transfer) and float/int conversions. More accurate
+			// than the float accumulator; a different but equivalent noise realization.
+			const uint32_t inc_fx = (uint32_t)(inc * (real)(1u << PHASE_FRAC) + 0.5f);
+			const uint32_t period_fx = (uint32_t)period << PHASE_FRAC;
+			uint32_t phase = s.phase_fx;
+			for (int n = 0; n < BLOCK; n++) {
+				phase += inc_fx;
+				if (phase > period_fx) phase -= period_fx;
+				int i0 = (int)(phase >> PHASE_FRAC);
+				int i1 = i0 + 1;  // (i0 + 1) % period; the slow path only runs right after a big pitch jump
+				if (i1 >= period) { i1 -= period; if (i1 >= period) i1 %= period; }
+				i0 &= TABLESIZE - 1;
+				real t0 = table[i0];
+				real frac = (real)(int32_t)(phase & ((1u << PHASE_FRAC) - 1)) * (1.0f / (1u << PHASE_FRAC));
+				w.osc[n] = t0 + frac * (table[i1] - t0);
+			}
+			s.phase_fx = phase;
 		}
-		s.phase = phase;
-#else
-		// same oscillator with a fixed-point phase: integer compare and index instead of a float
-		// compare (which stalls on the FPSCR transfer) and float/int conversions. More accurate
-		// than the float accumulator; a different but equivalent noise realization.
-		const uint32_t inc_fx = (uint32_t)(inc * (real)(1u << PHASE_FRAC) + 0.5f);
-		const uint32_t period_fx = (uint32_t)period << PHASE_FRAC;
-		uint32_t phase = s.phase_fx;
-		for (int n = 0; n < BLOCK; n++) {
-			phase += inc_fx;
-			if (phase > period_fx) phase -= period_fx;
-			int i0 = (int)(phase >> PHASE_FRAC);
-			int i1 = i0 + 1;  // (i0 + 1) % period; the slow path only runs right after a big pitch jump
-			if (i1 >= period) { i1 -= period; if (i1 >= period) i1 %= period; }
-			i0 &= TABLESIZE - 1;
-			real t0 = table[i0];
-			real frac = (real)(int32_t)(phase & ((1u << PHASE_FRAC) - 1)) * (1.0f / (1u << PHASE_FRAC));
-			w.osc[n] = t0 + frac * (table[i1] - t0);
-		}
-		s.phase_fx = phase;
-#endif
 #ifdef STRISY_TEST_SIGNAL
 		for (int n = 0; n < BLOCK; n++) w.osc[n] = test[n];
 #endif
@@ -510,17 +524,17 @@ static inline void process_voice(Engine& e, int v) {
 	STRISY_PROF_MARK(5);  // 2c body filters
 	s.note_prev = c.note;
 	s.env = env;
-#if STRISY_GATING
-	const real level = w.ctrl[NCTRL - 1][8];
-	// go idle once released and faded out. The state is frozen, not cleared: the filters stay
-	// "warm" with noise like in the continuously running original, so a new note sounds the same.
-	if (pres <= 0.0f && vplev <= 0.0f && fabsf(level) < GATE_LEVEL && env < GATE_LEVEL) {
-		s.active = 0;
+	if constexpr (GATING) {
+		const real level = w.ctrl[NCTRL - 1][8];
+		// go idle once released and faded out. The state is frozen, not cleared: the filters stay
+		// "warm" with noise like in the continuously running original, so a new note sounds the same.
+		if (pres <= 0.0f && vplev <= 0.0f && fabsf(level) < GATE_LEVEL && env < GATE_LEVEL) {
+			s.active = 0;
+		}
 	}
-#endif
 }
 
-static inline int active_voices(const Engine& e) {
+[[nodiscard]] static inline int active_voices(const Engine& e) {
 	int n = 0;
 	for (int v = 0; v < e.nvoices; v++) n += e.vs[v].active;
 	return n;

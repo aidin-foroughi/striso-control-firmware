@@ -47,7 +47,7 @@ static void param_write(fx::Engine& e, int i, float value) {
 	float* p = strisy::EngineParams<fx::Engine>::ptr(e, i);
 	if (!d || !p || value != value) return;
 	float v = value < d->min ? d->min : (value > d->max ? d->max : value);
-	if (d->kind != 0) v = (float)(int)(v + (v >= 0 ? 0.5f : -0.5f));
+	if (d->kind != strisy::ParamKind::continuous) v = (float)(int)(v + (v >= 0 ? 0.5f : -0.5f));
 	*p = v;
 	strisy::EngineParams<fx::Engine>::changed(e, i);
 }

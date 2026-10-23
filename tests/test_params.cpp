@@ -81,7 +81,7 @@ template <class E> void check_table(const char* engine) {
 		CHECK(d->group != nullptr);
 		CHECK(names.insert(d->name).second);  // unique
 		CHECK(d->min <= d->max);
-		CHECK(d->kind <= 2);
+		CHECK(static_cast<int>(d->kind) <= 2);
 		CHECK(P::ptr(e, i) != nullptr);
 	}
 	CHECK(P::desc(P::count) == nullptr);

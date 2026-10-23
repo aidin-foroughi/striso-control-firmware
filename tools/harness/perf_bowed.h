@@ -206,7 +206,7 @@ static void bowed_test_hook(Engine& e) {
 		int i = (int)(rnd() * EP::count) % EP::count;
 		const strisy::ParamDesc* d = EP::desc(i);
 		float x = d->min + rnd() * (d->max - d->min);
-		if (d->kind == 2) x = x > 0.5f * (d->min + d->max) ? d->max : d->min;
+		if (d->kind == strisy::ParamKind::toggle) x = x > 0.5f * (d->min + d->max) ? d->max : d->min;
 		*EP::ptr(e, i) = x;
 		EP::changed(e, i);
 	}

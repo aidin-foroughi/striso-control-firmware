@@ -53,65 +53,101 @@
 
 namespace reed {
 
-typedef float real;
-static const int BLOCK = strisy::BLOCK;
-static const int MAX_VOICES = 10;
+using real = float;
+static constexpr int BLOCK = strisy::BLOCK;
+static constexpr int MAX_VOICES = 10;
 
 // delay lines: main tube up to (1 - BETA_SAX) * period, short tube up to period / 2.
 // The lowest note (MIDI 20, 26 Hz) has a period of 1881 samples.
-static const int MAIN_LEN = 2048;
-static const int SHORT_LEN = 2048;
-static const real NOTE_MIN = 18.0f;   // lower notes are clamped (period limited by the buffers)
-static const real NOTE_MAX = 122.0f;
+static constexpr int MAIN_LEN = 2048;
+static constexpr int SHORT_LEN = 2048;
+static constexpr real NOTE_MIN = 18.0f;   // lower notes are clamped (period limited by the buffers)
+static constexpr real NOTE_MAX = 122.0f;
 
 // ---------------------------------------------------------------------------------------------
 // Voice parameters (tuned on the host harness)
 
-static const real BETA_CLAR = 0.5f;      // apex/period ratio at full backward tilt (cylinder)
-#ifndef REED_BSAX
-#define REED_BSAX 0.28f
+static constexpr real BETA_CLAR = 0.5f;      // apex/period ratio at full backward tilt (cylinder)
+// (host experiments: -DREED_BSAX=...)
+#ifdef REED_BSAX
+static constexpr real BSAX = REED_BSAX;
+#else
+static constexpr real BSAX = 0.28f;
 #endif
-#ifndef REED_ZS
-#define REED_ZS 0.14f
+// (host experiments: -DREED_ZS=...)
+#ifdef REED_ZS
+static constexpr real ZS = REED_ZS;
+#else
+static constexpr real ZS = 0.14f;
 #endif
-static const real BETA_SAX = REED_BSAX;   // at full forward tilt (cone)
-static const real P_TH = 0.12f;          // pressure where gamma reaches G_TH (about where the reed speaks)
-static const real G_TH = 0.36f;
-static const real G_SLOPE = 0.46f;       // gamma per unit pressure above P_TH
-static const real G_MAX = 0.94f;         // gamma > 1 would choke the reed
-static const real GS = 0.997f;           // short tube end reflection
-#ifndef REED_FR
-#define REED_FR 4000.0f
+static constexpr real BETA_SAX = BSAX;   // at full forward tilt (cone)
+static constexpr real P_TH = 0.12f;          // pressure where gamma reaches G_TH (about where the reed speaks)
+static constexpr real G_TH = 0.36f;
+static constexpr real G_SLOPE = 0.46f;       // gamma per unit pressure above P_TH
+static constexpr real G_MAX = 0.94f;         // gamma > 1 would choke the reed
+static constexpr real GS = 0.997f;           // short tube end reflection
+// (host experiments: -DREED_FR=...)
+#ifdef REED_FR
+static constexpr real FR = REED_FR;
+#else
+static constexpr real FR = 4000.0f;
 #endif
-#ifndef REED_QR
-#define REED_QR 0.5f
+// (host experiments: -DREED_QR=...)
+#ifdef REED_QR
+static constexpr real QR = REED_QR;
+#else
+static constexpr real QR = 0.5f;
 #endif
-#ifndef REED_FRK
-#define REED_FRK 6.0f
+// (host experiments: -DREED_FRK=...)
+#ifdef REED_FRK
+static constexpr real FRK = REED_FRK;
+#else
+static constexpr real FRK = 6.0f;
 #endif
-#ifndef REED_FC0
-#define REED_FC0 1100.0f
+// (host experiments: -DREED_FC0=...)
+#ifdef REED_FC0
+static constexpr real FC0 = REED_FC0;
+#else
+static constexpr real FC0 = 1100.0f;
 #endif
-#ifndef REED_FC1
-#define REED_FC1 1800.0f
+// (host experiments: -DREED_FC1=...)
+#ifdef REED_FC1
+static constexpr real FC1 = REED_FC1;
+#else
+static constexpr real FC1 = 1800.0f;
 #endif
-#ifndef REED_FCTRACK
-#define REED_FCTRACK 2.0f
+// (host experiments: -DREED_FCTRACK=...)
+#ifdef REED_FCTRACK
+static constexpr real FCTRACK = REED_FCTRACK;
+#else
+static constexpr real FCTRACK = 2.0f;
 #endif
-#ifndef REED_GTH
-#define REED_GTH 1.05f
+// (host experiments: -DREED_GTH=...)
+#ifdef REED_GTH
+static constexpr real GTH = REED_GTH;
+#else
+static constexpr real GTH = 1.05f;
 #endif
-#ifndef REED_NG
-#define REED_NG 0.02f
+// (host experiments: -DREED_NG=...)
+#ifdef REED_NG
+static constexpr real NG = REED_NG;
+#else
+static constexpr real NG = 0.02f;
 #endif
-#ifndef REED_NO
-#define REED_NO 0.04f
+// (host experiments: -DREED_NO=...)
+#ifdef REED_NO
+static constexpr real NO = REED_NO;
+#else
+static constexpr real NO = 0.04f;
 #endif
-#ifndef REED_FCS
-#define REED_FCS 6.0f
+// (host experiments: -DREED_FCS=...)
+#ifdef REED_FCS
+static constexpr real FCS = REED_FCS;
+#else
+static constexpr real FCS = 6.0f;
 #endif
 
-static inline real fsqrt(real x) {
+[[nodiscard]] static inline real fsqrt(real x) {
 #if defined(__arm__) && defined(__ARM_FP)
 	real r;
 	__asm__("vsqrt.f32 %0, %1" : "=t"(r) : "t"(x));
@@ -121,15 +157,15 @@ static inline real fsqrt(real x) {
 #endif
 }
 
-static inline real clampr(real x, real lo, real hi) { return strisy::rmin(strisy::rmax(x, lo), hi); }
+[[nodiscard]] static inline real clampr(real x, real lo, real hi) { return strisy::rmin(strisy::rmax(x, lo), hi); }
 
 // measured tuning correction: samples of extra loop delay (reed dynamics, inharmonicity of the
 // lossy cone apex), for the clarinet (m = 0), middle and saxophone (m = 1) points of the morph, at notes
 // 20 + 7k (k = 0..13), interpolated linearly. Measured with tools/harness/out/reed_tune.h.
-static const real CORR_CLAR[14] = {1.02f, 1.29f, 1.35f, 1.35f, 1.34f, 1.27f, 1.15f, 0.91f, 0.83f, 0.57f, 0.38f, 0.36f, 0.41f, 0.38f};
-static const real CORR_SAX[14] = {-4.92f, -2.94f, -1.73f, -0.89f, -0.22f, 0.29f, 0.66f, 0.96f, 1.01f, 0.61f, 0.43f, 0.33f, 0.29f, 0.48f};
-static const real CORR_MID[14] = {0.33f, 0.56f, 0.47f, 0.49f, 0.46f, 0.50f, 0.63f, 0.79f, 1.00f, 0.65f, 0.45f, 0.37f, 0.44f, 0.43f};
-static inline real tuning_corr(real note, real m) {
+static constexpr real CORR_CLAR[14] = {1.02f, 1.29f, 1.35f, 1.35f, 1.34f, 1.27f, 1.15f, 0.91f, 0.83f, 0.57f, 0.38f, 0.36f, 0.41f, 0.38f};
+static constexpr real CORR_SAX[14] = {-4.92f, -2.94f, -1.73f, -0.89f, -0.22f, 0.29f, 0.66f, 0.96f, 1.01f, 0.61f, 0.43f, 0.33f, 0.29f, 0.48f};
+static constexpr real CORR_MID[14] = {0.33f, 0.56f, 0.47f, 0.49f, 0.46f, 0.50f, 0.63f, 0.79f, 1.00f, 0.65f, 0.45f, 0.37f, 0.44f, 0.43f};
+[[nodiscard]] static inline real tuning_corr(real note, real m) {
 	real k = clampr((note - 20.0f) * (1.0f / 7.0f), 0.0f, 12.999f);
 	int i = (int)k;
 	real f = k - (real)i;
@@ -141,7 +177,7 @@ static inline real tuning_corr(real note, real m) {
 }
 
 // 2^p for any |p| < 60 (strisy::fastpow2 is only valid for p >= 0), relative error ~1e-7; block rate
-static inline real pow2(real p) {
+[[nodiscard]] static inline real pow2(real p) {
 	p = clampr(p, -60.0f, 60.0f);
 	int w = (int)p;
 	if ((real)w > p) w--;
@@ -152,16 +188,16 @@ static inline real pow2(real p) {
 }
 
 // sin/cos for |x| <= pi/2 (as in voice_sine.h)
-static inline real cos_poly(real x) {
+[[nodiscard]] static inline real cos_poly(real x) {
 	real x2 = x * x;
 	return 1.0f + x2 * (-0.5f + x2 * (1.0f / 24 + x2 * (-1.0f / 720 + x2 * (1.0f / 40320))));
 }
-static inline real sin_poly(real x) {
+[[nodiscard]] static inline real sin_poly(real x) {
 	real x2 = x * x;
 	return x * (1.0f + x2 * (-1.0f / 6 + x2 * (1.0f / 120 + x2 * (-1.0f / 5040 + x2 * (1.0f / 362880)))));
 }
 // atan for t >= 0, error < 1e-5 (odd minimax polynomial on [0, 1] + reflection); block rate only
-static inline real atan_pos(real t) {
+[[nodiscard]] static inline real atan_pos(real t) {
 	bool inv = t > 1.0f;
 	real z = inv ? 1.0f / t : t;
 	real z2 = z * z;
@@ -170,7 +206,7 @@ static inline real atan_pos(real t) {
 }
 
 // atan2 from atan_pos; block rate only
-static inline real atan2_r(real y, real x) {
+[[nodiscard]] static inline real atan2_r(real y, real x) {
 	const real ax = fabsf(x), ay = fabsf(y);
 	if (ax + ay <= 0.0f) return 0.0f;
 	real a = ax >= ay ? atan_pos(ay / ax) : 1.5707963f - atan_pos(ax / ay);
@@ -244,7 +280,7 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 }
 
 // breath pressure -> gamma (mouth pressure / reed closing pressure)
-static inline real gamma_of(real p) {
+[[nodiscard]] static inline real gamma_of(real p) {
 	return p < P_TH ? p * (G_TH / P_TH) : G_TH + G_SLOPE * (p - P_TH);
 }
 
@@ -292,8 +328,8 @@ static inline void process_voice(Engine& e, int v) {
 
 	// bell / tone hole lattice: 2-pole Butterworth lowpass in the main loop (above the cutoff the
 	// bore has no resonances, so the reed can't squeak there); the cutoff tracks pitch for high notes
-	real fc = (REED_FC0 + (REED_FC1 - REED_FC0) * m) * (0.85f + 0.3f * ps);
-	fc = strisy::rmax(fc, REED_FCTRACK * f0);
+	real fc = (FC0 + (FC1 - FC0) * m) * (0.85f + 0.3f * ps);
+	fc = strisy::rmax(fc, FCTRACK * f0);
 	const real K = strisy::tan0(strisy::rmin(fc * 3.1415927f / sr, 1.2f));
 	const real bnorm = 1.0f / (1.0f + 1.4142136f * K + K * K);
 	const real bb0 = K * K * bnorm;
@@ -305,11 +341,11 @@ static inline void process_voice(Engine& e, int v) {
 	const real tau = 1.0f + atan2_r(-(ba1 * sw + ba2 * s2w), 1.0f + ba1 * cw + ba2 * c2w) / w0;
 
 	// reed: mass-spring, centered finite differences (stable for omega*T < 2)
-	const real zeta = 0.30f + REED_ZS * m;
-	real fr = (REED_FR - 600.0f * m);
-	fr = strisy::rmax(fr, REED_FRK * f0);
+	const real zeta = 0.30f + ZS * m;
+	real fr = (FR - 600.0f * m);
+	fr = strisy::rmax(fr, FRK * f0);
 	const real wr = strisy::rmin(fr * 6.2831853f / sr, 1.4f);
-	const real qr = REED_QR;
+	const real qr = QR;
 	const real A = 1.0f / (wr * wr), B = qr / (2.0f * wr);
 	const real ia0 = 1.0f / (A + B);
 	const real rb = ia0, r1 = (2.0f * A - 1.0f) * ia0, r2 = -(A - B) * ia0;
@@ -318,7 +354,7 @@ static inline void process_voice(Engine& e, int v) {
 	const real beta = BETA_CLAR + (BETA_SAX - BETA_CLAR) * m;
 	// short tube (cone apex) reflection lowpass: makes the impedance peaks of the higher modes
 	// even, so the fundamental is preferred; off for the clarinet (keeps the odd harmonics)
-	const real cps = clampr((m - 0.2f) * 2.5f, 0.0f, 1.0f) * pow2(-REED_FCS * f0 * (6.2831853f * 1.442695f) / sr);
+	const real cps = clampr((m - 0.2f) * 2.5f, 0.0f, 1.0f) * pow2(-FCS * f0 * (6.2831853f * 1.442695f) / sr);
 	const real cbs = 1.0f - cps;
 	const real taus = atan_pos(cps * sw / (1.0f - cps * cw)) / w0;
 	real D2 = clampr(beta * P - taus, 1.0f, (real)(SHORT_LEN - 2));
@@ -342,11 +378,11 @@ static inline void process_voice(Engine& e, int v) {
 	// (band-limited noise, 500 Hz .. 3 kHz). The audible breath rises with the square of the
 	// pressure up to about the speaking threshold, then fades as the reed takes over; the
 	// tongue adds a short burst at note onsets.
-	const real namt = REED_NG * (0.5f + (1.0f - clampr(ps, 0.0f, 1.0f))) + 0.15f * tg;
+	const real namt = NG * (0.5f + (1.0f - clampr(ps, 0.0f, 1.0f))) + 0.15f * tg;
 	const real nr = clampr(ps * (1.0f / 0.15f), 0.0f, 1.0f);
-	const real nout = REED_NO * nr * nr * (1.0f - 0.85f * clampr((ps - 0.1f) * 4.0f, 0.0f, 1.0f)) + 0.06f * tg;
+	const real nout = NO * nr * nr * (1.0f - 0.85f * clampr((ps - 0.1f) * 4.0f, 0.0f, 1.0f)) + 0.06f * tg;
 	// growl: pushed hard, or shaking
-	const real gr_t = clampr((ps - REED_GTH) * 3.0f, 0.0f, 1.0f) + e.shake;
+	const real gr_t = clampr((ps - GTH) * 3.0f, 0.0f, 1.0f) + e.shake;
 	s.growl += 0.05f * (strisy::rmin(gr_t, 1.2f) - s.growl);
 	if (s.growl < 1e-6f) s.growl = 0.0f;
 	const real gdep = 0.45f * s.growl;
@@ -461,7 +497,7 @@ static inline void process_voice(Engine& e, int v) {
 	}
 }
 
-static inline int active_voices(const Engine& e) {
+[[nodiscard]] static inline int active_voices(const Engine& e) {
 	int n = 0;
 	for (int v = 0; v < e.nvoices; v++) n += e.vs[v].active;
 	return n;

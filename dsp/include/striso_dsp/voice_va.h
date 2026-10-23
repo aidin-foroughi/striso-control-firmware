@@ -35,12 +35,12 @@
 
 namespace va {
 
-typedef float real;
-static const int BLOCK = strisy::BLOCK;
-static const int MAX_VOICES = 16;
-static const int CTRL = 8;               // control rate divider (6.1 kHz)
-static const int NCTRL = BLOCK / CTRL;
-static const int NCV = 4;                // interpolated control values: G, N, drive, gain
+using real = float;
+static constexpr int BLOCK = strisy::BLOCK;
+static constexpr int MAX_VOICES = 16;
+static constexpr int CTRL = 8;               // control rate divider (6.1 kHz)
+static constexpr int NCTRL = BLOCK / CTRL;
+static constexpr int NCV = 4;                // interpolated control values: G, N, drive, gain
 static_assert(BLOCK % CTRL == 0, "CTRL must divide BLOCK");
 
 using strisy::rmax;
@@ -90,11 +90,11 @@ struct Params {
 	real vib_depth, vib_hz; // vibrato from shaking (semitones at full shake)
 };
 
-static const int NPARAMS = sizeof(Params) / sizeof(real);
+static constexpr int NPARAMS = sizeof(Params) / sizeof(real);
 static_assert(sizeof(Params) == NPARAMS * sizeof(real), "Params must hold only floats");
 
 // preset 0: the original voice
-static inline Params classic_params() {
+[[nodiscard]] static inline Params classic_params() {
 	Params p;
 	p.gain = 2.3f; p.pc_a = 0.3f; p.pc_b = 0.7f; p.lv_hz = 70.0f; p.held_tc = 0.045f;
 	p.rel_min = 0.10f; p.rel_ped = 2.9f; p.rel_vneg = 3.0f;
@@ -114,14 +114,14 @@ static inline Params classic_params() {
 	return p;
 }
 
-static const int NUM_PRESETS = 8;
+static constexpr int NUM_PRESETS = 8;
 
-static inline const char* preset_name(int i) {
-	static const char* const names[NUM_PRESETS] = {"classic", "pad", "lead", "bass", "brass", "keys", "acid", "strings"};
+[[nodiscard]] static inline const char* preset_name(int i) {
+	static constexpr const char* names[NUM_PRESETS] = {"classic", "pad", "lead", "bass", "brass", "keys", "acid", "strings"};
 	return (i >= 0 && i < NUM_PRESETS) ? names[i] : "classic";
 }
 
-static inline Params preset_params(int i) {
+[[nodiscard]] static inline Params preset_params(int i) {
 	Params p = classic_params();
 	switch (i) {
 	case 1:  // pad: three detuned saws + PWM, slow swell from pressure, long release, wide chorus
@@ -218,8 +218,11 @@ static inline Params preset_params(int i) {
 	return p;
 }
 
-#ifndef VA_PRESET
-#define VA_PRESET 0
+// preset after init() (host renders: -DVA_PRESET=n)
+#ifdef VA_PRESET
+static constexpr int DEFAULT_PRESET = VA_PRESET;
+#else
+static constexpr int DEFAULT_PRESET = 0;
 #endif
 
 struct VoiceState {
@@ -261,15 +264,15 @@ struct Engine {
 };
 
 // soft clipper: x - 4/27 x^3 on |x| <= 1.5, +-1 beyond (C1 continuous, slope 1 at 0)
-static inline real sat(real x) {
+[[nodiscard]] static inline real sat(real x) {
 	x = rmin(rmax(x, -1.5f), 1.5f);
 	return x * (1.0f - 0.148148148f * x * x);
 }
 
-static inline real note_freq(real note) { return 8.1757989f * strisy::fastpow2(rmax(note, 0.0f) * (1.0f / 12)); }
+[[nodiscard]] static inline real note_freq(real note) { return 8.1757989f * strisy::fastpow2(rmax(note, 0.0f) * (1.0f / 12)); }
 
 // parabolic sine of a phase in [0, 1)
-static inline real psin(real ph) {
+[[nodiscard]] static inline real psin(real ph) {
 	real q = ph - 0.5f;
 	return -8.0f * q * (1.0f - 2.0f * fabsf(q));
 }
@@ -331,7 +334,7 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 		s.active = 0;
 	}
 	for (int v = 0; v < e.nvoices; v++) e.vc[v] = {69.0f, 0.0f, 0.0f, 0.0f, 0.0f};
-	set_preset(e, VA_PRESET);
+	set_preset(e, DEFAULT_PRESET);
 }
 
 static inline void process_global(Engine& e) {
@@ -610,7 +613,7 @@ static inline void process_voice(Engine& e, int v) {
 	if (!held && vplev <= 0.0f && s.amp < 1e-5f && s.acc < 1e-5f) s.active = 0;
 }
 
-static inline int active_voices(const Engine& e) {
+[[nodiscard]] static inline int active_voices(const Engine& e) {
 	int n = 0;
 	for (int v = 0; v < e.nvoices; v++) n += e.vs[v].active;
 	return n;
@@ -659,77 +662,77 @@ struct ParamEntry {
 	real Params::* m;
 };
 
-static const ParamEntry param_table[] = {
+static constexpr ParamEntry param_table[] = {
 	// level: pressure to loudness
-	{{"gain", "level", 0.5f, 5.0f, 0}, &Params::gain},
-	{{"pres_lin", "level", 0.0f, 1.0f, 0}, &Params::pc_a},          // level = pres*(pres_lin + pres_sq*pres)
-	{{"pres_sq", "level", 0.0f, 1.5f, 0}, &Params::pc_b},
-	{{"pres_hz", "level", 1.0f, 200.0f, 0}, &Params::lv_hz},         // pressure smoothing: low = slow swell
-	{{"hold_decay", "level", 0.005f, 1.0f, 0}, &Params::held_tc},    // fastest fall while held (s)
+	{{"gain", "level", 0.5f, 5.0f, strisy::ParamKind::continuous}, &Params::gain},
+	{{"pres_lin", "level", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::pc_a},          // level = pres*(pres_lin + pres_sq*pres)
+	{{"pres_sq", "level", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::pc_b},
+	{{"pres_hz", "level", 1.0f, 200.0f, strisy::ParamKind::continuous}, &Params::lv_hz},         // pressure smoothing: low = slow swell
+	{{"hold_decay", "level", 0.005f, 1.0f, strisy::ParamKind::continuous}, &Params::held_tc},    // fastest fall while held (s)
 	// release
-	{{"release", "release", 0.02f, 4.0f, 0}, &Params::rel_min},      // tail time constant (s)
-	{{"rel_pedal", "release", 0.0f, 6.0f, 0}, &Params::rel_ped},     // + rel_pedal * pedal^2
-	{{"rel_speed", "release", 0.0f, 8.0f, 0}, &Params::rel_vneg},    // fast lift shortens the tail
+	{{"release", "release", 0.02f, 4.0f, strisy::ParamKind::continuous}, &Params::rel_min},      // tail time constant (s)
+	{{"rel_pedal", "release", 0.0f, 6.0f, strisy::ParamKind::continuous}, &Params::rel_ped},     // + rel_pedal * pedal^2
+	{{"rel_speed", "release", 0.0f, 8.0f, strisy::ParamKind::continuous}, &Params::rel_vneg},    // fast lift shortens the tail
 	// accent (strike)
-	{{"acc_level", "accent", 0.0f, 2.5f, 0}, &Params::acc_amp},
-	{{"acc_decay", "accent", 0.005f, 0.4f, 0}, &Params::acc_t0},     // s at the top note
-	{{"acc_key", "accent", 0.0f, 0.06f, 0}, &Params::acc_key},       // longer decay low: 2^((132-note)*acc_key)
-	{{"acc_cutoff", "accent", 0.0f, 48.0f, 0}, &Params::acc_cut},    // semitones
-	{{"acc_drive", "accent", 0.0f, 2.0f, 0}, &Params::acc_drive},
-	{{"acc_sync", "accent", 0.0f, 24.0f, 0}, &Params::acc_sync},     // semitones (with forward tilt)
-	{{"acc_pitch", "accent", -1.0f, 1.0f, 0}, &Params::acc_pitch},   // semitones, decays with the accent
+	{{"acc_level", "accent", 0.0f, 2.5f, strisy::ParamKind::continuous}, &Params::acc_amp},
+	{{"acc_decay", "accent", 0.005f, 0.4f, strisy::ParamKind::continuous}, &Params::acc_t0},     // s at the top note
+	{{"acc_key", "accent", 0.0f, 0.06f, strisy::ParamKind::continuous}, &Params::acc_key},       // longer decay low: 2^((132-note)*acc_key)
+	{{"acc_cutoff", "accent", 0.0f, 48.0f, strisy::ParamKind::continuous}, &Params::acc_cut},    // semitones
+	{{"acc_drive", "accent", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::acc_drive},
+	{{"acc_sync", "accent", 0.0f, 24.0f, strisy::ParamKind::continuous}, &Params::acc_sync},     // semitones (with forward tilt)
+	{{"acc_pitch", "accent", -1.0f, 1.0f, strisy::ParamKind::continuous}, &Params::acc_pitch},   // semitones, decays with the accent
 	// filter
-	{{"cut_base", "filter", -20.0f, 80.0f, 0}, &Params::cut_base},   // closed cutoff, note number
-	{{"cut_key", "filter", 0.0f, 1.2f, 0}, &Params::cut_key},        // keytracking
-	{{"cut_env", "filter", 0.0f, 80.0f, 0}, &Params::cut_env},       // opening by pressure (semitones)
-	{{"cut_back", "filter", -24.0f, 24.0f, 0}, &Params::cut_yn},     // lowered by back tilt
-	{{"cut_fwd", "filter", -24.0f, 24.0f, 0}, &Params::cut_yp},      // raised by forward tilt
-	{{"res", "filter", 0.0f, 0.98f, 0}, &Params::res_base},          // 0.98 ~ self-oscillation
-	{{"res_back", "filter", -0.5f, 0.98f, 0}, &Params::res_yn},
-	{{"res_fwd", "filter", -0.5f, 0.98f, 0}, &Params::res_yp},       // subtracted with forward tilt
-	{{"bass_comp", "filter", 0.0f, 1.0f, 0}, &Params::bass_comp},
-	{{"drive", "filter", 0.1f, 3.0f, 0}, &Params::dr_base},
-	{{"drive_env", "filter", 0.0f, 3.0f, 0}, &Params::dr_env},
+	{{"cut_base", "filter", -20.0f, 80.0f, strisy::ParamKind::continuous}, &Params::cut_base},   // closed cutoff, note number
+	{{"cut_key", "filter", 0.0f, 1.2f, strisy::ParamKind::continuous}, &Params::cut_key},        // keytracking
+	{{"cut_env", "filter", 0.0f, 80.0f, strisy::ParamKind::continuous}, &Params::cut_env},       // opening by pressure (semitones)
+	{{"cut_back", "filter", -24.0f, 24.0f, strisy::ParamKind::continuous}, &Params::cut_yn},     // lowered by back tilt
+	{{"cut_fwd", "filter", -24.0f, 24.0f, strisy::ParamKind::continuous}, &Params::cut_yp},      // raised by forward tilt
+	{{"res", "filter", 0.0f, 0.98f, strisy::ParamKind::continuous}, &Params::res_base},          // 0.98 ~ self-oscillation
+	{{"res_back", "filter", -0.5f, 0.98f, strisy::ParamKind::continuous}, &Params::res_yn},
+	{{"res_fwd", "filter", -0.5f, 0.98f, strisy::ParamKind::continuous}, &Params::res_yp},       // subtracted with forward tilt
+	{{"bass_comp", "filter", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::bass_comp},
+	{{"drive", "filter", 0.1f, 3.0f, strisy::ParamKind::continuous}, &Params::dr_base},
+	{{"drive_env", "filter", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::dr_env},
 	// oscillators (back/fwd: how much tilting back/forward reduces or adds)
-	{{"saw", "osc", 0.0f, 1.0f, 0}, &Params::saw},
-	{{"saw_back", "osc", 0.0f, 1.0f, 0}, &Params::saw_yn},
-	{{"saw_fwd", "osc", 0.0f, 1.0f, 0}, &Params::saw_yp},
-	{{"saw2", "osc", 0.0f, 1.0f, 0}, &Params::c_lvl},
-	{{"saw2_back", "osc", 0.0f, 1.0f, 0}, &Params::c_yn},
-	{{"saw2_fwd", "osc", 0.0f, 1.0f, 0}, &Params::c_yp},
-	{{"saw2_detune", "osc", -0.5f, 0.5f, 0}, &Params::c_det},         // semitones
-	{{"pulse", "osc", 0.0f, 1.0f, 0}, &Params::pul0},
-	{{"pulse_back", "osc", 0.0f, 1.0f, 0}, &Params::pul_yn},
-	{{"pwm", "osc", 0.0f, 0.4f, 0}, &Params::pwm_depth},
-	{{"pwm_hz", "osc", 0.05f, 8.0f, 0}, &Params::pwm_hz},
-	{{"sub", "osc", 0.0f, 1.0f, 0}, &Params::sub},
-	{{"sub_base", "osc", 0.0f, 1.0f, 0}, &Params::sub0},
-	{{"sub_back", "osc", 0.0f, 1.0f, 0}, &Params::sub_yn},
-	{{"sub_fwd", "osc", 0.0f, 1.0f, 0}, &Params::sub_yp},
-	{{"b_sync", "osc", 0.0f, 1.0f, 2}, &Params::b_sync},              // B synced to A, or free detuned saw
-	{{"b_level", "osc", 0.0f, 1.0f, 0}, &Params::b_lvl0},
-	{{"b_fwd", "osc", 0.0f, 1.0f, 0}, &Params::b_yp},
-	{{"b_detune", "osc", -0.5f, 0.5f, 0}, &Params::b_det},            // semitones down (free mode)
-	{{"sync", "osc", 0.0f, 24.0f, 0}, &Params::sync0},                // sync ratio, semitones (x fwd tilt)
-	{{"sync_fwd", "osc", 0.0f, 24.0f, 0}, &Params::sync_yp},
-	{{"sync_env", "osc", 0.0f, 24.0f, 0}, &Params::sync_env},         // sync sweep by pressure
-	{{"tilt_home", "osc", -1.0f, 1.0f, 0}, &Params::y_off},           // rest position on the tilt morph
+	{{"saw", "osc", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::saw},
+	{{"saw_back", "osc", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::saw_yn},
+	{{"saw_fwd", "osc", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::saw_yp},
+	{{"saw2", "osc", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::c_lvl},
+	{{"saw2_back", "osc", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::c_yn},
+	{{"saw2_fwd", "osc", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::c_yp},
+	{{"saw2_detune", "osc", -0.5f, 0.5f, strisy::ParamKind::continuous}, &Params::c_det},         // semitones
+	{{"pulse", "osc", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::pul0},
+	{{"pulse_back", "osc", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::pul_yn},
+	{{"pwm", "osc", 0.0f, 0.4f, strisy::ParamKind::continuous}, &Params::pwm_depth},
+	{{"pwm_hz", "osc", 0.05f, 8.0f, strisy::ParamKind::continuous}, &Params::pwm_hz},
+	{{"sub", "osc", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::sub},
+	{{"sub_base", "osc", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::sub0},
+	{{"sub_back", "osc", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::sub_yn},
+	{{"sub_fwd", "osc", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::sub_yp},
+	{{"b_sync", "osc", 0.0f, 1.0f, strisy::ParamKind::toggle}, &Params::b_sync},              // B synced to A, or free detuned saw
+	{{"b_level", "osc", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::b_lvl0},
+	{{"b_fwd", "osc", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::b_yp},
+	{{"b_detune", "osc", -0.5f, 0.5f, strisy::ParamKind::continuous}, &Params::b_det},            // semitones down (free mode)
+	{{"sync", "osc", 0.0f, 24.0f, strisy::ParamKind::continuous}, &Params::sync0},                // sync ratio, semitones (x fwd tilt)
+	{{"sync_fwd", "osc", 0.0f, 24.0f, strisy::ParamKind::continuous}, &Params::sync_yp},
+	{{"sync_env", "osc", 0.0f, 24.0f, strisy::ParamKind::continuous}, &Params::sync_env},         // sync sweep by pressure
+	{{"tilt_home", "osc", -1.0f, 1.0f, strisy::ParamKind::continuous}, &Params::y_off},           // rest position on the tilt morph
 	// modulation
-	{{"drift", "mod", 0.0f, 0.3f, 0}, &Params::drift_a},              // semitones
-	{{"saw2_drift", "mod", 0.0f, 0.3f, 0}, &Params::c_drift},
-	{{"cut_drift", "mod", 0.0f, 2.0f, 0}, &Params::cut_drift},
-	{{"gyro_chorus", "mod", 0.0f, 1.0f, 0}, &Params::gyro_det},       // detune from rotation
-	{{"vibrato", "mod", 0.0f, 1.5f, 0}, &Params::vib_depth},          // shake vibrato, semitones
-	{{"vib_hz", "mod", 1.0f, 9.0f, 0}, &Params::vib_hz},
+	{{"drift", "mod", 0.0f, 0.3f, strisy::ParamKind::continuous}, &Params::drift_a},              // semitones
+	{{"saw2_drift", "mod", 0.0f, 0.3f, strisy::ParamKind::continuous}, &Params::c_drift},
+	{{"cut_drift", "mod", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::cut_drift},
+	{{"gyro_chorus", "mod", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::gyro_det},       // detune from rotation
+	{{"vibrato", "mod", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::vib_depth},          // shake vibrato, semitones
+	{{"vib_hz", "mod", 1.0f, 9.0f, strisy::ParamKind::continuous}, &Params::vib_hz},
 };
-static const int NUM_LIVE_PARAMS = sizeof(param_table) / sizeof(param_table[0]);
+static constexpr int NUM_LIVE_PARAMS = sizeof(param_table) / sizeof(param_table[0]);
 static_assert(NUM_LIVE_PARAMS == NPARAMS, "every Params field is exposed once");
 
 } // namespace va
 
 namespace strisy {
 template <> struct EngineParams<va::Engine> {
-	static const int count = va::NUM_LIVE_PARAMS;
+	static constexpr int count = va::NUM_LIVE_PARAMS;
 	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &va::param_table[i].d : 0; }
 	static float* ptr(va::Engine& e, int i) { return (i >= 0 && i < count) ? &(e.p.*(va::param_table[i].m)) : 0; }
 	static void changed(va::Engine& e, int) { va::update_derived(e); }

@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -19,7 +20,7 @@
 namespace harness {
 
 // 16 bit WAV, x0.25 and hard clipped like the board at the usual volume ((volume/127)^2 ~ 0.25)
-inline bool write_wav(const char* path, const std::vector<float>& x, int channels, int sample_rate) {
+[[nodiscard]] inline bool write_wav(const char* path, std::span<const float> x, int channels, int sample_rate) {
 	FILE* f = std::fopen(path, "wb");
 	if (!f) return false;
 	const uint32_t n = static_cast<uint32_t>(x.size());
@@ -41,7 +42,7 @@ inline bool write_wav(const char* path, const std::vector<float>& x, int channel
 }
 
 // FNV-1a 64 over the samples' bits: equal hashes mean bit-identical renders
-inline uint64_t hash_samples(const std::vector<float>& x) {
+[[nodiscard]] inline uint64_t hash_samples(std::span<const float> x) {
 	uint64_t h = 1469598103934665603ull;
 	for (float v : x) {
 		uint32_t u;
@@ -59,7 +60,7 @@ template <class E> inline void param_write(E& e, int i, float value) {
 	float* p = P::ptr(e, i);
 	if (!d || !p || value != value) return;
 	float v = value < d->min ? d->min : (value > d->max ? d->max : value);
-	if (d->kind != 0) v = static_cast<float>(static_cast<int>(v + (v >= 0 ? 0.5f : -0.5f)));
+	if (d->kind != strisy::ParamKind::continuous) v = static_cast<float>(static_cast<int>(v + (v >= 0 ? 0.5f : -0.5f)));
 	*p = v;
 	P::changed(e, i);
 }
@@ -71,7 +72,7 @@ template <class E> inline void param_write(E& e, int i, float value) {
 // velo clipped at +-8191 in the stream reconstructed from the pressure slope.
 struct RecEvent { double t; int voice; float note, pres, vpres, but_x, but_y; };
 
-inline std::vector<RecEvent> load_recording(const char* path, int nvoices) {
+[[nodiscard]] inline std::vector<RecEvent> load_recording(const char* path, int nvoices) {
 	static const int c0[68] = {6, 5, 5, 4, 4, 3, 2, 2, 1, 1, 0, 0, -1, -2, -2, -3, -3,
 	                           5, 4, 4, 3, 3, 2, 1, 1, 0, 0, -1, -1, -2, -3, -3, -4, -4,
 	                           4, 3, 3, 2, 2, 1, 0, 0, -1, -1, -2, -2, -3, -4, -4, -5, -5,

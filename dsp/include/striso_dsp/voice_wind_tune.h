@@ -1,6 +1,6 @@
 // Tuning correction tables for voice_wind.h (samples of extra loop delay per preset, at notes
 // 20 + 7k, k = 0..13), measured on the host with tools/harness/out/wind_tune.h.
-static const real CORR[NUM_PRESETS][14] = {
+static constexpr real CORR[NUM_PRESETS][14] = {
 	{0.90f, 0.92f, 0.91f, 0.90f, 0.88f, 0.82f, 0.70f, 0.48f, 0.38f, 0.26f, 0.17f, 0.16f, 0.20f, 0.18f},  // clarinet
 	{1.62f, 1.61f, 1.58f, 1.53f, 1.41f, 1.16f, 0.75f, 0.67f, 0.45f, 0.30f, 0.20f, 0.18f, 0.23f, 0.21f},  // bass clarinet
 	{-10.16f, -6.63f, -4.23f, -2.61f, -1.50f, -0.69f, -0.08f, 0.34f, 0.88f, 0.69f, 0.47f, 0.42f, 0.55f, -0.36f},  // soprano sax

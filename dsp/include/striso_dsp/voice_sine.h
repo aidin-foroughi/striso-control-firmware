@@ -16,9 +16,9 @@
 
 namespace sine {
 
-typedef float real;
-static const int BLOCK = strisy::BLOCK;
-static const int MAX_VOICES = 16;
+using real = float;
+static constexpr int BLOCK = strisy::BLOCK;
+static constexpr int MAX_VOICES = 16;
 
 struct VoiceState {
 	real c, s;        // rotating phasor: output is s
@@ -35,11 +35,11 @@ struct Engine {
 };
 
 // cos and sin for |x| <= pi/2 (Taylor to x^8 / x^9, error below 4e-6)
-static inline real cos_poly(real x) {
+[[nodiscard]] static inline real cos_poly(real x) {
 	real x2 = x * x;
 	return 1.0f + x2 * (-0.5f + x2 * (1.0f / 24 + x2 * (-1.0f / 720 + x2 * (1.0f / 40320))));
 }
-static inline real sin_poly(real x) {
+[[nodiscard]] static inline real sin_poly(real x) {
 	real x2 = x * x;
 	return x * (1.0f + x2 * (-1.0f / 6 + x2 * (1.0f / 120 + x2 * (-1.0f / 5040 + x2 * (1.0f / 362880)))));
 }
@@ -81,7 +81,7 @@ static inline void process(Engine& e, real* output) {
 	}
 }
 
-static inline int active_voices(const Engine& e) {
+[[nodiscard]] static inline int active_voices(const Engine& e) {
 	int n = 0;
 	for (int v = 0; v < e.nvoices; v++) n += e.vs[v].amp > 1e-6f || e.vc[v].pres > 0.0f;
 	return n;

@@ -65,8 +65,13 @@ static volatile uint32_t prof_blocks;
 #include "striso_dsp/fx.h"
 #include "chprintf.h"
 
-#define MAX_VAL (1<<23)
-#define VOLUME_FILTER 0.99f
+#include <array>
+#include <bit>
+#include <cstdint>
+
+// full scale of the codec's 24 bit samples, and the volume smoothing (one pole per block)
+static constexpr int32_t MAX_VAL = 1 << 23;
+static constexpr float VOLUME_FILTER = 0.99f;
 
 // Every engine's state lives in DTCM: zero wait state, not shared with DMA. The two level macros
 // make sure a macro argument (SYNTH_VOICE_NS) is expanded before it is pasted.
@@ -88,14 +93,14 @@ struct VoiceEntry {
 	const char* engine_name;
 	const char* preset_name;
 };
-static const int MAX_ENTRIES = 64;
-static VoiceEntry entries[MAX_ENTRIES];
+static constexpr int MAX_ENTRIES = 64;
+static std::array<VoiceEntry, MAX_ENTRIES> entries;
 static int num_entries;
 
 static void build_entries(void) {
 	num_entries = 0;
 #define ADD_ENTRY(ns) ADD_ENTRY_(ns)
-#define ADD_ENTRY_(ns) if (num_entries < MAX_ENTRIES) entries[num_entries++] = {VOICE_##ns, -1, #ns, 0};
+#define ADD_ENTRY_(ns) if (num_entries < MAX_ENTRIES) entries[num_entries++] = {VOICE_##ns, -1, #ns, nullptr};
 #define ADD_PRESETS(ns) ADD_PRESETS_(ns)
 #define ADD_PRESETS_(ns) for (int i = 0; i < ns::NUM_PRESETS && num_entries < MAX_ENTRIES; i++) \
 		entries[num_entries++] = {VOICE_##ns, (int8_t)i, #ns, ns::preset_name(i)};
@@ -104,9 +109,9 @@ static void build_entries(void) {
 
 // voice at power on: the first entry of this engine
 #if defined(SYNTH_VOICE_ALL)
-static const int DEFAULT_ENGINE = VOICE_va;
+static constexpr int DEFAULT_ENGINE = VOICE_va;
 #else
-static const int DEFAULT_ENGINE = 0;
+static constexpr int DEFAULT_ENGINE = 0;
 #endif
 
 // The keys write into one shared set of controls; the active engine gets a copy every block.
@@ -147,7 +152,7 @@ static void engine_process(int k, float* out) {
 	}
 }
 
-static int engine_active_voices(int k) {
+[[nodiscard]] static int engine_active_voices(int k) {
 	switch (k) {
 #define CASE_ACTIVE(ns) CASE_ACTIVE_(ns)
 #define CASE_ACTIVE_(ns) case VOICE_##ns: return ns::active_voices(engine_##ns);
@@ -164,9 +169,9 @@ static fx::Engine fx_engine __attribute__((section(".ram5_clear")));
 // block in the synth thread, so they never change a value in the middle of the DSP.
 // Target 0 is the current voice's engine, target 1 the master effects.
 
-template <class E> static int param_count(E&) { return strisy::EngineParams<E>::count; }
+template <class E> [[nodiscard]] static constexpr int param_count(E&) { return strisy::EngineParams<E>::count; }
 
-static int engine_param_count(int k) {
+[[nodiscard]] static int engine_param_count(int k) {
 	switch (k) {
 #define CASE_PCOUNT(ns) CASE_PCOUNT_(ns)
 #define CASE_PCOUNT_(ns) case VOICE_##ns: return param_count(engine_##ns);
@@ -175,22 +180,22 @@ static int engine_param_count(int k) {
 	return 0;
 }
 
-static const strisy::ParamDesc* engine_param_desc(int k, int i) {
+[[nodiscard]] static const strisy::ParamDesc* engine_param_desc(int k, int i) {
 	switch (k) {
 #define CASE_PDESC(ns) CASE_PDESC_(ns)
 #define CASE_PDESC_(ns) case VOICE_##ns: return strisy::EngineParams<ns::Engine>::desc(i);
 	VOICE_LIST(CASE_PDESC, CASE_PDESC)
 	}
-	return 0;
+	return nullptr;
 }
 
-static float* engine_param_ptr(int k, int i) {
+[[nodiscard]] static float* engine_param_ptr(int k, int i) {
 	switch (k) {
 #define CASE_PPTR(ns) CASE_PPTR_(ns)
 #define CASE_PPTR_(ns) case VOICE_##ns: return strisy::EngineParams<ns::Engine>::ptr(engine_##ns, i);
 	VOICE_LIST(CASE_PPTR, CASE_PPTR)
 	}
-	return 0;
+	return nullptr;
 }
 
 static void engine_param_changed(int k, int i) {
@@ -202,8 +207,8 @@ static void engine_param_changed(int k, int i) {
 }
 
 struct ParamWrite { uint8_t target, index; float value; };
-static const int PARAM_QUEUE = 64;
-static ParamWrite param_queue[PARAM_QUEUE];
+static constexpr int PARAM_QUEUE = 64;
+static std::array<ParamWrite, PARAM_QUEUE> param_queue;
 static volatile uint32_t param_head, param_tail;  // single producer (USB), single consumer (synth)
 
 // apply queued writes; called from the synth thread at the start of a block
@@ -221,7 +226,7 @@ static void apply_params(int engine) {
 		}
 		if (d && p && w.value == w.value) {
 			float v = w.value < d->min ? d->min : (w.value > d->max ? d->max : w.value);
-			if (d->kind != 0) v = (float)(int)(v + (v >= 0 ? 0.5f : -0.5f));
+			if (d->kind != strisy::ParamKind::continuous) v = (float)(int)(v + (v >= 0 ? 0.5f : -0.5f));
 			*p = v;
 			if (w.target == 0) engine_param_changed(engine, w.index);
 			else strisy::EngineParams<fx::Engine>::changed(fx_engine, w.index);
@@ -369,7 +374,7 @@ int synth_num_voices(void) {
 }
 
 const char* synth_voice_name(int n, const char** preset) {
-	if (n < 0 || n >= num_entries) return 0;
+	if (n < 0 || n >= num_entries) return nullptr;
 	if (preset) *preset = entries[n].preset_name;
 	return entries[n].engine_name;
 }
@@ -401,11 +406,7 @@ void synth_profile_print(void *chp) {
 	chprintf((BaseSequentialStream *)chp, "  %-12s %6lu of %lu\r\n", "total", total / blocks, (uint32_t)SYNTH_BLOCK_CYCLES);
 }
 
-static uint32_t float_bits(float f) {
-	union { float f; uint32_t u; } v;
-	v.f = f;
-	return v.u;
-}
+[[nodiscard]] static constexpr uint32_t float_bits(float f) { return std::bit_cast<uint32_t>(f); }
 
 void synth_params_print(void *chp, int target) {
 	BaseSequentialStream* out = (BaseSequentialStream *)chp;
@@ -418,7 +419,7 @@ void synth_params_print(void *chp, int target) {
 			const strisy::ParamDesc* d = engine_param_desc(k, i);
 			const float* p = engine_param_ptr(k, i);
 			chprintf(out, "%d %s %s %08lx %08lx %08lx %d\r\n", i, d->name, d->group,
-			         float_bits(d->min), float_bits(d->max), float_bits(p ? *p : 0.0f), d->kind);
+			         float_bits(d->min), float_bits(d->max), float_bits(p ? *p : 0.0f), static_cast<int>(d->kind));
 		}
 	} else {
 		const int count = strisy::EngineParams<fx::Engine>::count;
@@ -427,7 +428,7 @@ void synth_params_print(void *chp, int target) {
 			const strisy::ParamDesc* d = strisy::EngineParams<fx::Engine>::desc(i);
 			const float* p = strisy::EngineParams<fx::Engine>::ptr(fx_engine, i);
 			chprintf(out, "%d %s %s %08lx %08lx %08lx %d\r\n", i, d->name, d->group,
-			         float_bits(d->min), float_bits(d->max), float_bits(p ? *p : 0.0f), d->kind);
+			         float_bits(d->min), float_bits(d->max), float_bits(p ? *p : 0.0f), static_cast<int>(d->kind));
 		}
 	}
 }

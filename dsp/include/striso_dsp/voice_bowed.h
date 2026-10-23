@@ -57,15 +57,15 @@
 
 namespace bowed {
 
-typedef float real;
-static const int BLOCK = strisy::BLOCK;
-static const int MAX_VOICES = 10;
-static const int NECK_LEN = 2048;    // >= longest string loop (note 18: 2060 samples, clamped)
-static const int BRIDGE_LEN = 512;   // >= max bow distance from the bridge (beta <= 0.22: 450)
-static const uint32_t NECK_MASK = NECK_LEN - 1, BRIDGE_MASK = BRIDGE_LEN - 1;
-static const int NB = 5;             // body modes
-static const int ENS_LEN = 2048;     // section delay (42 ms)
-static const uint32_t ENS_MASK = ENS_LEN - 1;
+using real = float;
+static constexpr int BLOCK = strisy::BLOCK;
+static constexpr int MAX_VOICES = 10;
+static constexpr int NECK_LEN = 2048;    // >= longest string loop (note 18: 2060 samples, clamped)
+static constexpr int BRIDGE_LEN = 512;   // >= max bow distance from the bridge (beta <= 0.22: 450)
+static constexpr uint32_t NECK_MASK = NECK_LEN - 1, BRIDGE_MASK = BRIDGE_LEN - 1;
+static constexpr int NB = 5;             // body modes
+static constexpr int ENS_LEN = 2048;     // section delay (42 ms)
+static constexpr uint32_t ENS_MASK = ENS_LEN - 1;
 
 // delay lines in AHB SRAM1/2 (ram1): 100 KB for 10 voices
 static float neck_buf[MAX_VOICES][NECK_LEN] __attribute__((aligned(32), section(".ram1_clear")));
@@ -137,10 +137,10 @@ struct Params {
 	real pizz_bright;     // pluck sharpness
 };
 
-static const int NPARAMS = sizeof(Params) / sizeof(real);
+static constexpr int NPARAMS = sizeof(Params) / sizeof(real);
 static_assert(sizeof(Params) == NPARAMS * sizeof(real), "Params must hold only floats");
 
-static inline Params violin_params() {
+[[nodiscard]] static inline Params violin_params() {
 	Params p;
 	p.gain = 1.0f;
 	p.force_lo = 0.75f; p.force_hi = 0.95f; p.force_over = 1.0f; p.speed_curve = 0.7f; p.rosin = 0.01f;
@@ -156,15 +156,15 @@ static inline Params violin_params() {
 	return p;
 }
 
-static const int NUM_PRESETS = 9;
+static constexpr int NUM_PRESETS = 9;
 
-static inline const char* preset_name(int i) {
-	static const char* const names[NUM_PRESETS] = {
+[[nodiscard]] static inline const char* preset_name(int i) {
+	static constexpr const char* names[NUM_PRESETS] = {
 		"violin", "viola", "cello", "bass", "section", "ponticello", "flautando", "sordino", "pizzicato"};
 	return (i >= 0 && i < NUM_PRESETS) ? names[i] : names[0];
 }
 
-static inline Params preset_params(int i) {
+[[nodiscard]] static inline Params preset_params(int i) {
 	Params p = violin_params();
 	switch (i) {
 	case 1:  // viola: a bigger body a fifth lower, darker and more nasal
@@ -217,21 +217,24 @@ static inline Params preset_params(int i) {
 	return p;
 }
 
-#ifndef BOWED_PRESET
-#define BOWED_PRESET 0
+// preset after init() (host renders: -DBOWED_PRESET=n)
+#ifdef BOWED_PRESET
+static constexpr int DEFAULT_PRESET = BOWED_PRESET;
+#else
+static constexpr int DEFAULT_PRESET = 0;
 #endif
 
 // fixed model constants
-static const real BETA_REF = 0.11f;   // bow position the force window was measured at
-static const real FRIC_A = 0.35f;     // dynamic / static friction
-static const real FRIC_C = 0.3f;      // friction curve width (x bow speed)
-static const real FRIC_CD = 0.7f;     // smooth friction for short strings (x force)
-static const real EPS_LO = 0.012f, EPS_HI = 0.005f;  // corner rounding / period, light / full bow
-static const real ONSET_T = 0.08f;    // firm bow at a note start for this long (s)
-static const int SEED_BUDGET = 5200;  // seed writes per block (~2 of the lowest notes, ~35k cycles)
-static const real ONSET_KK = 0.0f;    // (v5's firm start: not needed with a seeded string)
-static const real ONSET_EASE = 0.45f; // seeded start: force eased over the first two periods
-static const real ONSET_TASTO = 2.5f; // ... fading out towards the fingerboard (x (bq - 1))
+static constexpr real BETA_REF = 0.11f;   // bow position the force window was measured at
+static constexpr real FRIC_A = 0.35f;     // dynamic / static friction
+static constexpr real FRIC_C = 0.3f;      // friction curve width (x bow speed)
+static constexpr real FRIC_CD = 0.7f;     // smooth friction for short strings (x force)
+static constexpr real EPS_LO = 0.012f, EPS_HI = 0.005f;  // corner rounding / period, light / full bow
+static constexpr real ONSET_T = 0.08f;    // firm bow at a note start for this long (s)
+static constexpr int SEED_BUDGET = 5200;  // seed writes per block (~2 of the lowest notes, ~35k cycles)
+static constexpr real ONSET_KK = 0.0f;    // (v5's firm start: not needed with a seeded string)
+static constexpr real ONSET_EASE = 0.45f; // seeded start: force eased over the first two periods
+static constexpr real ONSET_TASTO = 2.5f; // ... fading out towards the fingerboard (x (bq - 1))
 
 struct VoiceState {
 	int active, quiet;
@@ -286,28 +289,28 @@ struct Engine {
 // helpers (no libm)
 
 // 2^x for x in [-60, 60]: fastpow2 is only accurate for positive arguments
-static inline real exp2_fast(real x) {
+[[nodiscard]] static inline real exp2_fast(real x) {
 	x = rmin(rmax(x, -60.0f), 60.0f);
 	return strisy::fastpow2(x + 64.0f) * 5.421010862e-20f;  // 2^-64
 }
 
 // sin and cos for |x| <= pi/2 (as in voice_sine.h)
-static inline real cos_poly(real x) {
+[[nodiscard]] static inline real cos_poly(real x) {
 	real x2 = x * x;
 	return 1.0f + x2 * (-0.5f + x2 * (1.0f / 24 + x2 * (-1.0f / 720 + x2 * (1.0f / 40320))));
 }
-static inline real sin_poly(real x) {
+[[nodiscard]] static inline real sin_poly(real x) {
 	real x2 = x * x;
 	return x * (1.0f + x2 * (-1.0f / 6 + x2 * (1.0f / 120 + x2 * (-1.0f / 5040 + x2 * (1.0f / 362880)))));
 }
 // sin(2 pi ph) for ph in [0, 1)
-static inline real sin_turn(real ph) {
+[[nodiscard]] static inline real sin_turn(real ph) {
 	real x = ph < 0.5f ? 1.0f - 4.0f * fabsf(ph - 0.25f) : 4.0f * fabsf(ph - 0.75f) - 1.0f;
 	return sin_poly(1.5707963f * x);
 }
 
 // atan(y/x) for x > 0, y >= 0 (Abramowitz-Stegun 4.4.49, error 1e-5)
-static inline real atan_pos(real y, real x) {
+[[nodiscard]] static inline real atan_pos(real y, real x) {
 	bool inv = y > x;
 	real t = inv ? x / y : y / x;
 	real t2 = t * t;
@@ -316,7 +319,7 @@ static inline real atan_pos(real y, real x) {
 }
 
 // square root as the single FPU instruction (sqrtf may call libm for the errno case)
-static inline float fsqrt(float x) {
+[[nodiscard]] static inline float fsqrt(float x) {
 #if defined(__arm__) && defined(__ARM_FP)
 	float r;
 	__asm__("vsqrt.f32 %0, %1" : "=t"(r) : "t"(x));
@@ -336,13 +339,13 @@ static inline void lagrange(real fr, real* h) {
 	h[3] = (1.0f / 6.0f) * ab * fm1;
 }
 
-static inline bool bad(real x, real lim) { return !(fabsf(x) < lim); }  // also true for NaN
-static inline real clampf(real x, real lo, real hi) { return rmin(rmax(x, lo), hi); }  // NaN -> lo
+[[nodiscard]] static inline bool bad(real x, real lim) { return !(fabsf(x) < lim); }  // also true for NaN
+[[nodiscard]] static inline real clampf(real x, real lo, real hi) { return rmin(rmax(x, lo), hi); }  // NaN -> lo
 
 // body modes of a violin: frequency (Hz), Q, gain; the last one is the bridge hill
-static const real body_f[NB] = {275.0f, 460.0f, 565.0f, 1150.0f, 2700.0f};
-static const real body_q[NB] = {12.0f, 16.0f, 14.0f, 6.0f, 1.8f};
-static const real body_g[NB] = {0.8f, 1.0f, 0.9f, 0.55f, 1.0f};
+static constexpr real body_f[NB] = {275.0f, 460.0f, 565.0f, 1150.0f, 2700.0f};
+static constexpr real body_q[NB] = {12.0f, 16.0f, 14.0f, 6.0f, 1.8f};
+static constexpr real body_g[NB] = {0.8f, 1.0f, 0.9f, 0.55f, 1.0f};
 
 static inline void reset_voice(Engine& e, int v) {
 	VoiceState& s = e.vs[v];
@@ -383,7 +386,7 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 	e.shake = 1.0f;
 	e.nvoices = nvoices < MAX_VOICES ? nvoices : MAX_VOICES;
 	e.g = {1.0f, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, 0.0f, 3.0f / 16};
-	set_preset(e, BOWED_PRESET);
+	set_preset(e, DEFAULT_PRESET);
 	e.ps = e.p;
 	e.ew = 0;
 	e.e_ph[0] = 0.0f; e.e_ph[1] = 0.43f;
@@ -854,7 +857,7 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	}
 }
 
-static inline int active_voices(const Engine& e) {
+[[nodiscard]] static inline int active_voices(const Engine& e) {
 	int n = 0;
 	for (int v = 0; v < e.nvoices; v++) n += e.vs[v].active;
 	return n;
@@ -878,8 +881,8 @@ static inline void process_section(Engine& e, real* __restrict__ output) {
 		return;
 	}
 	// delay wander: d(t) = base + A sin(2 pi f t), pitch deviation ~ 1731 * 2 pi f A / sr cents
-	static const real hz[2] = {0.37f, 0.53f};
-	static const real base_k[2] = {0.6f, 1.15f};
+	static constexpr real hz[2] = {0.37f, 0.53f};
+	static constexpr real base_k[2] = {0.6f, 1.15f};
 	real dd[2], d0[2];
 	for (int k = 0; k < 2; k++) {
 		e.e_ph[k] += hz[k] * e.block_dt;
@@ -966,47 +969,47 @@ static inline void process(Engine& e, real* __restrict__ output) {
 // live parameter table
 
 struct ParamEntry { strisy::ParamDesc d; real Params::*m; };
-static const ParamEntry param_table[] = {
-	{{"gain", "level", 0.0f, 4.0f, 0}, &Params::gain},
-	{{"force_lo", "bow", 0.3f, 1.6f, 0}, &Params::force_lo},       // force/speed at light pressure
-	{{"force_hi", "bow", 0.3f, 1.6f, 0}, &Params::force_hi},       // at full pressure (> 1.1: raucous)
-	{{"force_over", "bow", 0.0f, 2.0f, 0}, &Params::force_over},   // grit beyond pressure 1 (0: none)
-	{{"speed_curve", "bow", 0.0f, 1.0f, 0}, &Params::speed_curve}, // 0 linear .. 1 quadratic dynamics
-	{{"rosin", "bow", 0.0f, 0.2f, 0}, &Params::rosin},             // bow noise texture
-	{{"pos", "position", 0.05f, 0.2f, 0}, &Params::pos},           // bow position (fraction of string)
-	{{"pos_tilt", "position", 0.0f, 1.5f, 0}, &Params::pos_tilt},  // tilt range (octaves)
-	{{"pos_press", "position", 0.0f, 1.0f, 0}, &Params::pos_press},// light bow drifts to the fingerboard
-	{{"tilt_dead", "position", 0.0f, 0.8f, 0}, &Params::tilt_dead},// tilt dead zone
-	{{"damp", "string", 0.5f, 10.0f, 0}, &Params::damp},           // ring time (s) at note 40
-	{{"bright", "string", 0.3f, 3.0f, 0}, &Params::bright},        // corner sharpness
-	{{"tone_lo", "string", 0.0f, 3.0f, 0}, &Params::tone_lo},      // treble at light pressure
-	{{"tone_hi", "string", 0.0f, 3.0f, 0}, &Params::tone_hi},      // treble at full pressure
-	{{"body_size", "body", 0.2f, 1.5f, 0}, &Params::body_size},    // violin 1, viola .8, cello .45, bass .3
-	{{"body_track", "body", 0.0f, 1.0f, 0}, &Params::body_track},  // body follows the register
-	{{"body_amt", "body", 0.0f, 2.0f, 0}, &Params::body_amt},
-	{{"body_q", "body", 0.3f, 3.0f, 0}, &Params::body_q},
-	{{"hill", "body", 0.0f, 3.0f, 0}, &Params::hill},              // bridge hill brilliance
-	{{"direct", "body", 0.0f, 2.0f, 0}, &Params::direct},
-	{{"acc_force", "accent", 0.0f, 3.0f, 0}, &Params::acc_force},  // strike: bite / scratch
-	{{"acc_time", "accent", 0.002f, 0.2f, 0}, &Params::acc_time},
-	{{"acc_noise", "accent", 0.0f, 1.0f, 0}, &Params::acc_noise},
-	{{"acc_bright", "accent", 0.0f, 2.0f, 0}, &Params::acc_bright},
-	{{"rel", "release", 0.02f, 3.0f, 0}, &Params::rel},            // ring after a slow release (s)
-	{{"rel_ped", "release", 0.0f, 10.0f, 0}, &Params::rel_ped},    // + pedal
-	{{"rel_lift", "release", 0.0f, 20.0f, 0}, &Params::rel_lift},  // x after a quick lift-off
-	{{"vibrato", "mod", 0.0f, 60.0f, 0}, &Params::vib},            // automatic vibrato (cents)
-	{{"vib_hz", "mod", 2.0f, 9.0f, 0}, &Params::vib_hz},
-	{{"vib_delay", "mod", 0.0f, 2.0f, 0}, &Params::vib_delay},
-	{{"tremolo", "mod", 0.0f, 2.0f, 0}, &Params::trem},            // shake -> bow
-	{{"body_rot", "mod", -2.0f, 2.0f, 0}, &Params::body_rot},      // rotation -> body (octaves)
-	{{"ensemble", "section", 0.0f, 1.5f, 0}, &Params::ens},        // two more players
-	{{"ens_detune", "section", 0.0f, 25.0f, 0}, &Params::ens_detune},
-	{{"ens_spread", "section", 2.0f, 25.0f, 0}, &Params::ens_spread}, // timing spread (ms)
-	{{"pizz", "pizz", 0.0f, 1.0f, 2}, &Params::pizz},              // plucked instead of bowed
-	{{"pizz_decay", "pizz", 0.1f, 5.0f, 0}, &Params::pizz_decay},  // ring (s) at note 60
-	{{"pizz_bright", "pizz", 0.2f, 5.0f, 0}, &Params::pizz_bright},
+static constexpr ParamEntry param_table[] = {
+	{{"gain", "level", 0.0f, 4.0f, strisy::ParamKind::continuous}, &Params::gain},
+	{{"force_lo", "bow", 0.3f, 1.6f, strisy::ParamKind::continuous}, &Params::force_lo},       // force/speed at light pressure
+	{{"force_hi", "bow", 0.3f, 1.6f, strisy::ParamKind::continuous}, &Params::force_hi},       // at full pressure (> 1.1: raucous)
+	{{"force_over", "bow", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::force_over},   // grit beyond pressure 1 (0: none)
+	{{"speed_curve", "bow", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::speed_curve}, // 0 linear .. 1 quadratic dynamics
+	{{"rosin", "bow", 0.0f, 0.2f, strisy::ParamKind::continuous}, &Params::rosin},             // bow noise texture
+	{{"pos", "position", 0.05f, 0.2f, strisy::ParamKind::continuous}, &Params::pos},           // bow position (fraction of string)
+	{{"pos_tilt", "position", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::pos_tilt},  // tilt range (octaves)
+	{{"pos_press", "position", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::pos_press},// light bow drifts to the fingerboard
+	{{"tilt_dead", "position", 0.0f, 0.8f, strisy::ParamKind::continuous}, &Params::tilt_dead},// tilt dead zone
+	{{"damp", "string", 0.5f, 10.0f, strisy::ParamKind::continuous}, &Params::damp},           // ring time (s) at note 40
+	{{"bright", "string", 0.3f, 3.0f, strisy::ParamKind::continuous}, &Params::bright},        // corner sharpness
+	{{"tone_lo", "string", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::tone_lo},      // treble at light pressure
+	{{"tone_hi", "string", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::tone_hi},      // treble at full pressure
+	{{"body_size", "body", 0.2f, 1.5f, strisy::ParamKind::continuous}, &Params::body_size},    // violin 1, viola .8, cello .45, bass .3
+	{{"body_track", "body", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::body_track},  // body follows the register
+	{{"body_amt", "body", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::body_amt},
+	{{"body_q", "body", 0.3f, 3.0f, strisy::ParamKind::continuous}, &Params::body_q},
+	{{"hill", "body", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::hill},              // bridge hill brilliance
+	{{"direct", "body", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::direct},
+	{{"acc_force", "accent", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::acc_force},  // strike: bite / scratch
+	{{"acc_time", "accent", 0.002f, 0.2f, strisy::ParamKind::continuous}, &Params::acc_time},
+	{{"acc_noise", "accent", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::acc_noise},
+	{{"acc_bright", "accent", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::acc_bright},
+	{{"rel", "release", 0.02f, 3.0f, strisy::ParamKind::continuous}, &Params::rel},            // ring after a slow release (s)
+	{{"rel_ped", "release", 0.0f, 10.0f, strisy::ParamKind::continuous}, &Params::rel_ped},    // + pedal
+	{{"rel_lift", "release", 0.0f, 20.0f, strisy::ParamKind::continuous}, &Params::rel_lift},  // x after a quick lift-off
+	{{"vibrato", "mod", 0.0f, 60.0f, strisy::ParamKind::continuous}, &Params::vib},            // automatic vibrato (cents)
+	{{"vib_hz", "mod", 2.0f, 9.0f, strisy::ParamKind::continuous}, &Params::vib_hz},
+	{{"vib_delay", "mod", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::vib_delay},
+	{{"tremolo", "mod", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::trem},            // shake -> bow
+	{{"body_rot", "mod", -2.0f, 2.0f, strisy::ParamKind::continuous}, &Params::body_rot},      // rotation -> body (octaves)
+	{{"ensemble", "section", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::ens},        // two more players
+	{{"ens_detune", "section", 0.0f, 25.0f, strisy::ParamKind::continuous}, &Params::ens_detune},
+	{{"ens_spread", "section", 2.0f, 25.0f, strisy::ParamKind::continuous}, &Params::ens_spread}, // timing spread (ms)
+	{{"pizz", "pizz", 0.0f, 1.0f, strisy::ParamKind::toggle}, &Params::pizz},              // plucked instead of bowed
+	{{"pizz_decay", "pizz", 0.1f, 5.0f, strisy::ParamKind::continuous}, &Params::pizz_decay},  // ring (s) at note 60
+	{{"pizz_bright", "pizz", 0.2f, 5.0f, strisy::ParamKind::continuous}, &Params::pizz_bright},
 };
-static const int NUM_LIVE_PARAMS = sizeof(param_table) / sizeof(param_table[0]);
+static constexpr int NUM_LIVE_PARAMS = sizeof(param_table) / sizeof(param_table[0]);
 static_assert(NUM_LIVE_PARAMS == NPARAMS, "every Params field is exposed once");
 
 static inline void update_derived(Engine&) {}
@@ -1015,7 +1018,7 @@ static inline void update_derived(Engine&) {}
 
 namespace strisy {
 template <> struct EngineParams<bowed::Engine> {
-	static const int count = bowed::NUM_LIVE_PARAMS;
+	static constexpr int count = bowed::NUM_LIVE_PARAMS;
 	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &bowed::param_table[i].d : 0; }
 	static float* ptr(bowed::Engine& e, int i) { return (i >= 0 && i < count) ? &(e.p.*(bowed::param_table[i].m)) : 0; }
 	static void changed(bowed::Engine& e, int) { bowed::update_derived(e); }

@@ -37,11 +37,11 @@
 
 namespace modal {
 
-typedef float real;
-static const int BLOCK = strisy::BLOCK;
-static const int MAX_VOICES = 10;
-static const int NMODES = 12;
-static const int NSLOT = NMODES + 4;   // + 4 dummy (always zero) slots to pad the mode list
+using real = float;
+static constexpr int BLOCK = strisy::BLOCK;
+static constexpr int MAX_VOICES = 10;
+static constexpr int NMODES = 12;
+static constexpr int NSLOT = NMODES + 4;   // + 4 dummy (always zero) slots to pad the mode list
 
 using strisy::rmax;
 using strisy::rmin;
@@ -67,9 +67,9 @@ struct Preset {
 	Partial p[NMODES];
 };
 
-static const int NUM_PRESETS = 6;
+static constexpr int NUM_PRESETS = 6;
 
-static const Preset presets[NUM_PRESETS] = {
+static constexpr Preset presets[NUM_PRESETS] = {
 	{	// aluminium bar tuned 1 : 4 : 10, resonator tube; weak torsional and higher bending modes
 		"vibraphone", 7, 0.8f, 0.87f, 1.0f, 1.0f, 0.0f, {
 		{1.000f, 1.00f, 0.0f, 9.0f, 0}, {4.000f, 0.32f, 1.2f, 2.2f, 0}, {10.00f, 0.11f, 2.0f, 0.7f, 0},
@@ -102,36 +102,43 @@ static const Preset presets[NUM_PRESETS] = {
 		{6.630f, 0.07f, 2.2f, 1.2f, 0}, {9.400f, 0.04f, 2.5f, 0.7f, 0}}},
 };
 
-static inline const char* preset_name(int i) {
+[[nodiscard]] static inline const char* preset_name(int i) {
 	return (i >= 0 && i < NUM_PRESETS) ? presets[i].name : presets[0].name;
 }
 
-#ifndef MODAL_PRESET
-#define MODAL_PRESET 0
+// preset after init() (host renders: -DMODAL_PRESET=n)
+#ifdef MODAL_PRESET
+static constexpr int DEFAULT_PRESET = MODAL_PRESET;
+#else
+static constexpr int DEFAULT_PRESET = 0;
 #endif
 
 // ---------------------------------------------------------------------------------------------
 // Tuning constants
 
-static const real F_LO0 = 16.0f, F_LO1 = 24.0f;        // partials fade in above 16..24 Hz
-static const real F_HI0 = 14000.0f, F_HI1 = 20000.0f;  // and out between 14 and 20 kHz
-static const real STRIKE_REARM = 0.02f; // strike strength below this ends a strike
-static const real STRIKE_LEVEL = 1.6f;  // amplitude of a full strike (times preset and partial levels)
-static const real DAMP_SIGMA = 46.0f;   // damper decay rate (1/s, T60 0.15 s), times the damper parameter
-static const real SIGMA_MIN = 0.1f;     // slowest natural decay (T60 69 s): poles stay inside the unit circle
-static const real BOW_GROW = 40.0f;     // max negative damping of the rub (1/s)
-static const real BOW_DAMP = 6.0f;      // max extra damping by the rub above target, per unit pressure
-static const real ENERGY_CAP = 9.0f;    // soft cap on a voice's mode energy (sum |z|^2)
-static const real ENERGY_BAD = 1e4f;    // above this (or NaN) the voice is reset
-static const real GATE_ENERGY = 1e-10f; // released voice below this goes idle
-#ifndef MODAL_LIMIT
-#define MODAL_LIMIT 4.0f
+static constexpr real F_LO0 = 16.0f, F_LO1 = 24.0f;        // partials fade in above 16..24 Hz
+static constexpr real F_HI0 = 14000.0f, F_HI1 = 20000.0f;  // and out between 14 and 20 kHz
+static constexpr real STRIKE_REARM = 0.02f; // strike strength below this ends a strike
+static constexpr real STRIKE_LEVEL = 1.6f;  // amplitude of a full strike (times preset and partial levels)
+static constexpr real DAMP_SIGMA = 46.0f;   // damper decay rate (1/s, T60 0.15 s), times the damper parameter
+static constexpr real SIGMA_MIN = 0.1f;     // slowest natural decay (T60 69 s): poles stay inside the unit circle
+static constexpr real BOW_GROW = 40.0f;     // max negative damping of the rub (1/s)
+static constexpr real BOW_DAMP = 6.0f;      // max extra damping by the rub above target, per unit pressure
+static constexpr real ENERGY_CAP = 9.0f;    // soft cap on a voice's mode energy (sum |z|^2)
+static constexpr real ENERGY_BAD = 1e4f;    // above this (or NaN) the voice is reset
+static constexpr real GATE_ENERGY = 1e-10f; // released voice below this goes idle
+// master limiter threshold (host experiments: -DMODAL_LIMIT=...)
+#ifdef MODAL_LIMIT
+static constexpr real LIMIT = MODAL_LIMIT;
+#else
+static constexpr real LIMIT = 4.0f;
 #endif
-#ifndef MODAL_CLIP
-#define MODAL_CLIP 7.5f
+// final safety clamp (host experiments: -DMODAL_CLIP=...)
+#ifdef MODAL_CLIP
+static constexpr real CLIP = MODAL_CLIP;
+#else
+static constexpr real CLIP = 7.5f;
 #endif
-static const real LIMIT = MODAL_LIMIT;  // master limiter threshold
-static const real CLIP = MODAL_CLIP;    // final safety clamp
 
 // ---------------------------------------------------------------------------------------------
 // Live parameters (tools/app, strisy::EngineParams below). A preset sets all of them; writes can
@@ -161,29 +168,29 @@ struct Params {
 	float rub;        // rub: rubbed level per unit pressure (wine glass; 0 = off)
 	float rubnoise;   // rub: noise share of the rubbed excitation
 };
-static const int NUM_PARAMS = (int)(sizeof(Params) / sizeof(float));
+static constexpr int NUM_PARAMS = (int)(sizeof(Params) / sizeof(float));
 
-static const strisy::ParamDesc param_desc[NUM_PARAMS] = {
-	{"level", "level", 0.1f, 3.0f, 0},
-	{"thresh", "mallet", 0.005f, 0.2f, 0},
-	{"span", "mallet", 0.2f, 1.5f, 0},
-	{"hard", "mallet", 0.2f, 1.2f, 0},
-	{"hardvel", "mallet", 0.0f, 1.0f, 0},
-	{"tilt", "mallet", 0.0f, 0.5f, 0},
-	{"mute", "mallet", 0.0f, 1.0f, 0},
-	{"upper", "tone", 0.0f, 2.0f, 0},
-	{"decay", "decay", 0.1f, 4.0f, 0},
-	{"keytrack", "decay", 0.0f, 1.5f, 0},
-	{"hfdamp", "decay", 0.0f, 1.0f, 0},
-	{"damper", "damper", 0.0f, 2.0f, 0},
-	{"lift", "damper", 0.02f, 0.5f, 0},
-	{"pedal", "damper", 0.0f, 1.0f, 0},
-	{"trem", "trem", 0.0f, 1.0f, 2},
-	{"tremrate", "trem", 1.0f, 10.0f, 0},
-	{"tremdepth", "trem", 0.0f, 1.0f, 0},
-	{"tremthr", "trem", 0.2f, 1.2f, 0},
-	{"rub", "rub", 0.0f, 1.0f, 0},
-	{"rubnoise", "rub", 0.0f, 0.3f, 0},
+static constexpr strisy::ParamDesc param_desc[NUM_PARAMS] = {
+	{"level", "level", 0.1f, 3.0f, strisy::ParamKind::continuous},
+	{"thresh", "mallet", 0.005f, 0.2f, strisy::ParamKind::continuous},
+	{"span", "mallet", 0.2f, 1.5f, strisy::ParamKind::continuous},
+	{"hard", "mallet", 0.2f, 1.2f, strisy::ParamKind::continuous},
+	{"hardvel", "mallet", 0.0f, 1.0f, strisy::ParamKind::continuous},
+	{"tilt", "mallet", 0.0f, 0.5f, strisy::ParamKind::continuous},
+	{"mute", "mallet", 0.0f, 1.0f, strisy::ParamKind::continuous},
+	{"upper", "tone", 0.0f, 2.0f, strisy::ParamKind::continuous},
+	{"decay", "decay", 0.1f, 4.0f, strisy::ParamKind::continuous},
+	{"keytrack", "decay", 0.0f, 1.5f, strisy::ParamKind::continuous},
+	{"hfdamp", "decay", 0.0f, 1.0f, strisy::ParamKind::continuous},
+	{"damper", "damper", 0.0f, 2.0f, strisy::ParamKind::continuous},
+	{"lift", "damper", 0.02f, 0.5f, strisy::ParamKind::continuous},
+	{"pedal", "damper", 0.0f, 1.0f, strisy::ParamKind::continuous},
+	{"trem", "trem", 0.0f, 1.0f, strisy::ParamKind::toggle},
+	{"tremrate", "trem", 1.0f, 10.0f, strisy::ParamKind::continuous},
+	{"tremdepth", "trem", 0.0f, 1.0f, strisy::ParamKind::continuous},
+	{"tremthr", "trem", 0.2f, 1.2f, strisy::ParamKind::continuous},
+	{"rub", "rub", 0.0f, 1.0f, strisy::ParamKind::continuous},
+	{"rubnoise", "rub", 0.0f, 0.3f, strisy::ParamKind::continuous},
 };
 
 struct VoiceState {
@@ -228,23 +235,23 @@ struct Engine {
 // Helpers (no libm)
 
 // cos and sin for |x| <= pi/2 (Taylor to x^8 / x^9, error below 4e-6)
-static inline real cos_poly(real x) {
+[[nodiscard]] static inline real cos_poly(real x) {
 	real x2 = x * x;
 	return 1.0f + x2 * (-0.5f + x2 * (1.0f / 24 + x2 * (-1.0f / 720 + x2 * (1.0f / 40320))));
 }
-static inline real sin_poly(real x) {
+[[nodiscard]] static inline real sin_poly(real x) {
 	real x2 = x * x;
 	return x * (1.0f + x2 * (-1.0f / 6 + x2 * (1.0f / 120 + x2 * (-1.0f / 5040 + x2 * (1.0f / 362880)))));
 }
 // sin(2 pi p) for p in [0, 1)
-static inline real sin_turn(real p) {
+[[nodiscard]] static inline real sin_turn(real p) {
 	real x = 6.2831853f * p - 3.1415927f;   // [-pi, pi), sin(x + pi) = -sin(x)
 	if (x > 1.5707963f) x = 3.1415927f - x;
 	else if (x < -1.5707963f) x = -3.1415927f - x;
 	return -sin_poly(x);
 }
 // 2^p for |p| < 100, relative error ~2e-7 (0.0003 cents as a pitch)
-static inline real exp2_poly(real p) {
+[[nodiscard]] static inline real exp2_poly(real p) {
 	p = rmin(rmax(p, -100.0f), 100.0f);
 	int i = (int)p;
 	if ((real)i > p) i--;                       // floor
@@ -255,7 +262,7 @@ static inline real exp2_poly(real p) {
 	return y * s.f;
 }
 // 1/sqrt(x) for x > 0, relative error ~5e-6
-static inline real rsqrt_fast(real x) {
+[[nodiscard]] static inline real rsqrt_fast(real x) {
 	union { float f; uint32_t i; } u = { x };
 	u.i = 0x5f375a86u - (u.i >> 1);
 	real y = u.f;
@@ -263,7 +270,7 @@ static inline real rsqrt_fast(real x) {
 	y = y * (1.5f - 0.5f * x * y * y);
 	return y;
 }
-static inline real clampr(real x, real lo, real hi) { return rmin(rmax(x, lo), hi); }
+[[nodiscard]] static inline real clampr(real x, real lo, real hi) { return rmin(rmax(x, lo), hi); }
 
 static inline void reset_voice(VoiceState& s) {
 	for (int k = 0; k < NSLOT; k++) { s.re[k] = 0.0f; s.im[k] = 0.0f; }
@@ -344,7 +351,7 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 		s.rng = 0x9e3779b9u * (uint32_t)(v + 1);
 		s.active = 0;
 	}
-	set_preset(e, MODAL_PRESET);
+	set_preset(e, DEFAULT_PRESET);
 }
 
 // Run the mode list over the block into out (overwritten). Four modes per pass keep their states
@@ -388,7 +395,7 @@ static inline void run_modes(VoiceState& s, const real* __restrict__ x, real* __
 }
 
 // strike amplitude for strength 0..1 (about 26 dB of dynamics)
-static inline real strike_level(real st) { return STRIKE_LEVEL * st * (1.5f - 0.5f * st); }
+[[nodiscard]] static inline real strike_level(real st) { return STRIKE_LEVEL * st * (1.5f - 0.5f * st); }
 
 static inline void process_voice(Engine& e, int v, real trem_lfo) {
 	VoiceState& s = e.vs[v];
@@ -572,7 +579,7 @@ static inline void process_voice(Engine& e, int v, real trem_lfo) {
 	}
 }
 
-static inline int active_voices(const Engine& e) {
+[[nodiscard]] static inline int active_voices(const Engine& e) {
 	int n = 0;
 	for (int v = 0; v < e.nvoices; v++) n += e.vs[v].active;
 	return n;
@@ -628,7 +635,7 @@ static inline void process(Engine& e, real* __restrict__ output) {
 // live parameters for the app (see strisy.h)
 namespace strisy {
 template <> struct EngineParams<modal::Engine> {
-	static const int count = modal::NUM_PARAMS;
+	static constexpr int count = modal::NUM_PARAMS;
 	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &modal::param_desc[i] : 0; }
 	static float* ptr(modal::Engine& e, int i) { return (i >= 0 && i < count) ? &e.prm.level + i : 0; }
 	static void changed(modal::Engine& e, int) { modal::params_changed(e); }
