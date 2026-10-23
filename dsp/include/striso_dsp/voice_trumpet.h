@@ -5,9 +5,16 @@
  * Everything runs at 2x the board rate (96 kHz) and is coupled: the pitch comes from the lips
  * locking to the bore's resonances, never from an oscillator.
  *
- *   mouth p_m --> LIPS (outward striking valve, one mass: Elliott & Bowsher 1982, Cullen, Gilbert
- *                 & Campbell 2000, Adachi & Sato 1996; contact stiffness when closed; swept volume
- *                 flow) | Bernoulli jet u = w h sqrt(2 (p_m - p_c) / rho), regularised at small dp
+ *   mouth p_m --> LIPS: two mechanical modes, as measured on players' and artificial lips (Cullen,
+ *                 Gilbert & Campbell 2000; Newton, Campbell & Gilbert 2008): an outward striking one
+ *                 (the pressure difference pushes the lips open; Elliott & Bowsher 1982) tuned below
+ *                 the note and an inward striking one (pushed closed) 150 c above it; the opening is
+ *                 the sum. Their opposite-sign coupling through the load makes the lips buzz on their
+ *                 own (coupled-mode flutter, like lips buzzing in a mouthpiece), so a tongued note
+ *                 speaks in its first periods and the bore pulls it onto the resonance (a one-mass
+ *                 outward valve is passive until the bore's reflections return: low notes grew over
+ *                 150 ms). Contact stiffness when closed; swept volume flow
+ *                 | Bernoulli jet u = w h sqrt(2 (p_m - p_c) / rho), regularised at small dp
  *                 CUP compliance V / (rho c^2) (implicit in p_c with the jet's conductance: stable)
  *                   |
  *                 FRONT END: throat, backbore, leadpipe as a Kelly-Lochbaum ladder of short
@@ -104,7 +111,7 @@ static constexpr real SPUMP = 0.6f;
 // (SEED_LIP x their settling amplitude)
 // the lips' second (inward striking) mode: its response to the pressure difference re the outward
 // mode's, and its tuning above the outward mode (cents); see the LIPS comment in process_player
-static constexpr real LIP_IN_R = 0.75f, LIP_IN_C = 150.0f;
+static constexpr real LIP_IN_R = 1.0f, LIP_IN_C = 150.0f;
 static constexpr real LEAD = 0.7f, SEED_BREATH = 0.3f, BFLOOR_T = 0.035f, SEED_LIP = 1.0f;
 // pitch tracker: DC removal of the lip motion (per internal sample), period consistency
 static constexpr real TRK_HP = 0.004f, TRK_TOL = 0.05f;
@@ -195,7 +202,7 @@ struct Preset {
 	p.resp_hz = 60.0f;
 	p.release = 0.035f;
 	p.lip_tune = 0.0f;
-	p.lip_q = 15.0f;
+	p.lip_q = 12.0f;
 	p.lip_mass = 3.3f;
 	p.lip_open = 0.15f;
 	p.lip_width = 8.0f;
@@ -256,6 +263,7 @@ static constexpr int NUM_PRESETS = 9;
 		p.bell = 0.5f;
 		p.brassy = 2.4f;
 		p.lip_mass = 0.7f;
+		p.lip_q = 6.0f; // light lips: more damping, or they flutter on their own at ff
 		p.vibrato = 0.25f;
 		p.p_loud = 6.0f;
 		return {"piccolo", 2, MUTE_NONE, p};
@@ -263,6 +271,7 @@ static constexpr int NUM_PRESETS = 9;
 		p.cup = 1.05f;
 		p.bell = -1.5f;
 		p.brassy = 2.0f;
+		p.lip_q = 8.0f;
 		p.breath = 0.025f;
 		return {"cornet", 3, MUTE_NONE, p};
 	case 5: // harmon mute, stem out (Miles): thin, buzzy, nasal; tilt = hand over the stem
@@ -313,7 +322,7 @@ static constexpr int DEFAULT_PRESET = TRUMPET_PRESET;
 #endif
 
 // level matching per preset (median active RMS, measured with the default performance)
-static constexpr real PRESET_GAIN[NUM_PRESETS] = {0.81f, 0.69f, 1.08f, 0.64f, 1.62f, 0.116f, 0.49f, 0.21f, 0.65f};
+static constexpr real PRESET_GAIN[NUM_PRESETS] = {0.81f, 0.685f, 0.776f, 1.06f, 1.31f, 0.0978f, 0.489f, 0.21f, 0.487f};
 
 // ---------------------------------------------------------------------------------------------
 // player and key state
@@ -484,7 +493,7 @@ struct Engine {
 [[nodiscard]] static inline const bore::Bore& bore_of(const Engine& e) { return bore::BORES[e.bore_i]; }
 
 #ifdef TRUMPET_DEBUG
-static int dbg_nocal = 0;                                       // 1: no calibration, 2: the values below
+static int dbg_nocal = 0;                                                    // 1: no calibration, 2: the values below
 static float dbg_cal_lip = 0.0f, dbg_cal_trim = 0.0f, dbg_cal_pthr = 600.0f; // (calibration runs)
 #endif
 
@@ -659,9 +668,12 @@ static inline Fingering choose_fingering(const Engine& e, real note, const Playe
 
 // note range of the instrument (octave folding outside it)
 [[nodiscard]] static inline real fold_note(const Engine& e, real n) {
-	const bool picc = e.bore_i == 2; // the piccolo's range is narrower
+	// the range where the notes speak (the piccolo's is narrower; the cornet's top a little lower)
+	const bool picc = e.bore_i == 2;
 	const real lo = e.open_midi + (picc ? -0.5f : -3.0f);
-	const real hi = e.open_midi + (picc ? 38.5f : 48.5f);
+	const real hi = e.open_midi + (picc ? 38.5f : e.bore_i == 3 ? 40.5f :
+	                                      e.bore_i == 1         ? 43.5f :
+	                                                              44.5f);
 	while (n < lo) n += 12.0f;
 	while (n > hi) n -= 12.0f;
 	return n;
@@ -852,8 +864,9 @@ static inline void process_player(Engine& e, int i) {
 		// silent: the bore rings out, then the player goes idle
 	}
 
-	// half valve: far bends (beyond the lips' comfortable range) lose resonance strength
-	const real hv = clampr((fabsf(off_c + s.trim) - 30.0f) * (1.0f / 60.0f), 0.0f, 1.0f) * P.halfvalve;
+	// half valve: far bends (beyond the lips' comfortable range, re the slide the note normally takes)
+	// lose resonance strength
+	const real hv = clampr((fabsf(off_c + s.trim - cp.trim) - 30.0f) * (1.0f / 60.0f), 0.0f, 1.0f) * P.halfvalve;
 	const real loss_b = clampr(1.0f - 0.25f * P.bore_loss - 0.3f * hv - 0.4f * (1.0f - s.vmix) * s.vmix * 4.0f * 0.5f, 0.3f, 1.0f);
 
 	// steepening: time shift per Pa (Burgers), over ~the cylinder and leadpipe length
@@ -964,7 +977,8 @@ static inline void process_player(Engine& e, int i) {
 		const real G = wh * isj * (1.0f / RHO);
 		pc = ((Cdt + G) * pc + u0 + 2.0f * b0 * iz0) / (Cdt + G + iz0);
 		s.ff[0][w & SMASK] = pc - b0;
-		// lips: outward striking (the pressure difference pushes them open), contact when closed
+		// lips: the outward striking mode x (the pressure difference pushes it open) and the inward
+		// striking mode y (pushed closed, rb x as strongly); opening x + y, contact when closed
 		const real F = (pm - pc) * imu;
 		const real hc = x + y;
 		if (hc >= 0.0f) {
@@ -1145,7 +1159,7 @@ static inline void process_player(Engine& e, int i) {
 	if (s.good_blocks > 50) s.lipc *= 0.995f;
 
 	// guard
-	const real st = fabsf(s.pc) + fabsf(s.x) * 1e5f + fabsf(s.v);
+	const real st = fabsf(s.pc) + (fabsf(s.x) + fabsf(s.y)) * 1e5f + fabsf(s.v) + fabsf(s.vy);
 	if (!(peak < 1e6f) || !(st < 1e7f)) {
 #ifdef TRUMPET_DEBUG
 		fprintf(stderr, "guard reset: player %d peak %g pc %g x %g v %g%c", i, (double)peak, (double)s.pc, (double)s.x, (double)s.v, 10);
