@@ -320,7 +320,7 @@ static void synthThread(void* arg) { // THE SYNTH THREAD
 
 		volume_filtered = VOLUME_FILTER * volume_filtered + (1 - VOLUME_FILTER) * volume;
 
-		// USB audio: the same 24 bit samples (or pre-volume, see config.h), NULL if not streaming
+		// USB audio: the same 24 bit samples (or pre-volume, see config.h), into its ring (always)
 		int32_t* usb = usb_audio_write_ptr();
 
 		// convert float to int with scale, clamp and round; left and right interleaved

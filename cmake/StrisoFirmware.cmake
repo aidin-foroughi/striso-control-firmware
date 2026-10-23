@@ -21,6 +21,8 @@ option(STRISO_LTO "link time optimisation" ON)
 option(STRISO_SYNTH_LTO "compile the synth DSP file with LTO too (OFF: a normal object, all per-file flags apply)" ON)
 option(STRISO_LISTING "write an objdump -S listing next to the ELF" OFF)
 option(STRISO_USB_AUDIO_PRE_VOLUME "USB audio gets the synth before the volume control, at a fixed gain (config.h)" OFF)
+option(STRISO_USB_AUDIO_UAC1 "USB audio as USB Audio Class 1.0 (default: 2.0, doc/usb_audio.md)" OFF)
+option(STRISO_KERNEL_STATS "ChibiOS kernel statistics (CH_DBG_STATISTICS): StcU shows the longest lock sections" ON)
 find_program(FAUST_EXECUTABLE faust)
 if(FAUST_EXECUTABLE)
   set(_faust_default ON)
@@ -132,6 +134,15 @@ endif()
 if(STRISO_USB_AUDIO_PRE_VOLUME)
   list(APPEND _defs USB_AUDIO_PRE_VOLUME=1)
 endif()
+if(STRISO_USB_AUDIO_UAC1)
+  list(APPEND _defs USB_AUDIO_UAC2=0)
+endif()
+set(_kernel_stats_src "")
+if(STRISO_KERNEL_STATS)
+  list(APPEND _defs CH_DBG_STATISTICS=TRUE)
+  # ChibiOS' smart build adds chstats.c only when cfg/chconf.h itself says TRUE
+  set(_kernel_stats_src "${STRISO_CHIBIOS_DIR}/os/rt/src/chstats.c")
+endif()
 
 set(_inc ${STRISO_FW_INCLUDE_DIRS} "${STRISO_DSP_INCLUDE_DIR}" "${_gen}" "${STRISO_CONF_DIR}" ${CHIBIOS_INC})
 
@@ -147,7 +158,7 @@ endfunction()
 
 _fw_objects(fw_chibios_asm SOURCES ${CHIBIOS_XASMSRC} ${CHIBIOS_ASMSRC}
   OPTIONS ${_mcflags} ${_opt} DEFINES ${_adefs})
-_fw_objects(fw_chibios_c SOURCES ${CHIBIOS_CSRC} "${STRISO_CHIBIOS_DIR}/os/various/syscalls.c"
+_fw_objects(fw_chibios_c SOURCES ${CHIBIOS_CSRC} "${STRISO_CHIBIOS_DIR}/os/various/syscalls.c" ${_kernel_stats_src}
   OPTIONS ${_mcflags} ${_opt} ${_copt} ${_cwarn} DEFINES ${_defs})
 _fw_objects(fw_app_c SOURCES ${STRISO_FW_C_SOURCES}
   OPTIONS ${_mcflags} ${_opt} ${_copt} ${_cwarn} DEFINES ${_defs})

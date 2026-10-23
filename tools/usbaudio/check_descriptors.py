@@ -1,13 +1,22 @@
-"""Decode and check the Striso's USB descriptors (composite MIDI + vendor bulk + USB Audio Class 1).
+"""Decode and check the Striso's USB descriptors (composite MIDI + vendor bulk + USB audio).
 
   check_descriptors.py --elf build/firmware/striso_control.elf   descriptors as built (no board needed)
   check_descriptors.py --live                           descriptors as the board reports them
 
 Checks the configuration descriptor's lengths and totals, interface and endpoint numbering, the
 IADs, the MIDI and vendor functions (unchanged: interface 2 is the WinUSB console the app and
-tools/striso.py claim), the MS OS compat-ID descriptor, and the audio function against the UAC1
-spec tables (Audio Devices 1.0: 4.3.2 AC header, 4.3.2.1/2 terminals, 4.5.2 AS general,
-4.6.1.1/2 endpoints; Formats 1.0 2.2.5 Type I format). Exit code 1 if a check fails.
+tools/striso.py claim), the MS OS compat-ID descriptor, and the audio function, which may be
+either class version (the AudioControl interface's protocol says which):
+- USB Audio Class 1.0 (STRISO_USB_AUDIO_UAC1=ON builds, bcdDevice 2.01): Audio Devices 1.0
+  4.3.2 AC header, 4.3.2.1/2 terminals, 4.5.2 AS general, 4.6.1.1/2 endpoints; Formats 1.0 2.2.5.
+- USB Audio Class 2.0 (the default, bcdDevice 2.02): ADC-2 4.6 IAD, 4.7.2 AC header, 4.7.2.1
+  clock source, 4.7.2.4/5 terminals and their clock links, 4.9.2 AS general, 4.10.1.1/2
+  endpoints; FMT-2 2.3.1.6 Type I format; plus what Windows' usbaudio2.sys requires (one clock
+  source with GET CUR and GET RANGE, the same terminal link in every alt setting, alt settings in
+  ascending order, one bmFormats bit, packets within +-1 frame of nominal) and what the firmware
+  answers to the clock source's GET CUR / GET RANGE / validity requests (from the ELF, or with
+  --live asked of the board, where the OS allows it).
+Exit code 1 if a check fails.
 """
 import argparse, struct, sys
 
@@ -53,8 +62,10 @@ def from_elf(path):
                       (3, "descriptor_serial_string"), (4, "vcom_string4"), (5, "vcom_string5")]:
         if name in s:
             strings[idx] = s[name][2:s[name][0]].decode("utf-16-le")
+    clock = {k: s.get(name) for k, name in [("cur", "ua2_freq_cur"), ("range", "ua2_freq_range"),
+                                            ("valid", "ua2_valid")]}
     return (s["vcom_device_descriptor_data"], s["vcom_configuration_descriptor_data"], strings,
-            s.get("mscompatid"))
+            s.get("mscompatid"), clock)
 
 
 def from_live():
@@ -75,7 +86,16 @@ def from_live():
         compat = bytes(d.ctrl_transfer(0xC0, 0x14, 0, 4, 64))
     except Exception:  # noqa: BLE001
         compat = None
-    return dev, cfg, strings, compat
+    # UAC2 clock source requests (interface 3, entity 3): the OS's audio driver owns interface 3,
+    # so some systems refuse them from user space (Windows: not a WinUSB interface)
+    clock = {}
+    for k, req, cs, n in [("cur", 0x01, 0x01, 4), ("range", 0x02, 0x01, 14), ("valid", 0x01, 0x02, 1)]:
+        try:
+            clock[k] = bytes(d.ctrl_transfer(0xA1, req, cs << 8, (3 << 8) | 3, n))
+        except Exception as e:  # noqa: BLE001
+            clock[k] = None
+            clock.setdefault("error", str(e))
+    return dev, cfg, strings, compat, clock
 
 
 # --- decoding ---------------------------------------------------------------------------------
@@ -98,7 +118,7 @@ def main():
     g.add_argument("--elf")
     g.add_argument("--live", action="store_true")
     a = ap.parse_args()
-    dev, cfg, strings, compat = from_elf(a.elf) if a.elf else from_live()
+    dev, cfg, strings, compat, clock = from_elf(a.elf) if a.elf else from_live()
 
     print("device descriptor")
     (bl, bt, bcdusb, cls, sub, proto, mps0, vid, pid, bcddev, im, ip, isn, ncfg) = struct.unpack("<BBHBBBBHHHBBBB", dev)
@@ -107,7 +127,7 @@ def main():
     check(bl == 18 and bt == 1, "device descriptor header")
     check((cls, sub, proto) == (0xEF, 0x02, 0x01), "device class must be Misc/IAD (EF/02/01)")
     check((vid, pid) == (0xF055, 0x57C0), "VID/PID changed")
-    check(bcddev == 0x0201, f"bcdDevice {bcddev:04x}, expected 0201 (bumped for USB audio)")
+    check(bcddev in (0x0201, 0x0202), f"bcdDevice {bcddev:04x}, expected 0201 (UAC1) or 0202 (UAC2)")
     for k, v in sorted(strings.items()):
         print(f"  string {k}: {v!r}")
     check(strings.get(5) == "Striso Synth", "string 5 must be 'Striso Synth'")
@@ -197,7 +217,134 @@ def main():
         check(all(s[0] in (0, 2) for s in secs), "MS compat ID names an interface other than 0 and 2")
 
     # --- audio function: interfaces 3 (AC) and 4 (AS) ----------------------------------------
-    print("audio function")
+    ac = by.get((3, 0))
+    uac2 = bool(ac) and ac["proto"] == 0x20
+    check(bcddev == (0x0202 if uac2 else 0x0201),
+          f"bcdDevice {bcddev:04x} with USB Audio Class {2 if uac2 else 1}: expected {'0202' if uac2 else '0201'} "
+          "(a new value per class version, so Windows binds the driver afresh)")
+    if uac2:
+        check_uac2(by, iads, ac, clock)
+        return report()
+    return check_uac1(by)
+
+
+def check_uac2(by, iads, ac, clock):
+    print("audio function (USB Audio Class 2.0)")
+    iad = [b for b in iads if b[2] == 3]
+    check(len(iad) == 1 and tuple(iad[0][3:7]) == (2, 0x01, 0x00, 0x20),
+          "IAD 3..4: 2 interfaces, class 01, subclass 00, protocol 20 (ADC-2 4.6; Windows: "
+          "USB\\Class_01&SubClass_00&Prot_20 -> usbaudio2.sys)")
+    if not check(ac["cls"] == 1 and ac["sub"] == 1 and ac["neps"] == 0,
+                 "interface 3 must be AudioControl (IP 2.0) without endpoints"):
+        return
+    hdr = ac["cs"][0]
+    check(len(hdr) == 9 and hdr[2] == 0x01, "AC header: bLength 9, subtype 1 (ADC-2 Table 4-5)")
+    check(struct.unpack_from("<H", hdr, 3)[0] == 0x0200, "AC header bcdADC must be 2.00")
+    ac_total = struct.unpack_from("<H", hdr, 6)[0]
+    check(ac_total == sum(len(b) for b in ac["cs"]), f"AC header wTotalLength {ac_total} != {sum(len(b) for b in ac['cs'])}")
+    print(f"  AC header: category {hdr[5]:#04x}, wTotalLength {ac_total}, bmControls {hdr[8]:#04x}")
+    ents = {}
+    for b in ac["cs"][1:]:
+        st, eid = b[2], b[3]
+        check(eid not in ents and eid != 0, f"entity ID {eid} used twice (or 0)")
+        if st == 0x0A:
+            check(len(b) == 8, "clock source bLength 8 (Table 4-6)")
+            ents[eid] = ("clock", b)
+            print(f"  clock source {eid}: attributes {b[4]:#04x} ({['external', 'internal fixed', 'internal variable', 'internal programmable'][b[4] & 3]}), "
+                  f"controls {b[5]:#04x}, assoc terminal {b[6]}")
+            check(b[5] & 0x03 in (1, 3), f"clock {eid}: sampling frequency control must be readable (GET CUR/RANGE)")
+            check(b[5] & 0x0C in (0, 4, 12), f"clock {eid}: validity control bits")
+        elif st == 0x02:
+            check(len(b) == 17, "input terminal bLength 17 (Table 4-9)")
+            tt, = struct.unpack_from("<H", b, 4)
+            ents[eid] = ("it", b)
+            print(f"  input terminal {eid}: type {tt:#06x}, clock {b[7]}, {b[8]} channels, config {struct.unpack_from('<I', b, 9)[0]:#010x}, iTerminal {b[16]}")
+            check(b[8] == 2 and struct.unpack_from("<I", b, 9)[0] == 0x00000003, "input terminal: 2 channels FL/FR")
+        elif st == 0x03:
+            check(len(b) == 12, "output terminal bLength 12 (Table 4-10)")
+            tt, = struct.unpack_from("<H", b, 4)
+            ents[eid] = ("ot", b)
+            print(f"  output terminal {eid}: type {tt:#06x}, source {b[7]}, clock {b[8]}")
+        else:
+            check(False, f"unexpected AC descriptor subtype {st:#x}")
+    clocks = [e for e, (k, _) in ents.items() if k == "clock"]
+    check(len(clocks) == 1, f"exactly one clock source (usbaudio2.sys supports one), found {len(clocks)}")
+    for eid, (k, b) in ents.items():
+        if k == "it":
+            check(b[7] in clocks, f"input terminal {eid}: bCSourceID {b[7]} is not a clock source")
+        if k == "ot":
+            check(b[8] in clocks, f"output terminal {eid}: bCSourceID {b[8]} is not a clock source")
+            check(b[7] in ents and ents[b[7]][0] == "it", f"output terminal {eid}: source {b[7]} is not an input terminal")
+    usb_terms = [e for e, (k, b) in ents.items() if k == "ot" and struct.unpack_from("<H", b, 4)[0] == 0x0101]
+    check(len(usb_terms) == 1, "exactly one USB streaming output terminal")
+
+    # the clock source's answers: one discrete frequency, 48000
+    rates = []
+    if clock and clock.get("range") is not None:
+        r = clock["range"]
+        n, = struct.unpack_from("<H", r, 0)
+        check(len(r) == 2 + 12 * n and n >= 1, f"GET RANGE reply: {len(r)} bytes for {n} subranges (ADC-2 5.2.1)")
+        for k in range(n):
+            lo, hi, res = struct.unpack_from("<III", r, 2 + 12 * k)
+            print(f"  clock GET RANGE subrange {k}: {lo}..{hi} step {res}")
+            check(lo == hi and res == 0 or lo < hi, f"subrange {k}: a discrete frequency must be MIN = MAX, RES = 0")
+            rates.append(hi)
+        cur, = struct.unpack("<I", clock["cur"]) if clock.get("cur") is not None and len(clock["cur"]) == 4 else (None,)
+        print(f"  clock GET CUR: {cur} Hz, validity {clock['valid'][0] if clock.get('valid') else None}")
+        check(cur == 48000, f"clock GET CUR {cur}, expected 48000")
+        check(rates == [48000], f"clock GET RANGE {rates}, expected one discrete 48000 Hz")
+        check(clock.get("valid") is not None and clock["valid"][:1] == b"\x01", "clock validity GET CUR must be 1 (valid)")
+    elif clock and "error" in clock:
+        print(f"  clock source requests not possible from here ({clock['error']}): skipped")
+    else:
+        check(False, "clock source replies (ua2_freq_cur/range, ua2_valid) not found in the ELF")
+    max_rate = max(rates) if rates else 48000
+
+    a0 = by.get((4, 0))
+    check(a0 and a0["cls"] == 1 and a0["sub"] == 2 and a0["proto"] == 0x20 and a0["neps"] == 0,
+          "interface 4 alt 0: AudioStreaming IP 2.0, zero bandwidth")
+    alts = [k[1] for k in by if k[0] == 4]
+    check(alts == sorted(alts) and sorted(alts) == [0, 1, 2], f"interface 4 alt settings {alts} (ascending, from 0)")
+    links, periodic = set(), 0
+    for alt in sorted(alts)[1:]:
+        i = by[(4, alt)]
+        check(i["cls"] == 1 and i["sub"] == 2 and i["proto"] == 0x20 and i["neps"] == 1,
+              f"alt {alt}: AudioStreaming IP 2.0 with one endpoint")
+        gen, fmt = (i["cs"] + [b"", b""])[:2]
+        if not check(len(gen) == 16 and gen[2] == 0x01, f"alt {alt}: AS general bLength 16 subtype 1 (Table 4-27)"):
+            continue
+        links.add(gen[3])
+        check(gen[3] in usb_terms, f"alt {alt}: bTerminalLink {gen[3]} is not the USB streaming terminal")
+        check(gen[4] == 0, f"alt {alt}: no AS interface controls")
+        fmts, = struct.unpack_from("<I", gen, 6)
+        check(gen[5] == 1 and fmts == 1, f"alt {alt}: format type I, bmFormats PCM only (one bit)")
+        nch, cfgch = gen[10], struct.unpack_from("<I", gen, 11)[0]
+        check(nch == 2 and cfgch == 3, f"alt {alt}: 2 channels FL/FR")
+        check(len(fmt) == 6 and fmt[2] == 0x02 and fmt[3] == 0x01, f"alt {alt}: Type I format descriptor (FMT-2 Table 2-2)")
+        sub, bits = fmt[4], fmt[5]
+        check(sub in (2, 3, 4) and 8 <= bits <= 8 * sub, f"alt {alt}: subslot {sub}, bits {bits}")
+        e = i["eps"][0]["d"]
+        mps, = struct.unpack_from("<H", e, 4)
+        need = (max_rate // 1000 + 1) * nch * sub
+        print(f"  alt {alt}: {nch} ch, {sub} byte subslots, {bits} bit; endpoint {e[2]:#04x} attr {e[3]:#04x} "
+              f"wMaxPacketSize {mps} ({max_rate // 1000 + 1} frames: {need}) bInterval {e[6]}")
+        check(len(e) == 7, f"alt {alt}: standard endpoint descriptor must be 7 bytes in UAC2")
+        check(e[2] == 0x83, f"alt {alt}: endpoint {e[2]:#04x}, expected 0x83")
+        check(e[3] == 0x05, f"alt {alt}: endpoint must be isochronous, asynchronous, data (0x05)")
+        check(mps == need and mps <= 1023, f"alt {alt}: wMaxPacketSize {mps}, need {need} (<= 1023 at full speed)")
+        check(e[6] == 1, f"alt {alt}: bInterval 1 (full speed: every 1 ms frame)")
+        cs = i["eps"][0]["cs"]
+        check(len(cs) == 1 and len(cs[0]) == 8 and cs[0][2] == 0x01 and cs[0][3] & 0x80 == 0,
+              f"alt {alt}: class-specific iso endpoint descriptor (Table 4-34), no MaxPacketsOnly")
+        check(len(i["eps"]) == 1, f"alt {alt}: no feedback endpoint (an IN stream carries its rate)")
+        periodic = max(periodic, mps)
+    check(len(links) == 1, f"the terminal link must be the same in every alt setting, got {sorted(links)}")
+    print(f"  periodic bandwidth: {periodic} + 9 bytes per frame of 1350 allowed")
+    check(periodic + 9 <= 1350, "periodic bandwidth")
+
+
+def check_uac1(by):
+    print("audio function (USB Audio Class 1.0)")
     ac = by.get((3, 0))
     if not check(ac and ac["cls"] == 1 and ac["sub"] == 1 and ac["neps"] == 0, "interface 3 must be AudioControl without endpoints"):
         return report()

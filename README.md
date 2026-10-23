@@ -32,7 +32,7 @@ All of them play with **10-voice polyphony** through **stereo master effects** (
 
 ### USB audio
 
-The Striso is now also a **class-compliant USB sound card**, called **"Striso Synth"** (48 kHz stereo, 24 or 16 bit). It needs no driver on Windows or macOS. You can record the internal synth straight into any DAW or hear it through your computer, while the headphone jack keeps playing at the same time. The audio clock was retuned to run at exactly 48 kHz.
+The Striso is now also a **class-compliant USB sound card**, called **"Striso Synth"** (48 kHz stereo, 24 or 16 bit). It needs no driver on Windows 10/11, macOS or Linux. You can record the internal synth straight into any DAW or hear it through your computer, while the headphone jack keeps playing at the same time. The audio clock was retuned to run at exactly 48 kHz. It is a USB Audio Class 2.0 device, so Windows uses its low-latency driver (`usbaudio2.sys`), and the board adds about 2.5 ms on its side. The design, descriptors, latency budget and diagnostics are in [doc/usb_audio.md](doc/usb_audio.md).
 
 ### Striso Live, the optional companion app
 
@@ -127,7 +127,7 @@ cmake --preset firmware -DSTRISO_VOICE=all && cmake --build --preset firmware
 make VOICE=all                    # the same, through the thin Makefile wrapper (also prog_*, gdb)
 ```
 
-CMake options: `STRISO_VOICE` (strisy, all, or a name), `STRISO_SYNTH_ENGINE` (strisy, faust), `STRISO_SYNTH_OPT`/`STRISO_SYNTH_LTO` (flags of the synth DSP file), `STRISO_FAUST_REGENERATE`, `STRISO_USB_AUDIO_PRE_VOLUME`, `STRISO_LISTING`. Every build exports `compile_commands.json` for clangd and IDEs.
+CMake options: `STRISO_VOICE` (strisy, all, or a name), `STRISO_SYNTH_ENGINE` (strisy, faust), `STRISO_SYNTH_OPT`/`STRISO_SYNTH_LTO` (flags of the synth DSP file), `STRISO_FAUST_REGENERATE`, `STRISO_USB_AUDIO_PRE_VOLUME`, `STRISO_USB_AUDIO_UAC1` (USB Audio Class 1.0 instead of 2.0), `STRISO_KERNEL_STATS` (ChibiOS lock-section statistics for `StcU`, on by default), `STRISO_LISTING`. Every build exports `compile_commands.json` for clangd and IDEs.
 
 ### Tests
 
@@ -173,7 +173,7 @@ In a checkout from before this layout, `git submodule update --init` puts the su
 - `tools/build.sh`, `tools/test.sh`, `tools/update_goldens.sh`, `tools/format.sh`, `tools/tidy.sh`: run in Docker (see Building).
 - `tools/record_keys.py`: records the key stream from the board to CSV.
 - `tools/review_voice.sh`: builds and checks a voice engine before it may be flashed.
-- `tools/usbaudio/`: USB audio descriptor checks, a simulation of the audio buffer and clock-rate matching (servo), and a test-tone analyzer.
+- `tools/usbaudio/`: USB audio descriptor checks (UAC2 and UAC1), a simulation of the audio buffer and clock-rate matching (servo, latency per ring target), and a test-tone analyzer. On the board: `striso.py cmd U` prints the stream statistics, `cmd u` toggles a test tone, `cmd t096` sets the ring target (see [doc/usb_audio.md](doc/usb_audio.md)).
 
 ## Credits and licence
 

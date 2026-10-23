@@ -154,7 +154,8 @@ void PExReceiveByte(unsigned char c) {
   static char header = 0;
   static int state = 0;
   // binary payload of the 'Q' command (set parameter): target, index, float32 little endian;
-  // of the 'K' command (press a settings key): the key id
+  // of the 'K' command (press a settings key): the key id; of the 't' command (USB audio ring
+  // target): 3 ASCII digits
   static unsigned char payload[6];
   static int payload_len = 0, payload_need = 0;
   static char payload_cmd = 0;
@@ -165,6 +166,17 @@ void PExReceiveByte(unsigned char c) {
       payload_need = 0;
       const int ok = synth_settings_key(payload[0]);
       chprintf((BaseSequentialStream *)&BDU1, "K %s %d\r\n", ok ? "ok" : "err", payload[0]);
+    }
+    else if (payload_len == payload_need && payload_cmd == 't') {
+      payload_need = 0;
+      int n = 0, ok = 1;
+      for (int i = 0; i < 3; i++) {
+        if (payload[i] < '0' || payload[i] > '9') ok = 0;
+        n = n * 10 + (payload[i] - '0');
+      }
+      if (ok && n > 0) usb_audio_set_target(n);
+      chprintf((BaseSequentialStream *)&BDU1, "usb audio target %d frames (%d us)%s\r\n",
+               usb_audio_target(), usb_audio_target() * 1000 / 48, ok ? "" : ": not 3 digits, unchanged");
     }
     else if (payload_len == payload_need) {
       payload_need = 0;
@@ -326,6 +338,12 @@ void PExReceiveByte(unsigned char c) {
 #endif
       else if (c == 'U') { // USB audio status and statistics since the last 'U'
         usb_audio_print_status(&BDU1);
+      }
+      else if (c == 't') { // USB audio ring target: 3 ASCII digits follow, frames (49..256; 000:
+        // just report it), e.g. Stct072; replies "usb audio target <n> frames (<us> us)"
+        payload_cmd = 't';
+        payload_len = 0;
+        payload_need = 3;
       }
       else if (c == 'u') { // USB audio source: toggle the test tone (the jack keeps the synth)
         usb_audio_set_tone(!usb_audio_tone());

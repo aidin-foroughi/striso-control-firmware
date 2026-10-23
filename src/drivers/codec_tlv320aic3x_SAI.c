@@ -22,6 +22,7 @@
 #include "hal_sai_lld.h"
 #include "codec_tlv320aic3x.h"
 #include "codec.h"
+#include "usb_audio.h"
 
 // SAI1 master clock divider (H7: MCLK = kernel clock / MCKDIV, fs = MCLK / 256 with a 64 bit frame)
 #if SAMPLERATE == 48000
@@ -173,6 +174,7 @@ static void dma_sai_a_interrupt(void* dat, uint32_t flags) {
   (void)flags;
 
   //codec_interrupt_timestamp = hal_lld_get_counter_value();
+  usb_audio_codec_tickI(); // USB audio diagnostics: the synth's commit delay and lost blocks
   if ((sai_a_dma)->stream->CR & STM32_DMA_CR_CT) {
     computebufI(rbuf2, buf);
   }
