@@ -60,7 +60,8 @@ static volatile uint32_t prof_blocks;
 #include "striso_dsp/voice_wind.h"
 #include "striso_dsp/voice_ep.h"
 #include "striso_dsp/voice_brass.h"
-#define VOICE_LIST(X, XP) X(strisy) XP(va) XP(modal) XP(bowed) XP(wind) XP(ep) XP(brass)
+#include "striso_dsp/voice_trumpet.h"
+#define VOICE_LIST(X, XP) X(strisy) XP(va) XP(modal) XP(bowed) XP(wind) XP(ep) XP(brass) XP(trumpet)
 #elif defined(SYNTH_VOICE_HEADER)
 #include SYNTH_VOICE_HEADER
 #define VOICE_LIST(X, XP) X(SYNTH_VOICE_NS)

@@ -41,6 +41,15 @@ target.modal.p5.default 5c56d8ec4e9d7e1a
 target.reed.default 5d96dc8d06b294c3
 target.sine.default c16faaa4ee336b6f
 target.strisy.default 5869927f9a7ca428
+target.trumpet.p0.default b06385c815de17f9
+target.trumpet.p1.default 9e904df3329f3cc5
+target.trumpet.p2.default 4c2b506afb1ba7d1
+target.trumpet.p3.default 6f2ac3ee979f29d5
+target.trumpet.p4.default 3a355be7d1950bb4
+target.trumpet.p5.default 92ed29cd85ff48aa
+target.trumpet.p6.default 273b9af32bc52870
+target.trumpet.p7.default 9b5ea5d598bf6b14
+target.trumpet.p8.default b4c63da5614302dd
 target.va.p0.default 8a5f6414ee5ea5da
 target.va.p1.default 89b1d7950dbb372d
 target.va.p2.default 62a2e55a3beaf673
