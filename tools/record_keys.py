@@ -38,6 +38,9 @@ def main(seconds, out_path):
                 buf += bytes(d.read(EP_IN, 512, timeout=100))
             except usb.core.USBTimeoutError:
                 continue
+            except usb.core.USBError as e:  # board gone (reset or crash): keep what was recorded
+                print(f"board disconnected at {time.perf_counter() - t0:.1f} s: {e}", flush=True)
+                break
             t = time.perf_counter() - t0
             i = 0
             while i < len(buf):

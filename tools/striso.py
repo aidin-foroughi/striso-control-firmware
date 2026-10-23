@@ -58,11 +58,13 @@ def console(cmd, wait=0.3):
 
 def _read_all(d, timeout_s):
     out = b""
-    while True:
+    deadline = time.time() + timeout_s + 2.0  # a stream left on (StcS) would otherwise never go quiet
+    while time.time() < deadline:
         try:
             out += bytes(d.read(EP_IN, 512, timeout=int(timeout_s * 1000)))
         except usb.core.USBTimeoutError:
             return out
+    return out
 
 
 def version():
