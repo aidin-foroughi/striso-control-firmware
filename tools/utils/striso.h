@@ -1,1 +1,1 @@
-../striso.h
+../../src/app/striso.h

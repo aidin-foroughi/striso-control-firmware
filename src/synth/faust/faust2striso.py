@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import re
 import subprocess
 import os
@@ -63,36 +64,53 @@ def faust_replace_fixed_sliders(faust_in):
     return replace_slider.sub(r'\1',faust_in)
 
 def main():
-    faust_source = 'synth.dsp'
-    faust_template = 'faust_synth_template.cpp'
+    here = os.path.dirname(os.path.abspath(__file__))
+    ap = argparse.ArgumentParser(description='Compile synth.dsp with Faust into the firmware synth (synth.cpp).')
+    ap.add_argument('--dsp', default=os.path.join(here, 'synth.dsp'))
+    ap.add_argument('--template', default=os.path.join(here, 'faust_synth_template.cpp'))
+    ap.add_argument('--out', default=os.path.join(here, 'synth.cpp'))
+    ap.add_argument('--synth-h', default=os.path.join(here, '..', 'synth.h'))
+    ap.add_argument('--tmp-dir', default=None,
+                    help='where to write synth.dsp.tmp (default: next to --out)')
+    ap.add_argument('--check-voicecount', action='store_true',
+                    help='fail if VOICECOUNT in synth.h differs instead of rewriting synth.h (the build uses this)')
+    args = ap.parse_args()
+    tmp_dir = args.tmp_dir or os.path.dirname(os.path.abspath(args.out))
+    os.makedirs(tmp_dir, exist_ok=True)
 
-    tmp_file = faust_source + '.tmp'
+    # the generated code names its source file: keep it synth.dsp.tmp
+    tmp_name = 'synth.dsp.tmp'
 
     # preprocess: replace hsliders with fixed values, useful for quick testing
     # of settings on the pc but compiling the as fixed on embedded platform.
     # vsliders stay variable.
-    with open(tmp_file,'w') as f:
-        f.write(faust_replace_fixed_sliders(open(faust_source).read()))
+    with open(os.path.join(tmp_dir, tmp_name), 'w', newline='\n') as f:
+        f.write(faust_replace_fixed_sliders(open(args.dsp).read()))
 
-    # run faust compiler
+    # run faust compiler (-I: the libraries next to synth.dsp, e.g. fast.lib)
     extra_args = os.environ.get('FAUST_ARGS', '').split()
-    faust_cpp = subprocess.check_output(['faust','-a',faust_template,tmp_file,'-lang','ocpp'] + extra_args).decode()
+    faust_cpp = subprocess.check_output(
+        ['faust', '-I', os.path.dirname(os.path.abspath(args.dsp)), '-a', os.path.abspath(args.template),
+         tmp_name, '-lang', 'ocpp'] + extra_args, cwd=tmp_dir).decode()
 
     # do some postprocessing for efficient embedded use
     faust_cpp, max_voice = faust_postprocess(faust_cpp)
-    with open('synth.cpp','w') as f:
+    with open(args.out, 'w', newline='\n') as f:
         f.write(faust_cpp)
 
     # change VOICECOUNT in 'synth.h' if different from voicecount in synth.dsp
-    synth_h = open('synth.h').readlines()
+    synth_h = open(args.synth_h).readlines()
     vc_line = [n for n,line in enumerate(synth_h) if line.startswith('#define VOICECOUNT')][0]
     vc = int(synth_h[vc_line].split()[-1])
     if vc != max_voice + 1:
+        if args.check_voicecount:
+            raise SystemExit('synth.dsp has {} voices but {} says VOICECOUNT {}: run {} once to update it'.format(
+                max_voice + 1, args.synth_h, vc, os.path.basename(__file__)))
         synth_h[vc_line] = '#define VOICECOUNT {}\n'.format(max_voice+1)
-        with open('synth.h', 'w') as f:
+        with open(args.synth_h, 'w') as f:
             f.writelines(synth_h)
         # make sure synth_contol gets compiled again
-        touch('synth_control.cpp')
+        touch(os.path.join(os.path.dirname(os.path.abspath(args.synth_h)), 'synth_control.cpp'))
 
 if __name__ == '__main__':
     main()

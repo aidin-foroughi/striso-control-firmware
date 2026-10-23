@@ -1,6 +1,6 @@
 """Decode and check the Striso's USB descriptors (composite MIDI + vendor bulk + USB Audio Class 1).
 
-  check_descriptors.py --elf build/striso_control.elf   descriptors as built (no board needed)
+  check_descriptors.py --elf build/firmware/striso_control.elf   descriptors as built (no board needed)
   check_descriptors.py --live                           descriptors as the board reports them
 
 Checks the configuration descriptor's lengths and totals, interface and endpoint numbering, the

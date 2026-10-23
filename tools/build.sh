@@ -1,56 +1,56 @@
 #!/usr/bin/env bash
-# Build the Striso firmware in Docker. Usage: [FW_DIR=<firmware checkout>] tools/build.sh [make args...]
-# (default target: uf2; FW_DIR defaults to this repository, the checkout these tools are in; set it,
-# relative to the current directory, to build a worktree, e.g. FW_DIR=../worktrees/fw-bowed)
-# After building, sanity checks run on the ELF; if one fails the .uf2 is deleted so it can't be flashed.
+# Build the Striso firmware in Docker: a thin wrapper around `cmake --preset <preset>` and
+# `cmake --build --preset <preset>` (see CMakePresets.json and README "Building").
+#
+# Usage: [FW_DIR=<checkout>] tools/build.sh [VOICE=<v>] [SYNTH_ENGINE=strisy|faust] [PRESET=<p>]
+#                                           [SYNTH_OPT="<flags>"] [SYNTH_LTO=yes|no]
+#                                           [-D<CMAKE_OPTION>=<value>...] [clean] [verbose]
+#   VOICE         strisy (default), all, or <name> for dsp/include/striso_dsp/voice_<name>.h
+#   SYNTH_ENGINE  strisy (default: the C++ engines) or faust (synth.dsp)
+#   PRESET        firmware (default, Release) or firmware-debug
+#   FW_DIR        firmware checkout, relative to the current directory or absolute (default: the
+#                 checkout these tools are in), e.g. FW_DIR=../worktrees/fw-bowed
+#   `uf2` and `all` are accepted and ignored (the old make targets: the build always makes the .uf2)
+# Every run configures from these arguments (an option left out goes back to its default), as
+# make did. The guards (no soft-float, synth stack, load address) run in the build: if one fails
+# the build fails and no .uf2 is written. Output: <checkout>/build/<preset>/striso_control.uf2
+# (and .elf .bin .hex .map); `tools/striso.py flash <that .uf2>` flashes it.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
-# the main checkout (not a worktree) of this repository: it has the ChibiOS and uf2 submodules
-COMMON="$(git -C "$HERE" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
-if [ -n "$COMMON" ] && [ -f "$COMMON/../ChibiOS/os/rt/include/ch.h" ]; then MAIN_DIR="$COMMON/.."; else MAIN_DIR="$HERE/.."; fi
-MAIN="$(cd "$MAIN_DIR" && pwd -W 2>/dev/null || pwd)"
-FW="$(cd "${FW_DIR:-$HERE/..}" && pwd -W 2>/dev/null || pwd)"
-docker build -q -t striso-build "$HERE/build-env" >/dev/null
-TOOLS="$(cd "$HERE" && pwd -W 2>/dev/null || pwd)"
-# git worktrees don't have the submodules checked out: use the main checkout's (read only)
-MOUNTS=(-v "$FW:/src" -v "$TOOLS:/tools:ro")
-[ -f "$FW/ChibiOS/os/rt/include/ch.h" ] || MOUNTS+=(-v "$MAIN/ChibiOS:/src/ChibiOS:ro")
-[ -f "$FW/uf2/utils/uf2conv.py" ] || MOUNTS+=(-v "$MAIN/uf2:/src/uf2:ro")
-run() { MSYS_NO_PATHCONV=1 docker run --rm -e FAUST_ARGS "${MOUNTS[@]}" striso-build "$@"; }
-# version string from the host: inside the container a worktree's .git link points nowhere
-FWVERSION="$(git -C "$FW" --no-pager show --date=short --format=%ad --name-only | head -n1)_$(git -C "$FW" --no-pager describe --tags --always --long --dirty)"
-# the board reports this string: include the voice engine so it is clear what is running
-for a in "$@"; do case "$a" in VOICE=*) [ "${a#VOICE=}" = strisy ] || FWVERSION="${FWVERSION}_${a#VOICE=}";; esac; done
-run make -j"$(nproc)" FWVERSION="$FWVERSION" "${@:-uf2}"
+source "$HERE/docker_env.sh"
 
-ELF=build/striso_control.elf
-[ -f "$FW/$ELF" ] || exit 0
-fail() {
-  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
-  echo "!! BUILD REJECTED: $1" >&2
-  echo "!! build/striso_control.uf2 deleted so it cannot be flashed." >&2
-  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
-  rm -f "$FW/build/striso_control.uf2"
-  exit 1
-}
-# Software floating point helpers mean some file was compiled without FPU flags: the DSP would be
-# many times too slow and starve the rest of the firmware.
-SOFTFP=$(run sh -c "arm-none-eabi-nm $ELF | grep -E ' __aeabi_[fd](add|sub|mul|div)$' || true")
-[ -z "$SOFTFP" ] || fail "software float helpers linked in (missing FPU flags?): $(echo $SOFTFP | tr '\n' ' ')"
-# The synth thread's stack must hold the DSP's stack frames. Faust can put large arrays on the stack
-# (e.g. -vec mode), which on the PC is harmless but on the board overflows into other threads' memory.
-# Depth = worst call path from the synth thread through everything it calls (tools/stackcheck.py:
-# conservative frame per function, fails on recursion and indirect calls), + 256 bytes for the
-# exception context the hardware stacks on the thread stack (with FPU state).
-# which engine was linked: Faust (mydsp::compute in synth.cpp) or strisy (synth_strisy.cpp)
-if run sh -c "arm-none-eabi-nm $ELF | grep -q _ZN5mydsp7computeEiPPfS1_"; then SYNTH_SRC=synth.cpp; else SYNTH_SRC=synth_strisy.cpp; fi
-WA=$(grep -oE 'THD_WORKING_AREA\(waSynthThread, *[0-9]+\)' "$FW/$SYNTH_SRC" | grep -oE '[0-9]+\)' | tr -d ')')
-DEPTH=$(run sh -c "arm-none-eabi-objdump -d --no-show-raw-insn $ELF | python3 /tools/stackcheck.py _ZL11synthThreadPv") \
-  || fail "synth thread stack check failed: $DEPTH"
-NEED=$(( ${DEPTH%% *} + 256 ))
-echo "synth thread stack ($SYNTH_SRC): deepest ${DEPTH%% *} bytes [${DEPTH#* }] + 256 margin = $NEED of $WA bytes"
-[ -n "$WA" ] && [ "$NEED" -le "$WA" ] || fail "synth thread stack overflow: needs ~$NEED bytes, working area is ${WA:-unknown} bytes"
-# Firmware must start at the application address, never in the bootloader region.
-START=$(run sh -c "readelf -l $ELF | grep LOAD -m1 | awk '{print \$3}'")
-[ "$START" = "0x08040000" ] || fail "unexpected load address $START (expected 0x08040000)"
-echo "build checks passed (hardware FPU, load address $START)"
+PRESET=firmware VOICE=strisy ENGINE=strisy CLEAN=0 VERBOSE=""
+DEFS=(-USTRISO_SYNTH_OPT -USTRISO_SYNTH_LTO)
+for a in "$@"; do
+  case "$a" in
+    VOICE=*) VOICE="${a#VOICE=}" ;;
+    SYNTH_ENGINE=*) ENGINE="${a#SYNTH_ENGINE=}" ;;
+    PRESET=*) PRESET="${a#PRESET=}" ;;
+    SYNTH_OPT=*) DEFS+=("-DSTRISO_SYNTH_OPT=${a#SYNTH_OPT=}") ;;
+    SYNTH_LTO=yes) DEFS+=(-DSTRISO_SYNTH_LTO=ON) ;;
+    SYNTH_LTO=no) DEFS+=(-DSTRISO_SYNTH_LTO=OFF) ;;
+    USE_VERBOSE_COMPILE=yes|verbose) VERBOSE=--verbose ;;
+    clean) CLEAN=1 ;;
+    uf2|all) ;;
+    -D*|-U*) DEFS+=("$a") ;;
+    *) echo "build.sh: unknown argument '$a' (see the usage at the top of tools/build.sh)" >&2; exit 2 ;;
+  esac
+done
+
+if [ "$CLEAN" = 1 ]; then
+  rm -rf "$FW/build/$PRESET"
+  echo "removed build/$PRESET"
+  [ $# -gt 1 ] || exit 0
+fi
+
+GITV="$(striso_git_version)"
+# quote each argument for the shell in the container
+q() { printf "'%s' " "${@//\'/\'\\\'\'}"; }
+SUFFIX=""; [ "$VOICE" = strisy ] || SUFFIX="_$VOICE"
+echo "firmware version: $GITV$SUFFIX"
+mkdir -p "$FW/build"
+in_docker bash -c "cmake --preset $PRESET -DSTRISO_VOICE=$VOICE -DSTRISO_SYNTH_ENGINE=$ENGINE \
+  -DSTRISO_GIT_VERSION=$GITV $(q "${DEFS[@]}") > build/configure-$PRESET.log 2>&1 \
+  || { cat build/configure-$PRESET.log; exit 1; }
+  cmake --build --preset $PRESET $VERBOSE"
+echo "firmware: $FW/build/$PRESET/striso_control.uf2"

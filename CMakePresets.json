@@ -3,18 +3,60 @@
   "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
   "configurePresets": [
     {
-      "name": "firmware",
-      "displayName": "Firmware (Release, arm-none-eabi)",
+      "name": "base",
+      "hidden": true,
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": { "CMAKE_EXPORT_COMPILE_COMMANDS": "ON" }
+    },
+    {
+      "name": "firmware",
+      "displayName": "Firmware (Release, arm-none-eabi): build/firmware/striso_control.uf2",
+      "inherits": "base",
       "toolchainFile": "${sourceDir}/cmake/arm-none-eabi.cmake",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "firmware-debug",
+      "displayName": "Firmware for the debugger (-Og, no LTO; the synth DSP stays -O3 to keep up in real time)",
+      "inherits": "firmware",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+        "CMAKE_BUILD_TYPE": "Debug",
+        "STRISO_OPT": "-Og -ggdb3 -falign-functions=16",
+        "STRISO_LTO": "OFF"
       }
+    },
+    {
+      "name": "host",
+      "displayName": "Host: unit tests, renderers (striso_dsp on the PC)",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
+    },
+    {
+      "name": "host-asan",
+      "displayName": "Host tests under AddressSanitizer + UndefinedBehaviorSanitizer",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "STRISO_SANITIZE": "ON" }
     }
   ],
   "buildPresets": [
-    { "name": "firmware", "configurePreset": "firmware" }
+    { "name": "firmware", "configurePreset": "firmware" },
+    { "name": "firmware-debug", "configurePreset": "firmware-debug" },
+    { "name": "host", "configurePreset": "host" },
+    { "name": "host-asan", "configurePreset": "host-asan" }
+  ],
+  "testPresets": [
+    {
+      "name": "host", "configurePreset": "host",
+      "output": { "outputOnFailure": true }, "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "host-asan", "configurePreset": "host-asan",
+      "output": { "outputOnFailure": true }, "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "firmware", "configurePreset": "firmware",
+      "output": { "outputOnFailure": true }, "execution": { "noTestsAction": "error" }
+    }
   ]
 }

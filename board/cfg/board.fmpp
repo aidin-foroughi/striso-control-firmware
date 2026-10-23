@@ -1,9 +1,9 @@
-sourceRoot: ../../ChibiOS/tools/ftl/processors/boards/stm32h7xx/templates
+sourceRoot: ../../third_party/ChibiOS/tools/ftl/processors/boards/stm32h7xx/templates
 outputRoot: ..
 dataRoot: .
 
 freemarkerLinks: {
-    lib: ../../ChibiOS/tools/ftl/libs
+    lib: ../../third_party/ChibiOS/tools/ftl/libs
 }
 
 data : {

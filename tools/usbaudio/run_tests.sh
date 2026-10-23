@@ -4,12 +4,13 @@
 # Usage: [FW_DIR=<firmware checkout>] tools/usbaudio/run_tests.sh   (after tools/build.sh)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+source "$HERE/../docker_env.sh"
 FW="$(cd "${FW_DIR:-$HERE/../..}" && pwd -W 2>/dev/null || pwd)"
 T="$(cd "$HERE" && pwd -W 2>/dev/null || pwd)"
-MSYS_NO_PATHCONV=1 docker run --rm -v "$FW:/fw:ro" -v "$T:/t:ro" -w /tmp striso-build bash -c "
+MSYS_NO_PATHCONV=1 docker run --rm -v "$FW:/fw:ro" -v "$T:/t:ro" -w /tmp "$IMAGE" bash -c "
 set -e
-gcc -O2 -std=gnu11 -Wall -Wextra -Werror -I /fw /t/test_core.c -lm -o /tmp/test_core
+gcc -O2 -std=gnu11 -Wall -Wextra -Werror -I /fw/src/usb /t/test_core.c -lm -o /tmp/test_core
 /tmp/test_core
 "
 PY="$HERE/../.venv/Scripts/python"; [ -x "$PY" ] || PY=python3
-"$PY" "$HERE/check_descriptors.py" --elf "${FW_DIR:-$HERE/../..}/build/striso_control.elf"
+"$PY" "$HERE/check_descriptors.py" --elf "${FW_DIR:-$HERE/../..}/build/firmware/striso_control.elf"

@@ -45,16 +45,16 @@ static volatile uint32_t prof_blocks;
 #define STRISY_PROF_START() (prof_t = DWT->CYCCNT)
 #define STRISY_PROF_MARK(k) do { uint32_t t_ = DWT->CYCCNT; prof[k] += t_ - prof_t; prof_t = t_; } while (0)
 
-#include "strisy.h"
+#include "striso_dsp/strisy.h"
 // VOICE_LIST(X, XP): X(ns) for an engine, XP(ns) for an engine with presets (NUM_PRESETS,
 // preset_name(i), set_preset(Engine&, i)), which become one selectable entry each.
 #if defined(SYNTH_VOICE_ALL)
-#include "voice_va.h"
-#include "voice_modal.h"
-#include "voice_bowed.h"
-#include "voice_wind.h"
-#include "voice_ep.h"
-#include "voice_brass.h"
+#include "striso_dsp/voice_va.h"
+#include "striso_dsp/voice_modal.h"
+#include "striso_dsp/voice_bowed.h"
+#include "striso_dsp/voice_wind.h"
+#include "striso_dsp/voice_ep.h"
+#include "striso_dsp/voice_brass.h"
 #define VOICE_LIST(X, XP) X(strisy) XP(va) XP(modal) XP(bowed) XP(wind) XP(ep) XP(brass)
 #elif defined(SYNTH_VOICE_HEADER)
 #include SYNTH_VOICE_HEADER
@@ -62,7 +62,7 @@ static volatile uint32_t prof_blocks;
 #else
 #define VOICE_LIST(X, XP) X(strisy)
 #endif
-#include "fx.h"
+#include "striso_dsp/fx.h"
 #include "chprintf.h"
 
 #define MAX_VAL (1<<23)

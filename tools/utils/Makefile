@@ -13,8 +13,8 @@ striso_util: striso_util.c
 
 install-usb-rules: /etc/udev/rules.d/49-striso.rules
 
-synth: ../synth.dsp
-	cd .. && faust2jaqt -osc synth.dsp && mv synth utils/
+synth: ../../src/synth/faust/synth.dsp
+	cd ../../src/synth/faust && faust2jaqt -osc synth.dsp && mv synth ../../../tools/utils/
 
 launch_synth: all
 	./stribri.sh &

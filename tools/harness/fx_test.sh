@@ -7,6 +7,7 @@
 #   e.g. tools/harness/fx_test.sh fx_a rvmix=0.3 ';;' fx_b src=impulse rvmix=1
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
+source "$HERE/../docker_env.sh"
 TOOLS="$(cd "$HERE/.." && pwd -W 2>/dev/null || pwd)"
 FW="$(cd "${FW_DIR:-$HERE/../..}" && pwd -W 2>/dev/null || pwd)"
 mkdir -p "$HERE/out"
@@ -21,8 +22,8 @@ for a in "$@"; do
   if [ "${FIRST:-0}" = 1 ]; then CUR="$CUR /tools/harness/out/$a"; FIRST=0; else CUR="$CUR '$a'"; fi
 done
 RUNS="$RUNS $CUR"
-MSYS_NO_PATHCONV=1 docker run --rm -v "$FW:/fw:ro" -v "$TOOLS:/tools" -w /tmp striso-build bash -c "
+MSYS_NO_PATHCONV=1 docker run --rm -v "$FW:/fw:ro" -v "$TOOLS:/tools" -w /tmp "$IMAGE" bash -c "
 set -e
-g++ -O2 ${CXXFLAGS:-} $VDEF -DPERF_HEADER=\\\"${PERF:-performance.h}\\\" -std=c++14 -Wall -Wextra -I /fw -I /tools/harness /tools/harness/fx_test.cpp -o /tmp/fx
+g++ -O2 ${CXXFLAGS:-} $VDEF -DPERF_HEADER=\\\"${PERF:-performance.h}\\\" -std=c++14 -Wall -Wextra -I /fw/dsp/include/striso_dsp -I /tools/harness /tools/harness/fx_test.cpp -o /tmp/fx
 $RUNS
 "

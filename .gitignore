@@ -1,21 +1,22 @@
-*~
-.dep/
+# build trees (one per CMake preset: build/firmware, build/host, ...)
 build/
 releases/
 *.tmp
-.git_version
-.synth_engine
+# written by the build into build/<preset>/generated; also by running the generator by hand
+src/app/config_editor/config_editor.h
 
 faust.*/
 *.dsp.json
 
 .gdb_history
 openocd.log
-.vscode/
+.vscode/*
+!.vscode/c_cpp_properties.json
+.cache/
 
 __pycache__
 *.pyc
 
-striso_util
-synth
-stribri
+tools/utils/striso_util
+tools/utils/synth
+tools/utils/stribri

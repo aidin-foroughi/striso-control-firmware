@@ -13,7 +13,7 @@ SR = 48000
 ROOT = "."
 BASE = "src=sine freq=220 amp=2 seconds=1.2 drive=0.3 phmix=0.5 chmix=0.5 trdepth=0.5 dlmix=0.5 dltime=100 rvmix=0.5".split()
 
-src = open(os.path.join(os.environ.get("FW_DIR") or ".", "fx.h")).read()
+src = open(os.path.join(os.environ.get("FW_DIR") or ".", "dsp", "include", "striso_dsp", "fx.h")).read()
 params = re.findall(r'\{\{"(\w+)",\s*"(\w+)",\s*([-\d.]+)f,\s*([-\d.]+)f,\s*(\d)\}', src)
 args = []
 names = []

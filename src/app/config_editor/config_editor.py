@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+"""Embed the config editor page (config.htm) in the firmware as C arrays, split at the
+{FWVERSION} and {CONFIGDATA} placeholders the firmware fills in.
+
+usage: config_editor.py [config.htm] [config_editor.h]
+(defaults: config.htm next to this script, config_editor.h next to it; the build writes the
+header into its own directory, build/<preset>/generated/config_editor/)"""
+import os
+import sys
+
 
 def convert_to_carray(file_content, var_name):
     outp = "const unsigned long %s_len = %d;\n" % (var_name, len(file_content))
@@ -10,7 +19,12 @@ def convert_to_carray(file_content, var_name):
     outp += "\n};\n"
     return outp
 
-with open("config_editor/config.htm", mode='rb') as f:
+
+here = os.path.dirname(os.path.abspath(__file__))
+src = sys.argv[1] if len(sys.argv) > 1 else os.path.join(here, "config.htm")
+dst = sys.argv[2] if len(sys.argv) > 2 else os.path.join(here, "config_editor.h")
+
+with open(src, mode='rb') as f:
     inpbuf = f.read()
 
 p1, remainder = inpbuf.split(b"{FWVERSION}")
@@ -19,5 +33,7 @@ outpbuf = convert_to_carray(p1, "confightm_p1")
 outpbuf += convert_to_carray(p2, "confightm_p2")
 outpbuf += convert_to_carray(p3, "confightm_p3")
 
-with open("config_editor/config_editor.h", mode='w') as f:
+os.makedirs(os.path.dirname(os.path.abspath(dst)), exist_ok=True)
+# newline='\n': the same bytes on every platform
+with open(dst, mode='w', newline='\n') as f:
     f.write(outpbuf)

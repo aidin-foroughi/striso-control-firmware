@@ -41,7 +41,9 @@
 // USB audio (usb_audio.c) gets the post-volume signal, sample for sample what the jack gets.
 // Set to 1 to send it before the volume control instead, at a fixed gain (USB_AUDIO_GAIN, 0.25 is
 // the jack at the usual volume setting), so the recording level does not follow the volume knob.
+#ifndef USB_AUDIO_PRE_VOLUME  // CMake: -DSTRISO_USB_AUDIO_PRE_VOLUME=ON
 #define USB_AUDIO_PRE_VOLUME 0
+#endif
 #define USB_AUDIO_GAIN 0.25f
 #define CHANNEL_BUFFER_SIZE		32
 #define PLAYBACK_BUFFER_SIZE	(CHANNEL_BUFFER_SIZE*2)
