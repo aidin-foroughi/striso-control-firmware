@@ -102,7 +102,8 @@ set(_gc -ffunction-sections -fdata-sections -fno-common)
 set(_fpu -mfloat-abi=softfp -mfpu=fpv5-d16)
 set(_lto "")
 if(STRISO_LTO)
-  set(_lto -flto)
+  # =auto: LTRANS in parallel (the same code as serial: the partitioning does not depend on it)
+  set(_lto -flto=auto)
 endif()
 set(_opt ${_use_opt} ${_gc} ${_lto} ${_fpu})
 set(_synth_lto ${_lto})
@@ -111,9 +112,9 @@ if(NOT STRISO_SYNTH_LTO)
 endif()
 set(_opt_synth ${_synth_opt} ${_gc} ${_synth_lto} ${_fpu})
 
-set(_copt -std=gnu99)
+set(_copt -std=gnu17)
 set(_cwarn -Wall -Wextra -Wundef -Wstrict-prototypes)
-set(_cppopt -fno-rtti -std=c++11)
+set(_cppopt -std=c++20 -fno-exceptions -fno-rtti)
 set(_cppwarn -Wall -Wextra -Wundef)
 
 set(_adefs CORTEX_USE_FPU=TRUE)
@@ -163,7 +164,9 @@ set_target_properties(striso_control PROPERTIES LINKER_LANGUAGE C SUFFIX ".elf"
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}" LINK_DEPENDS "${STRISO_LDSCRIPT}")
 set(_out "${CMAKE_BINARY_DIR}/striso_control")
 target_link_options(striso_control PRIVATE ${_mcflags} ${_opt} -nostartfiles
-  "-Wl,-Map=${_out}.map,--cref,--no-warn-mismatch,--library-path=${CHIBIOS_STARTUPLD},--script=${STRISO_LDSCRIPT},--gc-sections,--print-memory-usage,--defsym=__process_stack_size__=0x400,--defsym=__main_stack_size__=0x400")
+  "-Wl,-Map=${_out}.map,--cref,--no-warn-mismatch,--library-path=${CHIBIOS_STARTUPLD},--script=${STRISO_LDSCRIPT},--gc-sections,--print-memory-usage,--defsym=__process_stack_size__=0x400,--defsym=__main_stack_size__=0x400"
+  # binutils >= 2.39 warns about the RWX segment that ChibiOS' linker script makes (ram code)
+  $<$<VERSION_GREATER_EQUAL:${CMAKE_C_COMPILER_VERSION},12>:-Wl,--no-warn-rwx-segments>)
 target_link_libraries(striso_control PRIVATE m)
 
 set(_listing "")

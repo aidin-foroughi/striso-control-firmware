@@ -10,36 +10,7 @@
 
 set(STRISO_RENDER_FLAGS_BASE -O2 -ffp-contract=off)
 
-# the engines: strisy plus every dsp/include/striso_dsp/voice_<name>.h that defines namespace <name>
-set(STRISO_VOICES strisy)
-file(GLOB _voice_headers "${STRISO_DSP_INCLUDE_DIR}/striso_dsp/voice_*.h")
-list(SORT _voice_headers)
-foreach(h IN LISTS _voice_headers)
-  string(REGEX REPLACE ".*/voice_(.*)\\.h$" "\\1" v "${h}")
-  file(STRINGS "${h}" ns REGEX "^namespace ${v} {")
-  if(ns)
-    list(APPEND STRISO_VOICES ${v})
-    file(STRINGS "${h}" np REGEX "NUM_PRESETS = ")
-    string(REGEX MATCH "NUM_PRESETS = ([0-9]+)" _ "${np}")
-    set(STRISO_VOICE_${v}_PRESETS "${CMAKE_MATCH_1}")
-  endif()
-endforeach()
-set_property(DIRECTORY "${PROJECT_SOURCE_DIR}" APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${STRISO_DSP_INCLUDE_DIR}/striso_dsp")
-set(STRISO_VOICES "${STRISO_VOICES}" PARENT_SCOPE)
-foreach(v IN LISTS STRISO_VOICES)
-  set(STRISO_VOICE_${v}_PRESETS "${STRISO_VOICE_${v}_PRESETS}" PARENT_SCOPE)
-endforeach()
-
-function(striso_voice_defines out voice)
-  set(d "")
-  if(NOT voice STREQUAL "strisy")
-    list(APPEND d "SYNTH_VOICE_HEADER=\"striso_dsp/voice_${voice}.h\"" "SYNTH_VOICE_NS=${voice}")
-    if(STRISO_VOICE_${voice}_PRESETS)
-      list(APPEND d SYNTH_VOICE_PRESETS)
-    endif()
-  endif()
-  set(${out} "${d}" PARENT_SCOPE)
-endfunction()
+# the engines (STRISO_VOICES, STRISO_VOICE_<v>_PRESETS) and striso_voice_defines(): dsp/CMakeLists.txt
 
 # striso_add_render(<target> VOICE <v> PERF <header> [PERF_DIR <dir>] [OPTIONS ...])
 function(striso_add_render target)

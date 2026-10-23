@@ -35,6 +35,17 @@ done
 
 in_docker() { MSYS_NO_PATHCONV=1 docker run --rm "${MOUNTS[@]}" -w /src "$IMAGE" "$@"; }
 
+# a build directory made by another image (e.g. before a toolchain update) is started afresh:
+# its CMake cache names compilers that may not exist in this one
+image_build_dir() {
+  local d="$FW/$1"
+  if [ -f "$d/CMakeCache.txt" ] && [ "$(cat "$d/.striso-image" 2>/dev/null)" != "$IMAGE" ]; then
+    echo "build/${1#build/}: made with another build image, starting it afresh" >&2
+    rm -rf "$d"
+  fi
+  mkdir -p "$d" && echo "$IMAGE" > "$d/.striso-image"
+}
+
 # the version string's git part, from the host (inside Docker a worktree's .git link points nowhere)
 striso_git_version() {
   echo "$(git -C "$FW" --no-pager show -s --date=short --format=%ad)_$(git -C "$FW" --no-pager describe --tags --always --long --dirty)"

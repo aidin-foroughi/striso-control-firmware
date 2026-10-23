@@ -36,3 +36,6 @@ foreach(v STRISO_FW_C_SOURCES STRISO_FW_CXX_SOURCES STRISO_SYNTH_STRISY_SRC)
 endforeach()
 
 include(StrisoFirmware)
+
+# board-arithmetic renders on QEMU (tools/target_render): ctest -L target_render
+add_subdirectory("${PROJECT_SOURCE_DIR}/tools/target_render" "${CMAKE_BINARY_DIR}/target_render")

@@ -48,7 +48,7 @@ GITV="$(striso_git_version)"
 q() { printf "'%s' " "${@//\'/\'\\\'\'}"; }
 SUFFIX=""; [ "$VOICE" = strisy ] || SUFFIX="_$VOICE"
 echo "firmware version: $GITV$SUFFIX"
-mkdir -p "$FW/build"
+image_build_dir "build/$PRESET"
 in_docker bash -c "cmake --preset $PRESET -DSTRISO_VOICE=$VOICE -DSTRISO_SYNTH_ENGINE=$ENGINE \
   -DSTRISO_GIT_VERSION=$GITV $(q "${DEFS[@]}") > build/configure-$PRESET.log 2>&1 \
   || { cat build/configure-$PRESET.log; exit 1; }

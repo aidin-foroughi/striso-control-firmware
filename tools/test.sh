@@ -10,6 +10,6 @@ source "$HERE/docker_env.sh"
 PRESET=host
 case "${1:-}" in host|host-asan) PRESET="$1"; shift ;; esac
 q() { [ $# -eq 0 ] || printf "'%s' " "${@//\'/\'\\\'\'}"; }
-mkdir -p "$FW/build"
+image_build_dir "build/$PRESET"
 in_docker bash -c "cmake --preset $PRESET > build/configure-$PRESET.log 2>&1 || { cat build/configure-$PRESET.log; exit 1; }
   cmake --build --preset $PRESET && ctest --preset $PRESET -j\$(nproc) $(q "$@")"

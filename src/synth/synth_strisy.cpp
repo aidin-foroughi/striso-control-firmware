@@ -290,7 +290,7 @@ static void synthThread(void *arg) {  // THE SYNTH THREAD
 		apply_params(entries[voice_current].engine);
 		engine_process(entries[voice_current].engine, output0);
 		fx::process(fx_engine, output0, out_l, out_r);
-		prof_blocks++;
+		prof_blocks = prof_blocks + 1;  // (C++20: no ++ on volatile)
 
 		volume_filtered = VOLUME_FILTER * volume_filtered + (1 - VOLUME_FILTER) * volume;
 
@@ -325,7 +325,7 @@ static void synthThread(void *arg) {  // THE SYNTH THREAD
 		chSysLock();
 		synth_load.sum += t_block;
 		if (t_block > synth_load.peak) synth_load.peak = t_block;
-		synth_load.blocks++;
+		synth_load.blocks = synth_load.blocks + 1;
 		chSysUnlock();
 
 		// Overload protection: the synth thread outranks buttons, USB console and LEDs,

@@ -1,18 +1,27 @@
 #!/usr/bin/env bash
-# Rewrite tests/golden/renders.txt from the current DSP: run after an intended change of the
-# engines' output (and say in the commit message what changed and why). Runs every render test in
-# Docker (preset host) with STRISO_GOLDEN_OUT set, so the renderers write their hashes instead of
-# comparing them. The other checks (finite, peak, silent stale tail) still apply.
-# Usage: [FW_DIR=<checkout>] tools/update_goldens.sh
+# Rewrite the golden render checksums from the current DSP and toolchain: run after an intended
+# change of the engines' output, or after a toolchain update (and say in the commit message what
+# changed and why). In Docker:
+#   tests/golden/renders.txt         host renders (ctest -L render, preset host)
+#   tests/golden/target_renders.txt  the DSP compiled for the board, run on QEMU (ctest -L
+#                                    target_render, preset firmware)
+# The renderers write their hashes instead of comparing them (STRISO_GOLDEN_OUT); the other checks
+# (finite, peak, silent stale tail) still apply and must pass.
+# Usage: [FW_DIR=<checkout>] tools/update_goldens.sh [host|target]   (default: both)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/docker_env.sh"
-in_docker bash -c '
+WHAT="${1:-both}"
+update() {  # <preset> <label> <golden file> <build target>
+  image_build_dir "build/$1"
+  in_docker bash -c "
 set -e
-cmake --preset host > /dev/null && cmake --build --preset host
+cmake --preset $1 > /dev/null && cmake --build --preset $1 --target $4 > /tmp/build.log 2>&1 || { tail -30 /tmp/build.log; exit 1; }
 rm -rf /tmp/golden && mkdir /tmp/golden
-STRISO_GOLDEN_OUT=/tmp/golden ctest --preset host -L render -j$(nproc) > /tmp/golden.log 2>&1 || { tail -30 /tmp/golden.log; echo "!! render checks failed: goldens not written"; exit 1; }
-{ sed -n "/^#/p" tests/golden/renders.txt; cat /tmp/golden/*.hash | LC_ALL=C sort; } > /tmp/renders.txt
-mv /tmp/renders.txt tests/golden/renders.txt
-echo "$(ls /tmp/golden | wc -l) golden renders written to tests/golden/renders.txt"
-'
+STRISO_GOLDEN_OUT=/tmp/golden ctest --preset $1 -L '^$2\$' -j\$(nproc) > /tmp/golden.log 2>&1 || { grep -E 'Failed|!!|FATAL' /tmp/golden.log | head -30; echo '!! render checks failed: goldens not written'; exit 1; }
+{ sed -n '/^#/p' $3; cat /tmp/golden/*.hash | LC_ALL=C sort; } > /tmp/new.txt
+mv /tmp/new.txt $3
+echo \"\$(ls /tmp/golden | wc -l) golden checksums written to $3\""
+}
+[ "$WHAT" = target ] || update host render tests/golden/renders.txt all
+[ "$WHAT" = host ] || update firmware target_render tests/golden/target_renders.txt target_renders
