@@ -47,7 +47,9 @@
  *
  * Playing:
  *   pressure    breath (mouth pressure, pp..fff): loudness and brassiness together
- *   strike      tonguing: hard = "t" (fast, overshoot, tongue noise), soft = "d"
+ *   strike      tonguing: hard = "t" (fast, overshoot, tongue noise), soft = "d"; a tongued note from
+ *               silence starts in the horn's own steady oscillation for that note and breath (warm
+ *               start, trumpet_seed.h; the "warm" parameter: seed amplitude, 0 = the natural start)
  *   new key while one is held (soft press): slurred legato, no tongue, the lips change partial /
  *               valves move; release it and the held key comes back (lip trills by tapping)
  *               (legato param: 0 poly, 1 auto, 2 mono)
@@ -61,7 +63,10 @@
  * Polyphony: 4 players (trumpets); a fifth key steals the quietest released player, else the
  * oldest. Cost (QEMU Cortex-M7 instruction counts, tools/target_render): ~35k instructions per
  * sounding player per block, ~140k for 4 at ff with valves moving (~170k cycles at 1.2 cycles per
- * instruction). Memory: cylinder lines 32 KB + room 4 KB in ram1, Engine ~17 KB in DTCM.
+ * instruction); a warm start costs about one player block (~34k, instead of that player's block; at
+ * most one per block, the others wait a block) plus ~2k in each of the next ~15 blocks (the
+ * cylinder lines are seeded ahead of their reads). Memory: cylinder lines 32 KB + room 4 KB in ram1,
+ * Engine ~20 KB in DTCM, seed table (trumpet_seed.h) ~170 KB of flash.
  */
 #ifndef VOICE_TRUMPET_H_
 #define VOICE_TRUMPET_H_
@@ -115,8 +120,9 @@ static constexpr real SPUMP = 0.6f;
 static constexpr real LIP_IN_R = 1.0f, LIP_IN_C = 150.0f;
 static constexpr real LEAD = 0.7f, SEED_BREATH = 0.3f, BFLOOR_T = 0.035f, SEED_LIP = 1.0f;
 // warm start (trumpet_seed.h): the breath a tongued note is seeded for (key pressure units:
-// WARM_D0 + WARM_D1 x strike, or the pressure if more), the hold of that breath (s), the front-end
-// run-in (samples at 96 kHz), the radiated fade-in time constant (s, per stage: hard .. soft)
+// WARM_D0 + WARM_D1 x strike, or the pressure if more; a seed below the breath grows, one above it
+// sounds as an accent), the floor that breath holds (x WARM_BF_K, decaying over WARM_BF_T), the
+// radiated fade-in time constant (s, per stage: hard .. soft strike), the overshoot's rise
 #ifndef TRUMPET_WARM_D0
 static constexpr real WARM_D0 = 0.2f, WARM_D1 = 0.5f, WARM_BF_K = 0.7f, WARM_BF_T = 0.03f;
 #else
@@ -125,11 +131,6 @@ static constexpr real WARM_D0 = TRUMPET_WARM_D0, WARM_D1 = TRUMPET_WARM_D1, WARM
 static constexpr real WARM_FADE_HARD = 0.001f, WARM_FADE_SOFT = 0.004f, WARM_OV_T = 0.004f;
 static constexpr int WARM_PER_BLOCK = 1;
 static constexpr real WARM_TAIL_GATE = 0.15f; // a released player this quiet can be warm started
-#ifndef TRUMPET_WARM_NPRE
-static constexpr int WARM_NPRE = 192;
-#else
-static constexpr int WARM_NPRE = TRUMPET_WARM_NPRE;
-#endif
 // pitch tracker: DC removal of the lip motion (per internal sample), period consistency
 static constexpr real TRK_HP = 0.004f, TRK_TOL = 0.05f;
 // output EQ fitted to the Iowa MIS Bb trumpet recordings (cmpref.py)
@@ -407,18 +408,18 @@ struct Player {
 	uint32_t t_on; // block counter at the start of the note
 	int active;
 	real peak;
-	real xamp;  // lip oscillation amplitude (m)
+	real xamp; // lip oscillation amplitude (m)
 	// warm start (trumpet_seed.h): a tongued note from silence starts in its own steady oscillation
-	int warm;     // this note was started from a seed
-	real wdyn;    // the strike, then the breath the seed was chosen for (key pressure units)
-	real rf, rf1; // radiated fade-in (two one-poles at block rate; 1 = full)
-	real rf_tau;  // its time constant (s)
-	int wpre;     // a warm start on a player still ringing: its tail fades out over one block first
+	int warm;            // this note was started from a seed
+	real wdyn;           // the strike, then the breath the seed was chosen for (key pressure units)
+	real rf, rf1;        // radiated fade-in (two one-poles at block rate; 1 = full)
+	real rf_tau;         // its time constant (s)
+	int wpre;            // a warm start on a player still ringing: its tail fades out over one block first
 	float wt[2][68];     // one period of the seeded cylinder waves (forward input, reflection)
 	uint32_t wfi, wbi;   // next sample of the forward / backward line still to seed
 	int wfn, wbn;        // samples left to seed
 	real wfu, wbu, winc; // their table phases, the phase step per sample
-	real level; // smoothed output level (stealing)
+	real level;          // smoothed output level (stealing)
 };
 
 struct KeyState {
@@ -464,8 +465,8 @@ struct Engine {
 	real plunge;       // plunger position (smoothed)
 	real room_lp, dc;
 	uint32_t room_w;
-	real quiet; // blocks without sound (state flush)
-	int wseeds; // warm starts in this block (at most WARM_PER_BLOCK: the others wait a block)
+	real quiet;     // blocks without sound (state flush)
+	int wseeds;     // warm starts in this block (at most WARM_PER_BLOCK: the others wait a block)
 	float wtab[68]; // warm start: one period of the seeded cup pressure (scratch)
 };
 
@@ -721,7 +722,7 @@ static inline void start_note(Engine& e, int i, real hard, bool tongue, bool fro
 	s.warm = 0;
 	if (tongue) {
 		const real h = clampr(hard * P.attack, 0.0f, 1.5f);
-		s.wdyn = h; // the strike, until the warm start picks the breath
+		s.wdyn = h;                           // the strike, until the warm start picks the breath
 		s.tau_on = 0.012f * exp2s(-3.3f * h); // 12 ms "d" .. 1.2 ms "t"
 		s.ov = P.overshoot * h;
 		s.ovt = 0.0f;
@@ -1216,7 +1217,7 @@ static inline void process_player(Engine& e, int i) {
 			s.trim = wseed.trim;
 			s.bfloor = WARM_BF_K * dyn;
 			s.b1 = 0.0f;
-			s.b2 = dyn; // the breath the seed was captured at; the floor below it
+			s.b2 = dyn;   // the breath the seed was captured at; the floor below it
 			s.ovt = s.ov; // the overshoot rises in (a step in the breath would click through the seeded bore)
 			s.ov = 0.0f;
 			s.gate = 1.0f;
@@ -2059,7 +2060,7 @@ static constexpr ParamEntry param_table[] = {
     {{"t_noise", "air", 0.0f, 1.0f, C_}, &Params::t_noise},
     {{"attack", "attack", 0.0f, 2.0f, C_}, &Params::attack}, // tonguing hardness
     {{"overshoot", "attack", 0.0f, 1.0f, C_}, &Params::overshoot},
-    {{"warm", "attack", 0.0f, 1.0f, C_}, &Params::warm}, // warm start (seed amplitude; 0: the natural start)
+    {{"warm", "attack", 0.0f, 1.0f, C_}, &Params::warm},    // warm start (seed amplitude; 0: the natural start)
     {{"vibrato", "mod", 0.0f, 1.0f, C_}, &Params::vibrato}, // pedal vibrato (semitones)
     {{"vib_hz", "mod", 3.0f, 8.0f, C_}, &Params::vib_hz},
     {{"shake", "mod", 0.0f, 2.0f, C_}, &Params::shake},
