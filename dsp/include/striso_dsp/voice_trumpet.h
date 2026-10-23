@@ -1270,7 +1270,7 @@ static inline void process_player(Engine& e, int i) {
 		// during the attack the breath runs ahead of the key: a key takes ~10-30 ms to be pressed
 		// fully, the player's air arrives at the tongue release (the pressure velocity tells how hard)
 		real pin = pres;
-		if (held && (real)(e.blocks - s.t_on) * e.block_dt < 0.06f) pin = rmin(pres + LEAD * rmax(cc.vpres, 0.0f), rmax(pres, 1.1f));
+		if (held && !s.warm && (real)(e.blocks - s.t_on) * e.block_dt < 0.06f) pin = rmin(pres + LEAD * rmax(cc.vpres, 0.0f), rmax(pres, 1.1f));
 		SVF_TICK(pin, b1, b2, e.bc, t, bl);
 		s.b1 = b1;
 		s.b2 = b2;
