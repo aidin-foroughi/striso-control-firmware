@@ -2483,6 +2483,7 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
     static uint8_t lastRPN_MSB[16] = {0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f,
                                       0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f};
     static uint8_t lsb_cc1 = 0;
+    static int msb_cc1 = -1;  // -1: no CC1 yet
 
     uint8_t channel = status & 0x0f;
     status &= 0xf0;
@@ -2543,11 +2544,19 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
                     // TODO: Tuning, done with pitch bend
                 }
             } break;
-            case  1: { // Fifth (microtonal) tuning
-                dis.set_notegen1(6.80 + (float)data2 * (0.20/64) + (float)lsb_cc1 * (0.20/8192));
-                update_leds();
+            case  1:             // Fifth (microtonal) tuning, MSB and LSB (CC33). As MIDI 1.0: an
+            case  1|MIDI_C_LSB: { // MSB resets the LSB, an LSB applies at once to the last MSB (SC-28)
+                if (data1 == 1) {
+                    msb_cc1 = data2;
+                    lsb_cc1 = 0;
+                } else {
+                    lsb_cc1 = data2;
+                }
+                if (msb_cc1 >= 0) {
+                    dis.set_notegen1(6.80 + (float)msb_cc1 * (0.20/64) + (float)lsb_cc1 * (0.20/8192));
+                    update_leds();
+                }
             } break;
-            case  1|MIDI_C_LSB: lsb_cc1 = data2; break;
             case  7: set_volume(data2); break;
             case 16: config.send_motion_interval = data2; break;
             // case 16|MIDI_C_LSB: config.send_motion_14bit = data2; break;
@@ -2560,8 +2569,8 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
             case 64: {
                 *(dis.synth_interface->pedal) = (float)data2 * (1.0f/127.0f);
             } break;
-            case 65: {
-                dis.set_portamento(data2);
+            case 65: { // portamento (glissando): on at >= 64, as MIDI's switches (SC-29)
+                dis.set_portamento(data2 >= 64);
                 update_leds();
             } break;
             case 70: { // pressure
