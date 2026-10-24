@@ -1,14 +1,14 @@
 # Golden checksums of the target renders (tools/target_render: the DSP compiled for the board and run
 # on QEMU): <ctest name> <FNV-1a 64 of the float bits>. Written by tools/update_goldens.sh.
-target.accordion.p0.default e13e5e512141038d
-target.accordion.p1.default 674056766acaeb65
-target.accordion.p2.default a9b3d3dacbae8e2e
-target.accordion.p3.default cb9263b04c32396f
-target.accordion.p4.default 2e0f3d754d628638
-target.accordion.p5.default 9af4d25c22f0baa2
-target.accordion.p6.default eee1dfc336914f04
-target.accordion.p7.default 6e4a9f18ce9a6dc7
-target.accordion.p8.default 0d09c1205afad558
+target.accordion.p0.default 3222545dcdce3caf
+target.accordion.p1.default 55d2ad0252145b34
+target.accordion.p2.default 1a637ccf33194e82
+target.accordion.p3.default 909b12192363e31a
+target.accordion.p4.default a6b2bb6305a5bbdb
+target.accordion.p5.default d2d3aadc66b1c9b9
+target.accordion.p6.default 7d3e11ffb2cc2762
+target.accordion.p7.default 1d0f1ecacf60d8a8
+target.accordion.p8.default 74be657b9ba989f1
 target.bowed.p0.default a5500a51474a8a57
 target.bowed.p1.default 8f02a8dd6eb5bdd4
 target.bowed.p2.default 5b43d2233b667e64

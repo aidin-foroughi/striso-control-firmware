@@ -233,7 +233,7 @@ static constexpr const char* preset_names[NUM_PRESETS] = {
 	p.speak_ms = 22.0f;
 	p.low_slow = 0.35f;
 	p.thresh = 0.025f;
-	p.amp = 3.5f;
+	p.amp = 3.3f;
 	p.rest = 0.9f;
 	p.push = 0.3f;
 	p.gap = 0.12f;
@@ -400,13 +400,19 @@ static inline void reset_voice(VoiceState& s) {
 	s.fg = 1.0f;
 }
 
-// Select a preset (between blocks, any time); sounding notes continue with the new registers.
+// Select a preset (between blocks, any time). With notes sounding they glide into it: the DSP
+// follows the parameters through its smoothed copy (~55 ms), so registers cross-fade instead of
+// stepping; when silent it switches at once.
 static inline void set_preset(Engine& e, int i) {
 	if (i < 0 || i >= NUM_PRESETS) i = 0;
 	e.preset = i;
 	e.p = preset_params(i);
-	e.ps = e.p;
-	e.casmix = e.p.cassotto > 0.5f ? 1.0f : 0.0f;
+	bool sounding = false;
+	for (int v = 0; v < MAX_VOICES; v++) sounding = sounding || e.vs[v].active;
+	if (!sounding) {
+		e.ps = e.p;
+		e.casmix = e.p.cassotto > 0.5f ? 1.0f : 0.0f;
+	}
 }
 
 // preset after init() (host renders: -DACCORDION_PRESET=n)
@@ -636,7 +642,7 @@ static inline void process_voice(Engine& e, int v) {
 		// amplitude equation: threshold (lower once speaking), growth, saturation, decay
 		const real th = d.A > 0.05f ? 0.6f * thr : thr;
 		const real z = rmax(dp - th, 0.0f);
-		const real At = clampr(q.amp, 0.3f, 6.0f) * z * 1.6f / (z + 0.6f);
+		const real At = clampr(q.amp, 0.3f, 6.0f) * z * 4.0f / (z + 3.0f); // ~linear, saturating
 		real A = d.A;
 		if (At > A && z > 0.0f) {
 			// seed: turbulence floor and the static deflection of a fast pressure rise
@@ -820,7 +826,7 @@ static inline void process(Engine& e, real* __restrict__ output) {
 	// grille and body: resonant lowpass, then a gentle second one; level, soft limit above 4
 	const strisy::SvfCoef g1 = svf_hz(q.grille_hz, sr, 1.6f);
 	const strisy::SvfCoef g2 = svf_hz(q.grille_hz * 1.6f, sr, 0.55f);
-	const real lvl = clampr(q.level, 0.0f, 4.0f) * 0.55f;
+	const real lvl = clampr(q.level, 0.0f, 4.0f) * 0.65f;
 	real b1 = e.gr1.ic1, b2 = e.gr1.ic2, c1 = e.gr2.ic1, c2 = e.gr2.ic2;
 	for (int n = 0; n < BLOCK; n++) {
 		real v1, v2, w1, w2;
