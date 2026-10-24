@@ -132,7 +132,7 @@ typedef enum {
  */
 class MidiParam {
     public:
-        int last_value = INT32_MAX;
+        int last_value = -1; // nothing sent yet (INT32_MAX overflowed in last_value*4 below)
         int midi_cc = CFG_DISABLE;
 
         MidiParam(int cc) {
