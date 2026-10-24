@@ -50,6 +50,7 @@ extern "C" {
 
 #define BUTTONCOUNT 68
 #define MAX_PORTAMENTO_BUTTONS 8
+static constexpr uint8_t MIDI_C_ALL_SOUND_OFF = 0x78;  // (midi.h has All Notes Off, 0x7b)
 
 #define VOL_TICK (0.0005) // (1.0 / (SAMPLINGFREQ / CHANNEL_BUFFER_SIZE) / 0.5) // decay time of estimated volume
 #define VOL_TICK_FACT (0.998) // 0.5**(1/(SAMPLINGFREQ / CHANNEL_BUFFER_SIZE)/0.1)
@@ -300,6 +301,7 @@ class Button {
         button_state_t state = STATE_OFF;
         int voice = -1;        // MIDI voice: the MPE channel slot (index into voices[])
         int synth_voice = -1;  // internal synth voice (index into synth_voices[]), -1: none
+        uint8_t midi_channel = 0;  // the channel of its MIDI note-on (end_all_notes)
 
         Button() {
         }
@@ -354,6 +356,10 @@ class Instrument {
         float pres_sensitivity = 1.0f;
         float velo_sensitivity = 1.0f;
         int midi_velo_offset = 0;
+        // the channel layout the notes were started in (channels_changed)
+        midi_mode_t layout_mode = MIDI_MODE_MPE;
+        int layout_offset = 1;
+        int layout_voicecount = VOICECOUNT;
 
         Instrument(const int* c0, const int* c1, int n_buttons, synth_interface_t* si) {
             int n;
@@ -381,16 +387,71 @@ class Instrument {
             set_volume(volume_linear);
         }
 
-        // the MIDI channel of voice (MPE channel slot) n: offset + n, kept in 0..15 (fit_channels)
+        // the MIDI channel of voice (MPE channel slot) n: offset + n, kept in 0..15 (channels_changed)
         uint8_t voice_channel(int n) const {
             return (midi_channel_offset + n) & 0x0f;
         }
 
-        // keep the channels offset .. offset + voicecount - 1 within the 16 MIDI channels: a
-        // channel number above 15 runs into the status nibble (note-off as note-on, B4)
-        void fit_channels(void) {
+        // After a change of the MIDI mode, the channels or the channel count. Keeps the channels
+        // offset .. offset + voicecount - 1 within the 16 MIDI channels: a channel number above 15
+        // runs into the status nibble (note-off as note-on, B4). If the layout changed, the notes
+        // of the old one end (SC-02, SC-31).
+        void channels_changed(void) {
             midi_channel_offset = clamp(midi_channel_offset, 0, 15);
             voicecount = clamp(voicecount, 1, min(MAX_VOICECOUNT, 16 - midi_channel_offset));
+            if (config.midi_mode != layout_mode || midi_channel_offset != layout_offset
+                || voicecount != layout_voicecount) {
+                end_all_notes();
+                layout_mode = config.midi_mode;
+                layout_offset = midi_channel_offset;
+                layout_voicecount = voicecount;
+            }
+        }
+
+        // End every note: a MIDI note-off on the channel of its note-on, the internal voices of
+        // the held keys to pres 0; and forget the key, channel and portamento state. Keys still
+        // held start a new note with their next message. The settings keys (STATE_ALT) stay.
+        void end_all_notes(void) {
+            for (int b = 0; b < BUTTONCOUNT; b++) {
+                Button& x = buttons[b];
+                if (x.state == STATE_OFF || x.state == STATE_ALT) continue;
+#ifdef USE_MIDI_OUT
+                if (x.state == STATE_ON) {
+                    MidiSend3(MIDI_NOTE_OFF | x.midi_channel, x.midinote, 0);
+                }
+#endif
+                silence_synth_voice(b);
+                x.state = STATE_OFF;
+            }
+            for (int n = 0; n < MAX_VOICECOUNT; n++) {
+                voices[n] = -1;
+            }
+            for (int n = 0; n < MAX_PORTAMENTO_BUTTONS; n++) {
+                portamento_buttons[n] = -1;
+            }
+            master_button = -1;
+            transpose_button = -1;
+            transpose_button2 = -1;
+        }
+
+        // the panic key: every note and sound off, MIDI and internal
+        void panic(void) {
+            end_all_notes();
+#ifdef USE_MIDI_OUT
+            // the MPE master channel, and every channel of the mode
+            int first = config.midi_mode == MIDI_MODE_MPE && midi_channel_offset >= 1 ? -1 : 0;
+            int count = config.midi_mode == MIDI_MODE_POLY ? 1 : voicecount;
+            for (int n = first; n < count; n++) {
+                MidiSend3(MIDI_CONTROL_CHANGE | voice_channel(n), MIDI_C_ALL_SOUND_OFF, 0);
+                MidiSend3(MIDI_CONTROL_CHANGE | voice_channel(n), MIDI_C_ALL_NOTES_OFF, 0);
+            }
+#endif
+#ifdef USE_INTERNAL_SYNTH
+            for (int v = 0; v < VOICECOUNT; v++) {
+                *(synth_interface->pres[v])  = 0.0f;
+                *(synth_interface->vpres[v]) = 0.0f;
+            }
+#endif
         }
 
         void set_portamento(int p) {
@@ -640,6 +701,7 @@ class Instrument {
                         // multiply velo by 2 to cover full midi range on note on
                         int velo = midi_velo_offset + buttons[but].vpres * velo_sensitivity * 128 * 2;
                         velo = clamp(velo, 1, 127);
+                        buttons[but].midi_channel = midi_channel_offset;
                         MidiSend3(MIDI_NOTE_ON | midi_channel_offset,
                                         buttons[but].midinote, velo);
 
@@ -895,6 +957,7 @@ class Instrument {
                             if (portamento_buttons[n] >= 0) {
                                 buttons[portamento_buttons[n]].midinote = buttons[but].midinote;
                                 buttons[portamento_buttons[n]].voice = buttons[but].voice;
+                                buttons[portamento_buttons[n]].midi_channel = buttons[but].midi_channel;
                                 master_button = portamento_buttons[n];
                                 voices[buttons[master_button].voice] = master_button;
                                 hand_over_synth_voice(but, master_button);
@@ -916,6 +979,7 @@ class Instrument {
                                                - buttons[transpose_button2].note);
                             buttons[transpose_button2].midinote = buttons[transpose_button].midinote;
                             buttons[transpose_button2].voice = buttons[transpose_button].voice;
+                            buttons[transpose_button2].midi_channel = buttons[transpose_button].midi_channel;
                             buttons[transpose_button2].start_note_offset = start_note_offset;
                             voices[buttons[transpose_button2].voice] = transpose_button2;
                             hand_over_synth_voice(transpose_button, transpose_button2);
@@ -1116,6 +1180,7 @@ class Instrument {
                 // don't set last_pichbend to send pitchbend again after note_on for compatibility with some MPE implementations
                 // buttons[but].last_pitchbend = pitchbend;
 
+                buttons[but].midi_channel = voice_channel(buttons[but].voice);
                 MidiSend3(MIDI_NOTE_ON | voice_channel(buttons[but].voice),
                                    buttons[but].midinote, velo);
                 buttons[but].last_velo = velo;
@@ -1135,6 +1200,9 @@ class Instrument {
             float velof = buttons[but].vpres * velo_sensitivity;
             float y = clamp(buttons[but].but_y * y_sensitivity, -1.0f, 1.0f);
             update_synth_voice(but);
+            if (buttons[but].voice < 0 || buttons[but].voice >= MAX_VOICECOUNT) {
+                return;  // (can't happen: the notes end when the channels change)
+            }
 
 #ifdef USE_MIDI_OUT
             float d; // calculate direction for hysteresis
@@ -1559,7 +1627,7 @@ void load_preset(int n) {
         dis.voicecount = i;
         sendcfg = true;
     }
-    dis.fit_channels();
+    dis.channels_changed();
 
     key[0] = 'f';
     strset(key, 3, "thres");
@@ -1938,7 +2006,7 @@ float config_but(int but, int type, float adjust) {
             if (type == 2) a = a / 2;
             if (a != 0) {
                 dis.voicecount = clamp(dis.voicecount + a, 1, 15);
-                dis.fit_channels();
+                dis.channels_changed();
                 led_updown_dial(dis.voicecount);
                 midi_config();
             }
@@ -1955,7 +2023,7 @@ float config_but(int but, int type, float adjust) {
             if (type == 2) a = a / 2;
             if (a != 0) {
                 dis.midi_channel_offset = clamp(dis.midi_channel_offset + a, 0, 15);
-                dis.fit_channels();
+                dis.channels_changed();
                 led_updown_dial(dis.midi_channel_offset + 1);
                 midi_config();
             }
@@ -1972,7 +2040,7 @@ float config_but(int but, int type, float adjust) {
             if (type == 2) a = a / 2;
             if (a != 0) {
                 dis.midi_channel_offset = clamp(dis.midi_channel_offset + a, 0, 15);
-                dis.fit_channels();
+                dis.channels_changed();
                 led_updown_dial(dis.midi_channel_offset + 1);
                 midi_config();
             }
@@ -2235,12 +2303,8 @@ float config_but(int but, int type, float adjust) {
     // row 9:                   63 65 67
     case (63): // panic/all notes off
         if (type == 0) {
-#ifdef USE_MIDI_OUT
-            for (int n = 0; n < (config.midi_mode == MIDI_MODE_POLY ? 1 : dis.voicecount); n++) {
-                MidiSend3(MIDI_CONTROL_CHANGE | dis.voice_channel(n), MIDI_C_ALL_NOTES_OFF, 0);
-            }
+            dis.panic();
             led_rgb(0x342000);
-#endif
         } return 0;
     case (65): // send MPE/pitch bend range config
         if (type == 0) {
@@ -2311,7 +2375,7 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
                         set_midi_mode(MIDI_MODE_MPE);
                         dis.midi_channel_offset = 1;
                         dis.voicecount = data2;
-                        dis.fit_channels();
+                        dis.channels_changed();
                     }
                 } else if (lastRPN_LSB_ch == 1 && lastRPN_MSB_ch == 0) {
                     // TODO: Tuning, done with pitch bend
@@ -2381,12 +2445,12 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
                         dis.voicecount = data2;
                     }
                 }
-                dis.fit_channels();
+                dis.channels_changed();
             } break;
             case MIDI_C_POLY: { // Polyphonic mode on the channel the message is received
                 set_midi_mode(MIDI_MODE_POLY);
                 dis.midi_channel_offset = channel;
-                dis.fit_channels();
+                dis.channels_changed();
             } break;
             default: break;
         }
@@ -2396,7 +2460,7 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
 }
 
 void set_midi_mode(midi_mode_t mode) {
-    // TODO: handle switching while buttons are pressed
+    // the notes of the old mode end in channels_changed (below)
     switch (mode) {
         case MIDI_MODE_MPE: {
             config.midi_mode = mode;
@@ -2419,6 +2483,7 @@ void set_midi_mode(midi_mode_t mode) {
             ws2812_write_led(0, 0, 1, 18);
         } break;
     }
+    dis.channels_changed();
 }
 
 void midi_config(void) {
