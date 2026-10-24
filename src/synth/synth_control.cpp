@@ -132,7 +132,6 @@ float clamp_knob(float cur, float x, float low, float high, float* rem) {
     return clamp_rem(x, min(low, cur), max(high, cur), rem);
 }
 
-static inline uint32_t log2i(const uint32_t x){return (31 - __builtin_clz (x));}
 
 // float to int, limited to lo..hi first: an out of range (or NaN) float to int is UB, and on
 // the board it gives the wrong end of the range (an absurd tuning, a bend range of 0)
@@ -2347,13 +2346,23 @@ float config_but(int but, int type, float adjust) {
     // row 8:       56 58 60 62 47 49
     case (56): { // knob: MPE pitchbend range
         int a = adjust;
-        int cur = log2i(dis.midi_bend_range / 12);
+        // the ranges 12, 24, 48, 96; shown: the largest not above the range (12 below 12). The
+        // range can be any 1..127 (a preset, MIDI in): log2i(range / 12) was log2i(0) below 12 (UB)
+        // and the first step from 36 went to 24 or 48 the same way (SC-20)
+        float r = dis.midi_bend_range;
+        int cur = r >= 96 ? 3 : r >= 48 ? 2 : r >= 24 ? 1 : 0;
         if (type > 0) {
             if (type == 2) a = a / 4;
             if (a != 0) {
-                cur = clamp(cur + a, 0, 3);
-                dis.midi_bend_range = 12 << cur;
-                midi_config();
+                int n = cur + a;
+                if (a > 0 && r < (12 << cur)) n--;  // below 12: the first step up is to 12
+                if (a < 0 && r > (12 << cur)) n++;  // between two: the first step down is to the lower
+                n = clamp(n, 0, 3);
+                if ((a > 0 && (12 << n) > r) || (a < 0 && (12 << n) < r)) {
+                    cur = n;
+                    dis.midi_bend_range = 12 << cur;
+                    midi_config();
+                }
             }
             if (type == 2) a = a * 4;
         }
