@@ -603,9 +603,9 @@ template <int KIND>
 	bool fast = cm + BLOCK <= MAIN_LEN;
 	{
 		const real e1 = c.d1 + (real)BLOCK * c.dd1;
-		const bool ok = rmin(c.d1, e1) >= 2.0f && rmax(c.d1, e1) <= (real)(MAIN_LEN - 5); // (false for NaN)
+		const bool ok = rmin(c.d1, e1) >= 2.0f && rmax(c.d1, e1) <= (real)(MAIN_LEN - 5);       // (false for NaN)
 		const int lo = ok ? (int)rmin(c.d1, e1) - 2 : 0, hi = ok ? (int)rmax(c.d1, e1) + 1 : 0; // (int)d1 - 1 range
-		const int y = (int)((widx - (uint32_t)(hi + 3)) & (MAIN_LEN - 1)); // lowest slot
+		const int y = (int)((widx - (uint32_t)(hi + 3)) & (MAIN_LEN - 1));                      // lowest slot
 		fast &= ok & (y + (BLOCK - 1) + (hi - lo) + 3 < MAIN_LEN);
 		om = y + hi + 3 - cm; // fast: the Lagrange read's w = cm + n + om
 	}

@@ -621,7 +621,7 @@ static inline void audio_bore(Engine& e, VoiceState& s, float* __restrict__ B1, 
 	// over the block i1 stays within [d1 - 32 rl - 1, d1 + 32 RU + 1] of its start. When none of
 	// the reads wraps around the buffer's end in this block (most blocks), the loop addresses the
 	// same slots as plain indices from per-block offsets (identical results).
-	const int c = (int)w; // (w is kept masked)
+	const int c = (int)w;                       // (w is kept masked)
 	const bool d1ok = d1 >= 0.0f && d1 <= DMAX; // (false for NaN)
 	const int i1lo = c - (d1ok ? (int)d1 : 0) - 4, span1 = 4 + 33 + (int)(32.0f * rmin(rl, RL)) + 2;
 	const int y2 = (int)((w - i2 - 1u) & BMASK), ya = (int)((w - in - 1u) & BMASK), y1 = (int)((uint32_t)i1lo & BMASK);
