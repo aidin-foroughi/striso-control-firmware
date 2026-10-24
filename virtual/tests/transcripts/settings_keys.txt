@@ -29,7 +29,7 @@ K ok 13
 > StcK\x0E
 K err 14
 > StcK\x0F
-K err 15
+K ok 15
 > StcK\x10
 K err 16
 > StcK\x11
@@ -195,6 +195,15 @@ K err 69
   53 brass:harmon
   54 brass:plunger
   55 brass:section
+  56 trumpet:bb classical
+  57 trumpet:bb jazz
+  58 trumpet:c trumpet
+  59 trumpet:piccolo
+  60 trumpet:cornet
+  61 trumpet:harmon
+  62 trumpet:cup mute
+  63 trumpet:straight
+  64 trumpet:plunger
 > StcN
 tuning 2 40DE50D7 41400000 00000000 0000AA 42780000 61
 0 F_1 4224A1B0 00000000

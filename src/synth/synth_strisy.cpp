@@ -99,7 +99,13 @@ struct VoiceEntry {
 	const char* engine_name;
 	const char* preset_name;
 };
-static constexpr int MAX_ENTRIES = 64;
+// one entry per engine without presets, one per preset (VOICE=all: 1 + 55 + 9 = 65); the console
+// selects entry n with the byte 0x80 + n, so at most 128
+#define COUNT_ENTRY(ns) +1
+#define COUNT_PRESETS(ns) COUNT_PRESETS_(ns)
+#define COUNT_PRESETS_(ns) +ns::NUM_PRESETS
+static constexpr int MAX_ENTRIES = 0 VOICE_LIST(COUNT_ENTRY, COUNT_PRESETS);
+static_assert(MAX_ENTRIES <= 128, "the console selects voices 0..127");
 static std::array<VoiceEntry, MAX_ENTRIES> entries;
 static int num_entries;
 

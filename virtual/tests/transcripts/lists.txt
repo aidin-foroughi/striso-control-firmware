@@ -60,6 +60,15 @@ synth blocks 810 avg 0 peak 0 budget 266666 cycles
   53 brass:harmon
   54 brass:plunger
   55 brass:section
+  56 trumpet:bb classical
+  57 trumpet:bb jazz
+  58 trumpet:c trumpet
+  59 trumpet:piccolo
+  60 trumpet:cornet
+  61 trumpet:harmon
+  62 trumpet:cup mute
+  63 trumpet:straight
+  64 trumpet:plunger
 > Stcp
 params 0 va:classic 55
 0 gain level 3F000000 40A00000 40133333 0
