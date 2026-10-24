@@ -148,6 +148,24 @@ target_compile_options(test_aux_jack PRIVATE -O1 -Wno-unused-parameter -Wno-unus
 add_test(NAME aux_jack COMMAND test_aux_jack)
 set_tests_properties(aux_jack PROPERTIES LABELS unit)
 
+# messaging_model[_small]: src/app/messaging.c's ring never loses or corrupts an accepted message
+# (R2): exhaustively on a 7-slot ring, and under key traffic on the board's 240 slots
+foreach(_m IN ITEMS "messaging_model_small;-DBUFFERSIZE=7" "messaging_model;")
+  list(GET _m 0 _name)
+  list(GET _m 1 _def)
+  add_executable(test_${_name} messaging/test_messaging_model.c)
+  target_include_directories(test_${_name} PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/messaging/stubs"
+    "${PROJECT_SOURCE_DIR}/src/app")
+  if(_def)
+    target_compile_definitions(test_${_name} PRIVATE ${_def})
+  endif()
+  target_link_libraries(test_${_name} PRIVATE striso_host_options)
+  target_compile_options(test_${_name} PRIVATE -O2)
+  add_test(NAME ${_name} COMMAND test_${_name})
+  set_tests_properties(${_name} PROPERTIES LABELS unit)
+endforeach()
+
 # codec_linein: the codec's line-in writes (src/drivers/codec_aic3x_linein.h) open and close the
 # analog path LINE2 -> ADC PGA -> line out, in a model of the TLV320AIC3104 registers (D4)
 add_executable(test_codec_linein test_codec_linein.c)

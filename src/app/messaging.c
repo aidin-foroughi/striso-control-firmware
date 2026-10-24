@@ -19,7 +19,9 @@
 #include "ch.h"
 #include "hal.h"
 
+#ifndef BUFFERSIZE // the host model check (tests/messaging) uses a small ring
 #define BUFFERSIZE 240
+#endif
 static int msg_buffer[BUFFERSIZE];
 static int msg_read = 0;
 static int msg_write = 0;
@@ -28,20 +30,23 @@ static thread_t *tpMsg = NULL;
 int underruns = 0;
 
 int msgSend(int size, int* msg) {
+  if (size < 0 || size + 1 > BUFFERSIZE - 1) {
+    return 1;
+  }
   chMtxLock(&msg_lock);
 
+  // One slot always stays free, so msg_read == msg_write means empty and nothing else (a
+  // message that filled the ring exactly made it look empty: its whole backlog was lost).
+  int used = (msg_write - msg_read + BUFFERSIZE) % BUFFERSIZE;
+  if (used + size + 1 > BUFFERSIZE - 1) {
+    underruns++;
+    chMtxUnlock(&msg_lock);
+    return 1;
+  }
   int n;
-  int old_write = msg_write;
   msg_buffer[msg_write] = size;
   msg_write = (msg_write + 1) % BUFFERSIZE;
   for (n = 0; n < size; n++) {
-    if (msg_read == msg_write) {
-      //msg_read = (msg_read + msg_buffer[msg_read] + 1) % BUFFERSIZE;
-      msg_write = old_write;
-      underruns++;
-      chMtxUnlock(&msg_lock);
-      return 1;
-    }
     msg_buffer[msg_write] = msg[n];
     msg_write = (msg_write + 1) % BUFFERSIZE;
   }
