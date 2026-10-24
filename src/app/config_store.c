@@ -1,3 +1,5 @@
+#include <string.h>
+
 #include "ch.h"
 #if defined(__arm__) // the board (the host tests have no HAL)
 #include "hal.h"
@@ -135,9 +137,10 @@ unsigned int atox8(const char* str) {
   return value;
 }
 
-inline
+// the 8 characters of two keys or values (B12: no longer read through a uint64_t pointer, which
+// was undefined behaviour and needed 8-byte aligned keys)
 bool cmp8(const char* a, const char* b) {
-  return *((uint64_t *)a) == *((uint64_t *)b);
+  return memcmp(a, b, 8) == 0;
 }
 
 // The config sector (0x08020000, 128 KB, ld/STM32H743xI_uf2.ld): the scan never leaves it.

@@ -139,6 +139,28 @@ TEST_CASE("value parsing is strict: a number, then only spaces (R12)") {
 	}
 }
 
+TEST_CASE("cmp8: all 8 characters, at any alignment (B12)") {
+	// keys at every offset from an 8-byte boundary: UBSan (host-asan) reported the old uint64_t
+	// read of an unaligned key
+	alignas(8) char buf[32];
+	for (int off = 0; off < 8; off++) {
+		CAPTURE(off);
+		std::memcpy(buf + off, "fCfacC_3", 8);
+		std::memcpy(buf + 16 + (7 - off), "fCfacC_3", 8);
+		CHECK(cmp8(buf + off, buf + 16 + (7 - off)));
+		CHECK(cmp8(buf + off, "fCfacC_3"));
+		buf[off + 7] = '4'; // differs only in the last character
+		CHECK_FALSE(cmp8(buf + off, "fCfacC_3"));
+		buf[off + 7] = '3';
+		buf[off] = 'i'; // only in the first
+		CHECK_FALSE(cmp8(buf + off, "fCfacC_3"));
+	}
+	// a lookup with an unaligned name finds the default
+	std::memcpy(buf + 3, "iGoct   ", 8);
+	CHECK(field(getConfigSetting(buf + 3)) != "(ERROR!)");
+	CHECK(field(getConfigSetting(buf + 3)) == field(getConfigSetting("iGoct   ")));
+}
+
 TEST_CASE("atox8: 8 hex digits, no signed overflow (R11)") {
 	CHECK(atox8("FFFFFFFF") == 0xffffffffu);
 	CHECK(atox8("80000000") == 0x80000000u);

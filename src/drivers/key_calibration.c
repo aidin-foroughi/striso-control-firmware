@@ -64,7 +64,7 @@ void ks_boot_calibration(bool calibrated, unsigned type, const uint16_t calib[SC
   // the user's key factors and zero offsets, on every board (S11: they used to need the
   // calibration record), with the range buttonSetKeyFactor accepts (it was 0..10 here: 0 made
   // the key dead)
-  _Alignas(8) char key[8] = "fCoffC_";  // cmp8 reads it as a uint64_t
+  char key[8] = "fCoffC_";
   float f;
   for (int n = 0; n < SCAN_KEYS; n++) {
     key[2] = 'f';

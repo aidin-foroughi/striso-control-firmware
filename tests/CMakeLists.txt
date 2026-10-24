@@ -54,9 +54,6 @@ target_compile_definitions(striso_tests PRIVATE "STRISO_REC_DIR=\"${PROJECT_SOUR
 target_link_libraries(striso_tests PRIVATE striso::dsp striso_host_options)
 # the DSP as the renderers build it (reproducible float results)
 target_compile_options(striso_tests PRIVATE -O2 -ffp-contract=off)
-# config_store.c compares 8-byte keys through a uint64_t pointer (fine on the board's Cortex-M7)
-set_source_files_properties("${PROJECT_SOURCE_DIR}/src/app/config_store.c" PROPERTIES
-  COMPILE_OPTIONS "-fno-strict-aliasing;$<$<BOOL:${STRISO_SANITIZE}>:-fno-sanitize=alignment>")
 doctest_discover_tests(striso_tests TEST_PREFIX "unit." PROPERTIES LABELS unit)
 
 # every DSP header compiles on its own (voice_wind_tune.h is a fragment of voice_wind.h)
