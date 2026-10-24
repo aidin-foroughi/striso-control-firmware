@@ -1141,7 +1141,8 @@ unsigned int aux_button_map = 0;
  *   34                            tuning 12-TET
  *   36 38 23 25 27 29 31 33       tunings 1..8 (fT<n>... in the config)
  *   35 37 39 41 43 45 30 32       settings presets 1..8 (load_preset: MIDI mode, sensitivities...)
- *   18 20 22 24 26 28 13          voices strisy, va, modal, bowed, wind, ep, brass (internal synth)
+ *   18 20 22 24 26 28 13 15 16    voices strisy, va, modal, bowed, wind, ep, brass, trumpet,
+ *                                 accordion (internal synth)
  *   63                            panic: all notes off (MIDI)
  * Refused: 67 system reset, 65 send MPE/bend config, 11 debug/flip layout, the dials (17 threshold,
  * 19 pressure, 21 velocity, 6 bend, 8 tilt, 51 volume, 53 sustain, 56 MPE bend range, 58 message
@@ -1159,6 +1160,7 @@ static bool settings_key_allowed(int id) {
     case 35: case 37: case 39: case 41: case 43: case 45: case 30: case 32:  // settings presets
 #ifdef USE_INTERNAL_SYNTH
     case 18: case 20: case 22: case 24: case 26: case 28: case 13: case 15:  // voices
+    case 16:                                                                 // voice accordion
 #endif
     case 63:                                                                 // panic
         return true;
@@ -1751,7 +1753,7 @@ float config_but(int but, int type, float adjust) {
  * Returns the unused part of adjust, like config_but.
  */
 static float config_voice(const char* engine, int r, int g, int b, int type, float adjust) {
-    static int8_t remembered[64];  // preset per engine, indexed by the engine's first entry
+    static int8_t remembered[96];  // preset per engine, indexed by the engine's first entry (MAX_ENTRIES)
     int first = -1, count = 0;
     for (int n = 0; n < synth_num_voices(); n++) {
         const char* preset;
@@ -1760,7 +1762,7 @@ static float config_voice(const char* engine, int r, int g, int b, int type, flo
             count++;
         }
     }
-    if (count == 0 || first >= 64) {
+    if (count == 0 || first >= 96) {
         led_rgb3(64, 0, 0);  // engine not in this firmware
         return 0;
     }
@@ -1915,6 +1917,8 @@ float config_but(int but, int type, float adjust) {
     case (28): return config_voice("ep", 40, 0, 64, type, adjust);
     case (13): return config_voice("brass", 64, 40, 0, type, adjust);
     case (15): return config_voice("trumpet", 0, 48, 48, type, adjust);  // cyan
+    // row 3, last key (next to trumpet's 15): pink, hue ~330 deg, in the gap between purple and red
+    case (16): return config_voice("accordion", 64, 16, 36, type, adjust);
 #endif
     // row 5: 34 36 38 23 25 27 29 31 33
     case (34): // set 12tet tuning, knob: tuning offset

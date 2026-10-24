@@ -61,7 +61,8 @@ static volatile uint32_t prof_blocks;
 #include "striso_dsp/voice_ep.h"
 #include "striso_dsp/voice_brass.h"
 #include "striso_dsp/voice_trumpet.h"
-#define VOICE_LIST(X, XP) X(strisy) XP(va) XP(modal) XP(bowed) XP(wind) XP(ep) XP(brass) XP(trumpet)
+#include "striso_dsp/voice_accordion.h"
+#define VOICE_LIST(X, XP) X(strisy) XP(va) XP(modal) XP(bowed) XP(wind) XP(ep) XP(brass) XP(trumpet) XP(accordion)
 #elif defined(SYNTH_VOICE_HEADER)
 #include SYNTH_VOICE_HEADER
 #define VOICE_LIST(X, XP) X(SYNTH_VOICE_NS)
@@ -99,7 +100,8 @@ struct VoiceEntry {
 	const char* engine_name;
 	const char* preset_name;
 };
-static constexpr int MAX_ENTRIES = 64;
+// (74 with the accordion; selected over the console as byte 0x80 + n, so at most 128)
+static constexpr int MAX_ENTRIES = 96;
 static std::array<VoiceEntry, MAX_ENTRIES> entries;
 static int num_entries;
 
