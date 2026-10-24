@@ -22,7 +22,9 @@ static enum plug plug;
 static int pedal_closed; /* the tip switch to the sleeve */
 static int tx_mode = PAL_MODE_INPUT_PULLDOWN, detect = 1, vdd_low = 0;
 static int tip_charge = 0; /* a floating tip holds its last level */
-static int conversions, max_conversions, detected_at;
+static int conversions, max_conversions, detected_at, unplug_at;
+static adcsample_t last_s[2];
+static int cpu_writes; /* D9: the CPU wrote the ADC's DMA buffer between two conversions */
 static jmp_buf done;
 static int (*script)(int conv); /* returns pedal_closed for this conversion */
 
@@ -44,9 +46,13 @@ void adcConvert(ADCDriver *d, const ADCConversionGroup *g, adcsample_t *s, int d
   (void)depth;
   if (detected_at == 0 && config.jack2_mode == JACK2_MODE_PEDAL_SWITCH) detected_at = conversions;
   if (++conversions > max_conversions) longjmp(done, 1);
+  if (conversions > 1 && (s[0] != last_s[0] || s[1] != last_s[1])) cpu_writes++;
+  if (unplug_at && conversions == unplug_at) plug = PLUG_NONE;
   pedal_closed = script(conversions);
   s[0] = (adcsample_t)tip_level();
   s[1] = (adcsample_t)ring_level();
+  last_s[0] = s[0];
+  last_s[1] = s[1];
 }
 void palSetLineMode(ioline_t l, int mode) {
   if (l == LINE_AUX_UART2_TX) tx_mode = mode;
@@ -84,10 +90,13 @@ const char *getConfigSetting(const char *k) {
   return "auto    ";
 }
 int cmp8(const char *a, const char *b) { return memcmp(a, b, 8) == 0; }
-static int pedal_msgs;
+static int pedal_msgs, last_pedal1_msg = -1;
 int msgSend(int size, int *msg) {
   (void)size;
-  if (msg[1] == IDC_PEDAL_1) pedal_msgs++;
+  if (msg[1] == IDC_PEDAL_1) {
+    pedal_msgs++;
+    last_pedal1_msg = msg[2];
+  }
   return 0;
 }
 void led_rgb3_blink(int r, int g, int b, sysinterval_t t) {
@@ -105,6 +114,7 @@ static int open_always(int c) {
   (void)c;
   return 0;
 }
+static int tap_then_hold(int c) { return c < 200 ? (c / 40) % 2 : 1; }
 static int tap_every_40(int c) { return (c / 40) % 2; } /* pressed ~40 conversions (~0.5 s), released ~40 */
 
 static int failures;
@@ -119,17 +129,21 @@ static void run(const char *name, enum plug p, int (*sc)(int), int n, jack2_mode
   max_conversions = n;
   detected_at = 0;
   pedal_msgs = 0;
+  last_pedal1_msg = -1;
+  cpu_writes = 0;
   plug = p;
   script = sc;
   tx_mode = PAL_MODE_INPUT_PULLDOWN;
   detect = 1;
   aux_power_disable();
   if (!setjmp(done)) AuxJack(NULL);
-  bool ok = config.jack2_mode == expect && pedal_msgs >= min_msgs &&
+  bool ok = config.jack2_mode == expect && pedal_msgs >= min_msgs && cpu_writes == 0 &&
+            (!unplug_at || last_pedal1_msg == 0) &&
             (max_detect == 0 || (detected_at > 0 && detected_at <= max_detect));
   failures += !ok;
-  printf("%-4s %-40s mode %-16s (expected %s), detected after %d conversions, pedal-1 messages %d\n",
-         ok ? "ok" : "FAIL", name, mode_name(config.jack2_mode), mode_name(expect), detected_at, pedal_msgs);
+  printf("%-4s %-40s mode %-16s (expected %s), detected after %d conversions, pedal-1 messages %d%s\n",
+         ok ? "ok" : "FAIL", name, mode_name(config.jack2_mode), mode_name(expect), detected_at, pedal_msgs,
+         cpu_writes ? ", the CPU wrote the DMA buffer" : "");
 }
 
 int main(void) {
@@ -138,6 +152,10 @@ int main(void) {
   run("TS (mono) switch pedal, pressed/released", PLUG_TS_PEDAL, tap_every_40, 2000, JACK2_MODE_PEDAL_SWITCH, 60, 20);
   run("TRS switch pedal, pressed/released", PLUG_TRS_PEDAL, tap_every_40, 2000, JACK2_MODE_PEDAL_SWITCH, 200, 20);
   run("nothing plugged in", PLUG_NONE, open_always, 2000, JACK2_MODE_DISABLED, 0, 0);
+  /* D9: unplugged while pressed: a pedal-off message, without writing the ADC's DMA buffer */
+  unplug_at = 300;
+  run("TRS switch pedal held, then unplugged", PLUG_TRS_PEDAL, tap_then_hold, 400, JACK2_MODE_DISABLED, 200, 1);
+  unplug_at = 0;
   printf(failures ? "aux jack: FAILED\n" : "aux jack: all passed\n");
   return failures ? 1 : 0;
 }

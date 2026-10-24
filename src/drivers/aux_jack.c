@@ -262,20 +262,24 @@ static THD_FUNCTION(AuxJack, arg) {
         }
         palSetLineMode(LINE_AUX_UART2_TX, PAL_MODE_INPUT_PULLUP);
 
+        // the pedal levels, in locals: the CPU must not write the DMA buffer (a dirty cache line
+        // evicted after the next conversion would overwrite its data)
+        int pedal1 = aux_adc_samples[0];
+        int pedal2 = aux_adc_samples[1];
         if (unplugged) {
           aux_jack_switch_mode(JACK2_MODE_DISABLED);
           // make sure to send pedal off messages after unplug
-          aux_adc_samples[0] = 1<<14;
-          aux_adc_samples[1] = 1<<14;
+          pedal1 = 1<<14;
+          pedal2 = 1<<14;
         }
 
-        if (last_pedal1 != (aux_adc_samples[0] < 1<<13)) {
+        if (last_pedal1 != (pedal1 < 1<<13)) {
           last_pedal1 = !last_pedal1;
           msg[1] = IDC_PEDAL_1;
           msg[2] = last_pedal1;
           msgSend(3, msg);
         }
-        if (last_pedal2 != (aux_adc_samples[1] < 1<<13)) {
+        if (last_pedal2 != (pedal2 < 1<<13)) {
           last_pedal2 = !last_pedal2;
           msg[1] = IDC_PEDAL_2;
           msg[2] = last_pedal2;
