@@ -49,7 +49,7 @@ virtual() {
   esac
   [ -f "$lib" ] || die "no $lib (tools/virtual.sh build)"
   if [ "$platform" = windows-x64 ]; then
-    deps="$(llvm-objdump -p "$lib" | sed -n 's/^ *DLL Name: //p' | tr -d '\r')"
+    deps="" # read from the DLL's import directory below
     minos="windows=10"
   else
     local archs a
@@ -83,9 +83,37 @@ def query(prefix):
     api, fwv = r.stdout.split("\n")[:2]
     return int(api), fwv
 
+def pe_imports(data):
+    # a PE32+ DLL's machine and the DLLs it imports (its import directory; no tool needed)
+    pe = struct.unpack_from("<I", data, 0x3C)[0]
+    if data[:2] != b"MZ" or data[pe:pe + 4] != b"PE\0\0":
+        sys.exit("package.sh: not a PE file")
+    machine, nsec = struct.unpack_from("<HH", data, pe + 4)
+    optsize = struct.unpack_from("<H", data, pe + 20)[0]
+    opt = pe + 24
+    if struct.unpack_from("<H", data, opt)[0] != 0x20B:
+        sys.exit("package.sh: not a 64-bit (PE32+) DLL")
+    imp_rva = struct.unpack_from("<I", data, opt + 112 + 8)[0]
+    secs = [struct.unpack_from("<IIII", data, opt + optsize + 40 * i + 8) for i in range(nsec)]
+    def off(rva):
+        for vsize, va, rawsize, raw in secs:
+            if va <= rva < va + max(vsize, rawsize):
+                return raw + rva - va
+        sys.exit(f"package.sh: RVA {rva:#x} in no section")
+    names, d = [], off(imp_rva)
+    while any(desc := struct.unpack_from("<5I", data, d)):
+        n = off(desc[3])
+        names.append(data[n:data.index(b"\0", n)].decode())
+        d += 20
+    return machine, names
+
 if plat.startswith("windows"):
     if struct.calcsize("P") != 8:
         sys.exit("package.sh: a 64-bit python is needed to check the DLL")
+    machine, imports = pe_imports(open(lib, "rb").read())
+    if machine != 0x8664:
+        sys.exit(f"package.sh: {lib} is for machine {machine:#x}, not x64")
+    deps = " ".join(imports)
     archs = {"x86_64": query([sys.executable])}
 else:
     # /usr/bin/python3 runs as either architecture (Homebrew's may be arm64 only)
