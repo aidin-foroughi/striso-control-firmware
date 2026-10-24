@@ -2135,10 +2135,12 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
                       uint8_t data1, uint8_t data2) {
     (void) dev;
     (void) port;
-    static uint8_t lastRPN_LSB = 0;
-    static uint8_t lastRPN_MSB = 0;
-    static uint8_t lastNRPN_LSB = 0;
-    static uint8_t lastNRPN_MSB = 0;
+    // the selected RPN per channel, 0x7f/0x7f: none (as at power on, so a bare Data Entry does
+    // nothing; RPN 0/0 is the pitch bend range). An NRPN select deselects the RPN.
+    static uint8_t lastRPN_LSB[16] = {0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f,
+                                      0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f};
+    static uint8_t lastRPN_MSB[16] = {0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f,
+                                      0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f};
     static uint8_t lsb_cc1 = 0;
 
     uint8_t channel = status & 0x0f;
@@ -2159,14 +2161,20 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
 
     if (status == MIDI_CONTROL_CHANGE) {
         switch (data1) {
-            case MIDI_C_RPN_LSB: lastRPN_LSB = data2; lastNRPN_LSB = lastNRPN_MSB = 0x7f; break;
-            case MIDI_C_RPN_MSB: lastRPN_MSB = data2; lastNRPN_LSB = lastNRPN_MSB = 0x7f; break;
-            case MIDI_C_NONRPN_LSB: lastNRPN_LSB = data2; lastRPN_LSB = lastRPN_MSB = 0x7f; break;
-            case MIDI_C_NONRPN_MSB: lastNRPN_MSB = data2; lastRPN_LSB = lastRPN_MSB = 0x7f; break;
+            case MIDI_C_RPN_LSB: lastRPN_LSB[channel] = data2; break;
+            case MIDI_C_RPN_MSB: lastRPN_MSB[channel] = data2; break;
+            case MIDI_C_NONRPN_LSB:
+            case MIDI_C_NONRPN_MSB: lastRPN_LSB[channel] = lastRPN_MSB[channel] = 0x7f; break;
             case MIDI_C_DATA_ENTRY: {
-                if (lastRPN_LSB == 0 && lastRPN_MSB == 0) {
-                    dis.midi_bend_range = data2;
-                } else if (lastRPN_LSB == 6 && lastRPN_MSB == 0) {
+                const uint8_t lastRPN_LSB_ch = lastRPN_LSB[channel], lastRPN_MSB_ch = lastRPN_MSB[channel];
+                if (lastRPN_LSB_ch == 0 && lastRPN_MSB_ch == 0) {
+                    // pitch bend range of the notes: at least 1 (0 divides by zero). An MPE host
+                    // sends one per channel; the master channel's (2) is not the notes' range.
+                    bool mpe_master = config.midi_mode == MIDI_MODE_MPE && dis.midi_channel_offset == 1 && channel == 0;
+                    if (data2 >= 1 && !mpe_master) {
+                        dis.midi_bend_range = data2;
+                    }
+                } else if (lastRPN_LSB_ch == 6 && lastRPN_MSB_ch == 0) {
                     if (channel + data2 <= 15) {
                         set_midi_mode(MIDI_MODE_MPE);
                         dis.midi_channel_offset = channel + 1;
@@ -2176,7 +2184,7 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
                             dis.voicecount = data2;
                         }
                     }
-                } else if (lastRPN_LSB == 1 && lastRPN_MSB == 0) {
+                } else if (lastRPN_LSB_ch == 1 && lastRPN_MSB_ch == 0) {
                     // TODO: Tuning, done with pitch bend
                 }
             } break;
