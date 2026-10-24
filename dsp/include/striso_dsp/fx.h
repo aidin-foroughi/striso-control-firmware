@@ -48,6 +48,7 @@
 
 #include <stdint.h>
 #include <math.h>
+#include <type_traits>
 #include "strisy.h"
 
 #define FX_NOINLINE __attribute__((noinline))
@@ -356,6 +357,37 @@ static constexpr int16_t RV_TAPS_R[RV_NTAPS][3] = {
 // wet gain: Dattorro's 0.6 per tap, scaled so an undamped 2 s decay has an impulse response energy of ~1
 static constexpr float RV_OUT = 0.6f * 1.2f;
 
+// the reverb loop's ring accesses (reads, W: writes; M: the modulated Hermite reads)
+enum {
+	RA_AP0,
+	RA_AP0W,
+	RA_AP1,
+	RA_AP1W,
+	RA_AP2,
+	RA_AP2W,
+	RA_AP3,
+	RA_AP3W,
+	RA_FROML,
+	RA_FROMR,
+	RA_LAM,
+	RA_LAW,
+	RA_LDM,
+	RA_LDW,
+	RA_LB,
+	RA_LBW,
+	RA_LEW,
+	RA_RAM,
+	RA_RAW,
+	RA_RDM,
+	RA_RDW,
+	RA_RB,
+	RA_RBW,
+	RA_REW,
+	RA_TL,
+	RA_TR = RA_TL + RV_NTAPS,
+	RA_N = RA_TR + RV_NTAPS
+};
+
 // ---------------------------------------------------------------------------------------------
 
 struct Engine {
@@ -407,6 +439,7 @@ struct Engine {
 	float rv_k[7]; // tank coefficients of the previous block (ramped per sample)
 	float rv_ph[2], rv_m[4];
 	float rv_exc;
+	int rv_ao[RA_N], rv_lo[RA_N], rv_sp[RA_N]; // ring accesses: offset + rlo, rlo, rhi - rlo (rv_accesses)
 
 	// limiter
 	float lim_g0, lim_B, lim_rel;
@@ -565,29 +598,58 @@ static FX_NOINLINE void stage_chorus(Engine& e, float* __restrict__ L, float* __
 	const float fin1 = rmin(fin + FADE_STEP, 1.0f), dfin = (fin1 - fin) * r;
 	e.ch_in = fin1;
 	uint32_t w = e.ch_w;
-	for (int n = 0; n < BLOCK; n++) {
-		da += dda;
-		db += ddb;
-		dc += ddc;
-		gd += dgd;
-		gw += dgw;
-		fin += dfin;
-		const float x = M[n];
-		hp += hc * (x - hp);
-		buf[w & CH_MASK] = fin * (x - hp);
-		float tap[3];
-		const float dd[3] = {da, db, dc};
+	// The slots: the write at w & CH_MASK, tap k's Hermite reads at (w - di + 1 .. w - di - 2) &
+	// CH_MASK, w rising by one per sample. If none of them wraps around the buffer's end in this
+	// block (most blocks), the loop addresses the same slots as plain indices (identical results).
+	// A tap's integer delay stays within one of its block's start and end delays (linear ramp).
+	const int c0 = (int)(w & CH_MASK);
+	int adj[3];
+	bool fast = c0 + BLOCK <= CH_LEN;
+	{
+		const float d0[3] = {da, db, dc};
 		for (int k = 0; k < 3; k++) {
-			const int di = (int)dd[k];
-			const float f = dd[k] - (float)di;
-			const uint32_t b = w - (uint32_t)di;
-			tap[k] = hermite(buf[(b + 1) & CH_MASK], buf[b & CH_MASK], buf[(b - 1) & CH_MASK], buf[(b - 2) & CH_MASK], f);
+			// (also false for a NaN or out of range delay: the masked path then)
+			const bool ok = rmin(d0[k], d1[k]) >= 4.0f && rmax(d0[k], d1[k]) <= (float)(CH_LEN - BLOCK - 8);
+			const int dlo = ok ? (int)rmin(d0[k], d1[k]) - 1 : 0, dhi = ok ? (int)rmax(d0[k], d1[k]) + 1 : 0;
+			const int y = (int)((w - (uint32_t)(dhi + 2)) & CH_MASK); // lowest slot (first sample)
+			fast &= ok & (y + (BLOCK - 1) + (dhi - dlo) + 3 < CH_LEN);
+			adj[k] = y + dhi + 2 - c0; // fast: slot = c0 + n + adj - di + t
 		}
-		const float c = 0.70710678f * tap[1];
-		L[n] = gd * x + gw * (tap[0] + c);
-		R[n] = gd * x + gw * (tap[2] + c);
-		w++;
 	}
+	auto run = [&](auto fast_tag) {
+		constexpr bool FAST = decltype(fast_tag)::value;
+		for (int n = 0; n < BLOCK; n++) {
+			da += dda;
+			db += ddb;
+			dc += ddc;
+			gd += dgd;
+			gw += dgw;
+			fin += dfin;
+			const float x = M[n];
+			hp += hc * (x - hp);
+			if constexpr (FAST) buf[c0 + n] = fin * (x - hp);
+			else buf[w & CH_MASK] = fin * (x - hp);
+			float tap[3];
+			const float dd[3] = {da, db, dc};
+			for (int k = 0; k < 3; k++) {
+				const int di = (int)dd[k];
+				const float f = dd[k] - (float)di;
+				if constexpr (FAST) {
+					const float* t = buf + (c0 + n + adj[k] - di);
+					tap[k] = hermite(t[1], t[0], t[-1], t[-2], f);
+				} else {
+					const uint32_t b = w - (uint32_t)di;
+					tap[k] = hermite(buf[(b + 1) & CH_MASK], buf[b & CH_MASK], buf[(b - 1) & CH_MASK], buf[(b - 2) & CH_MASK], f);
+				}
+			}
+			const float c = 0.70710678f * tap[1];
+			L[n] = gd * x + gw * (tap[0] + c);
+			R[n] = gd * x + gw * (tap[2] + c);
+			w++;
+		}
+	};
+	if (fast) run(std::true_type{});
+	else run(std::false_type{});
 	e.ch_w = w;
 	e.ch_hp = hp;
 	e.ch_d[0] = d1[0];
@@ -747,6 +809,51 @@ static inline void rv_coefs(const Engine& e, float* k) {
 	k[6] = onepole(e.s[P_RV_LOWCUT], sr2);
 }
 
+// the reverb loop's ring accesses (stage_reverb) from the geometry
+static inline void rv_accesses(Engine& e) {
+	int off[RA_N], rlo[RA_N], rhi[RA_N];
+	const int* len = e.rv_len;
+	off[RA_AP0] = e.rv_off[RV_AP1] + len[RV_AP1];
+	off[RA_AP0W] = e.rv_off[RV_AP1];
+	off[RA_AP1] = e.rv_off[RV_AP2] + len[RV_AP2];
+	off[RA_AP1W] = e.rv_off[RV_AP2];
+	off[RA_AP2] = e.rv_off[RV_AP3] + len[RV_AP3];
+	off[RA_AP2W] = e.rv_off[RV_AP3];
+	off[RA_AP3] = e.rv_off[RV_AP4] + len[RV_AP4];
+	off[RA_AP3W] = e.rv_off[RV_AP4];
+	off[RA_FROML] = e.rv_off[RV_LD2] + len[RV_LD2];
+	off[RA_FROMR] = e.rv_off[RV_RD2] + len[RV_RD2];
+	off[RA_LAM] = off[RA_LAW] = e.rv_off[RV_LAP1];
+	off[RA_LDM] = off[RA_LDW] = e.rv_off[RV_LD1];
+	off[RA_LB] = e.rv_off[RV_LAP2] + len[RV_LAP2];
+	off[RA_LBW] = e.rv_off[RV_LAP2];
+	off[RA_LEW] = e.rv_off[RV_LD2];
+	off[RA_RAM] = off[RA_RAW] = e.rv_off[RV_RAP1];
+	off[RA_RDM] = off[RA_RDW] = e.rv_off[RV_RD1];
+	off[RA_RB] = e.rv_off[RV_RAP2] + len[RV_RAP2];
+	off[RA_RBW] = e.rv_off[RV_RAP2];
+	off[RA_REW] = e.rv_off[RV_RD2];
+	for (int k = 0; k < RV_NTAPS; k++) {
+		off[RA_TL + k] = e.rv_tl[k];
+		off[RA_TR + k] = e.rv_tr[k];
+	}
+	for (int k = 0; k < RA_N; k++) rlo[k] = rhi[k] = 0;
+	// modulated reads: Hermite taps -1 .. +2 around the integer delay, which stays within
+	// RV_EXC (+ rounding) of the line length (as the ring layout's extra room assumes)
+	{
+		const int mods[4] = {RA_LAM, RA_LDM, RA_RAM, RA_RDM}, lines[4] = {RV_LAP1, RV_LD1, RV_RAP1, RV_RD1};
+		for (int i = 0; i < 4; i++) {
+			rlo[mods[i]] = len[lines[i]] - RV_EXC - 4;
+			rhi[mods[i]] = len[lines[i]] + RV_EXC + 4;
+		}
+	}
+	for (int k = 0; k < RA_N; k++) {
+		e.rv_ao[k] = off[k] + rlo[k];
+		e.rv_lo[k] = rlo[k];
+		e.rv_sp[k] = rhi[k] - rlo[k];
+	}
+}
+
 // reverb: input e.h + echo, output added to e.wl / e.wr (scaled by the mix)
 static FX_NOINLINE void stage_reverb(Engine& e) {
 	float* __restrict__ ring = rv_buf;
@@ -792,118 +899,140 @@ static FX_NOINLINE void stage_reverb(Engine& e) {
 	float g = g0;
 	const float dg = (g1 - g0) * r;
 
-	const int o0 = e.rv_off[RV_AP1], o1 = e.rv_off[RV_AP2], o2 = e.rv_off[RV_AP3], o3 = e.rv_off[RV_AP4];
-	const int l0 = len[RV_AP1], l1 = len[RV_AP2], l2 = len[RV_AP3], l3 = len[RV_AP4];
-	const int oLA = e.rv_off[RV_LAP1], oLD = e.rv_off[RV_LD1], oLB = e.rv_off[RV_LAP2], oLE = e.rv_off[RV_LD2];
-	const int oRA = e.rv_off[RV_RAP1], oRD = e.rv_off[RV_RD1], oRB = e.rv_off[RV_RAP2], oRE = e.rv_off[RV_RD2];
-	const int lLB = len[RV_LAP2], lLE = len[RV_LD2];
-	const int lRB = len[RV_RAP2], lRE = len[RV_RD2];
+	// The ring accesses of the loop, each at (p + offset [+ rel]) & RV_MASK with p decrementing by
+	// one per sample (rel: the modulated reads' variable part, within [rlo, rhi] of the access).
+	// In most blocks (~97%) no access's slots wrap around the end of the ring: the loop then
+	// addresses the same slots as plain indices from the block's first one, without the masks
+	// (the same reads and writes in the same order: identical results).
 	uint32_t p = e.rv_p, pw = e.pd_w;
+	const int q0 = (int)(p & RV_MASK);
+	int off[RA_N];
+	bool fast = true;
+	for (int k = 0; k < RA_N; k++) {
+		// lowest slot at the block's start; over the block the slots run down HB - 1 below it
+		const int y = (int)((p + (uint32_t)e.rv_ao[k]) & RV_MASK);
+		fast &= (y >= HB - 1) & (y + e.rv_sp[k] < RV_LEN);
+		off[k] = y - e.rv_lo[k] - q0;
+	}
+	// (the modulated delays stay within RV_EXC of their line lengths; anything else, NaN included,
+	// takes the masked path, which can never index outside the ring)
+	{
+		const float m = (float)(RV_EXC + 1);
+		const float a = (float)len[RV_LAP1], b = (float)len[RV_RAP1], c = (float)len[RV_LD1], d = (float)len[RV_RD1];
+		fast &= (fabsf(mL - a) <= m) & (fabsf(mL1 - a) <= m) & (fabsf(mR - b) <= m) & (fabsf(mR1 - b) <= m);
+		fast &= (fabsf(nL - c) <= m) & (fabsf(nL1 - c) <= m) & (fabsf(nR - d) <= m) & (fabsf(nR1 - d) <= m);
+	}
+	if (!fast)
+		for (int k = 0; k < RA_N; k++) off[k] = e.rv_ao[k] - e.rv_lo[k];
 	float lc = e.rv_lc, dl = e.rv_dl, dr = e.rv_dr;
 	const float* __restrict__ h = e.h;
 	float* __restrict__ wl = e.wl;
 	float* __restrict__ wr = e.wr;
-#define RV(o) ring[(p + (uint32_t)(o)) & RV_MASK]
-	for (int j = 0; j < HB; j++) {
-		P += dP;
-		mL += dmL;
-		mR += dmR;
-		nL += dnL;
-		nR += dnR;
-		g += dg;
-		fin += dfin;
-		gL1 += dgL1;
-		gL2 += dgL2;
-		gR1 += dgR1;
-		gR2 += dgR2;
-		dd2 += ddd2;
-		damp += ddamp;
-		lc_c += dlc;
-		// input: mono + echo, pre-delay (linear interpolation), low cut
-		pd[pw & PD_MASK] = fin * (h[j] + 0.5f * (wl[j] + wr[j]));
-		const int pi = (int)P;
-		const float pf = P - (float)pi;
-		const float p0 = pd[(pw - (uint32_t)pi) & PD_MASK], p1 = pd[(pw - (uint32_t)pi - 1) & PD_MASK];
-		pw++;
-		float x = p0 + pf * (p1 - p0);
-		lc += lc_c * (x - lc);
-		x -= lc;
-		// input diffusion
-		float z, v;
-		z = RV(o0 + l0);
-		v = x - 0.75f * z;
-		RV(o0) = v;
-		x = z + 0.75f * v;
-		z = RV(o1 + l1);
-		v = x - 0.75f * z;
-		RV(o1) = v;
-		x = z + 0.75f * v;
-		z = RV(o2 + l2);
-		v = x - 0.625f * z;
-		RV(o2) = v;
-		x = z + 0.625f * v;
-		z = RV(o3 + l3);
-		v = x - 0.625f * z;
-		RV(o3) = v;
-		x = z + 0.625f * v;
-		// tank outputs from the previous trip around
-		const float fromL = RV(oLE + lLE), fromR = RV(oRE + lRE);
-		// left half: modulated allpass, delay, damping, decay, allpass, delay
-		{
-			float a = x + gR2 * fromR;
-			const int di = (int)mL;
-			const float f = mL - (float)di;
-			const uint32_t bb = p + (uint32_t)(oLA + di);
-			z = hermite(ring[(bb - 1) & RV_MASK], ring[bb & RV_MASK], ring[(bb + 1) & RV_MASK], ring[(bb + 2) & RV_MASK], f);
-			v = a + 0.7f * z;
-			RV(oLA) = v;
-			a = z - 0.7f * v;
-			RV(oLD) = a;
-			const int ni = (int)nL;
-			const float nf = nL - (float)ni;
-			const uint32_t nb = p + (uint32_t)(oLD + ni);
-			const float c = hermite(ring[(nb - 1) & RV_MASK], ring[nb & RV_MASK], ring[(nb + 1) & RV_MASK], ring[(nb + 2) & RV_MASK], nf);
-			dl = c + damp * (dl - c);
-			a = gL1 * dl;
-			z = RV(oLB + lLB);
-			v = a - dd2 * z;
-			RV(oLB) = v;
-			a = z + dd2 * v;
-			RV(oLE) = a;
+	auto run = [&](auto fast_tag) {
+		constexpr bool FAST = decltype(fast_tag)::value;
+		int q = q0; // fast: index of p's slot
+		// the slot of access k (+ rel) at this sample
+		auto at = [&](int k, int rel) -> float& {
+			if constexpr (FAST) return ring[q + off[k] + rel];
+			else return ring[(p + (uint32_t)(off[k] + rel)) & RV_MASK];
+		};
+		for (int j = 0; j < HB; j++) {
+			P += dP;
+			mL += dmL;
+			mR += dmR;
+			nL += dnL;
+			nR += dnR;
+			g += dg;
+			fin += dfin;
+			gL1 += dgL1;
+			gL2 += dgL2;
+			gR1 += dgR1;
+			gR2 += dgR2;
+			dd2 += ddd2;
+			damp += ddamp;
+			lc_c += dlc;
+			// input: mono + echo, pre-delay (linear interpolation), low cut
+			pd[pw & PD_MASK] = fin * (h[j] + 0.5f * (wl[j] + wr[j]));
+			const int pi = (int)P;
+			const float pf = P - (float)pi;
+			const float p0 = pd[(pw - (uint32_t)pi) & PD_MASK], p1 = pd[(pw - (uint32_t)pi - 1) & PD_MASK];
+			pw++;
+			float x = p0 + pf * (p1 - p0);
+			lc += lc_c * (x - lc);
+			x -= lc;
+			// input diffusion
+			float z, v;
+			z = at(RA_AP0, 0);
+			v = x - 0.75f * z;
+			at(RA_AP0W, 0) = v;
+			x = z + 0.75f * v;
+			z = at(RA_AP1, 0);
+			v = x - 0.75f * z;
+			at(RA_AP1W, 0) = v;
+			x = z + 0.75f * v;
+			z = at(RA_AP2, 0);
+			v = x - 0.625f * z;
+			at(RA_AP2W, 0) = v;
+			x = z + 0.625f * v;
+			z = at(RA_AP3, 0);
+			v = x - 0.625f * z;
+			at(RA_AP3W, 0) = v;
+			x = z + 0.625f * v;
+			// tank outputs from the previous trip around
+			const float fromL = at(RA_FROML, 0), fromR = at(RA_FROMR, 0);
+			// left half: modulated allpass, delay, damping, decay, allpass, delay
+			{
+				float a = x + gR2 * fromR;
+				const int di = (int)mL;
+				const float f = mL - (float)di;
+				z = hermite(at(RA_LAM, di - 1), at(RA_LAM, di), at(RA_LAM, di + 1), at(RA_LAM, di + 2), f);
+				v = a + 0.7f * z;
+				at(RA_LAW, 0) = v;
+				a = z - 0.7f * v;
+				at(RA_LDW, 0) = a;
+				const int ni = (int)nL;
+				const float nf = nL - (float)ni;
+				const float c = hermite(at(RA_LDM, ni - 1), at(RA_LDM, ni), at(RA_LDM, ni + 1), at(RA_LDM, ni + 2), nf);
+				dl = c + damp * (dl - c);
+				a = gL1 * dl;
+				z = at(RA_LB, 0);
+				v = a - dd2 * z;
+				at(RA_LBW, 0) = v;
+				a = z + dd2 * v;
+				at(RA_LEW, 0) = a;
+			}
+			// right half
+			{
+				float a = x + gL2 * fromL;
+				const int di = (int)mR;
+				const float f = mR - (float)di;
+				z = hermite(at(RA_RAM, di - 1), at(RA_RAM, di), at(RA_RAM, di + 1), at(RA_RAM, di + 2), f);
+				v = a + 0.7f * z;
+				at(RA_RAW, 0) = v;
+				a = z - 0.7f * v;
+				at(RA_RDW, 0) = a;
+				const int ni = (int)nR;
+				const float nf = nR - (float)ni;
+				const float c = hermite(at(RA_RDM, ni - 1), at(RA_RDM, ni), at(RA_RDM, ni + 1), at(RA_RDM, ni + 2), nf);
+				dr = c + damp * (dr - c);
+				a = gR1 * dr;
+				z = at(RA_RB, 0);
+				v = a - dd2 * z;
+				at(RA_RBW, 0) = v;
+				a = z + dd2 * v;
+				at(RA_REW, 0) = a;
+			}
+			// output taps, signs + + - + - - - (both channels)
+			const float yl = (at(RA_TL, 0) + at(RA_TL + 1, 0) + at(RA_TL + 3, 0)) - (at(RA_TL + 2, 0) + at(RA_TL + 4, 0) + at(RA_TL + 5, 0) + at(RA_TL + 6, 0));
+			const float yr = (at(RA_TR, 0) + at(RA_TR + 1, 0) + at(RA_TR + 3, 0)) - (at(RA_TR + 2, 0) + at(RA_TR + 4, 0) + at(RA_TR + 5, 0) + at(RA_TR + 6, 0));
+			p--;
+			q--;
+			wl[j] += g * yl;
+			wr[j] += g * yr;
 		}
-		// right half
-		{
-			float a = x + gL2 * fromL;
-			const int di = (int)mR;
-			const float f = mR - (float)di;
-			const uint32_t bb = p + (uint32_t)(oRA + di);
-			z = hermite(ring[(bb - 1) & RV_MASK], ring[bb & RV_MASK], ring[(bb + 1) & RV_MASK], ring[(bb + 2) & RV_MASK], f);
-			v = a + 0.7f * z;
-			RV(oRA) = v;
-			a = z - 0.7f * v;
-			RV(oRD) = a;
-			const int ni = (int)nR;
-			const float nf = nR - (float)ni;
-			const uint32_t nb = p + (uint32_t)(oRD + ni);
-			const float c = hermite(ring[(nb - 1) & RV_MASK], ring[nb & RV_MASK], ring[(nb + 1) & RV_MASK], ring[(nb + 2) & RV_MASK], nf);
-			dr = c + damp * (dr - c);
-			a = gR1 * dr;
-			z = RV(oRB + lRB);
-			v = a - dd2 * z;
-			RV(oRB) = v;
-			a = z + dd2 * v;
-			RV(oRE) = a;
-		}
-		// output taps, signs + + - + - - - (both channels)
-		const int* tl = e.rv_tl;
-		const int* tr = e.rv_tr;
-		const float yl = (RV(tl[0]) + RV(tl[1]) + RV(tl[3])) - (RV(tl[2]) + RV(tl[4]) + RV(tl[5]) + RV(tl[6]));
-		const float yr = (RV(tr[0]) + RV(tr[1]) + RV(tr[3])) - (RV(tr[2]) + RV(tr[4]) + RV(tr[5]) + RV(tr[6]));
-		p--;
-		wl[j] += g * yl;
-		wr[j] += g * yr;
-	}
-#undef RV
+	};
+	if (fast) run(std::true_type{});
+	else run(std::false_type{});
 	e.rv_p = p;
 	e.pd_w = pw;
 	e.rv_lc = lc;
@@ -1169,6 +1298,7 @@ static inline void init(Engine& e, int sample_rate) {
 		e.rv_tl[k] = e.rv_off[RV_TAPS_L[k][0]] + (int)(RV_TAPS_L[k][1] * f + 0.5f);
 		e.rv_tr[k] = e.rv_off[RV_TAPS_R[k][0]] + (int)(RV_TAPS_R[k][1] * f + 0.5f);
 	}
+	rv_accesses(e);
 	reset_states(e);
 	clear_buffers_now();
 	update_stages(e);
