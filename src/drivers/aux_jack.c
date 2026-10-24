@@ -79,7 +79,7 @@ const ADCConversionGroup adcgrpcfg3 = {
 // ADC3 samples need to be in ram4!
 CC_SECTION(".ram4") CC_ALIGN(CACHE_LINE_SIZE) static adcsample_t aux_adc_samples[CACHE_SIZE_ALIGN(adcsample_t, ADC_GRP3_NUM_CHANNELS * ADC_GRP3_BUF_DEPTH)];
 
-static THD_WORKING_AREA(waAuxJack, 256);
+static THD_WORKING_AREA(waAuxJack, 320); // I2C to the codec with recovery (line-in)
 static THD_FUNCTION(AuxJack, arg) {
   (void)arg;
   chRegSetThreadName("auxjack");
@@ -217,7 +217,8 @@ static THD_FUNCTION(AuxJack, arg) {
           // Tests: 5200 with axoloti, 5100 with Casio keyboard (out of 8192)
           aux_jack_switch_mode(JACK2_MODE_MIDI);
         }
-        short_circuit_count = 0;
+        // count consecutive passes with the ring shorted (above): reset only when it isn't
+        if (aux_adc_samples[1] >= 6000) short_circuit_count = 0;
       } break;
       case JACK2_MODE_MIDI: {
         // jack_detect high, tx alternate, rx input_analog, aux_power on
@@ -261,20 +262,24 @@ static THD_FUNCTION(AuxJack, arg) {
         }
         palSetLineMode(LINE_AUX_UART2_TX, PAL_MODE_INPUT_PULLUP);
 
+        // the pedal levels, in locals: the CPU must not write the DMA buffer (a dirty cache line
+        // evicted after the next conversion would overwrite its data)
+        int pedal1 = aux_adc_samples[0];
+        int pedal2 = aux_adc_samples[1];
         if (unplugged) {
           aux_jack_switch_mode(JACK2_MODE_DISABLED);
           // make sure to send pedal off messages after unplug
-          aux_adc_samples[0] = 1<<14;
-          aux_adc_samples[1] = 1<<14;
+          pedal1 = 1<<14;
+          pedal2 = 1<<14;
         }
 
-        if (last_pedal1 != (aux_adc_samples[0] < 1<<13)) {
+        if (last_pedal1 != (pedal1 < 1<<13)) {
           last_pedal1 = !last_pedal1;
           msg[1] = IDC_PEDAL_1;
           msg[2] = last_pedal1;
           msgSend(3, msg);
         }
-        if (last_pedal2 != (aux_adc_samples[1] < 1<<13)) {
+        if (last_pedal2 != (pedal2 < 1<<13)) {
           last_pedal2 = !last_pedal2;
           msg[1] = IDC_PEDAL_2;
           msg[2] = last_pedal2;
@@ -385,6 +390,7 @@ void aux_jack_switch_mode(jack2_mode_t mode) {
   }
   aux_power_disable();
   palSetLine(LINE_AUX_JACK_DETECT);
+  short_circuit_count = 0; // a count from the previous mode must not decide in the new one
 
   switch (config.jack2_mode) {
   case (JACK2_MODE_MIDI): {

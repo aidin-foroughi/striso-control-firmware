@@ -16,6 +16,8 @@
  * You should have received a copy of the GNU General Public License along with
  * Striso Control. If not, see <http://www.gnu.org/licenses/>.
  */
+#include <string.h>
+
 #include "ch.h"
 #include "hal.h"
 #include "chprintf.h"
@@ -160,6 +162,16 @@ void PExReceiveByte(unsigned char c) {
   static unsigned char payload[6];
   static int payload_len = 0, payload_need = 0;
   static char payload_cmd = 0;
+  static systime_t last_byte;
+
+  // A command arrives in one host write: a payload or a "Stc" prefix that stopped arriving (a
+  // short command, a killed tool, a USB re-enumeration in between) is dropped after 100 ms, so it
+  // can't swallow the next command's bytes.
+  if ((payload_need > 0 || state > 0) && chVTTimeElapsedSinceX(last_byte) > TIME_MS2I(100)) {
+    payload_need = 0;
+    state = 0;
+  }
+  last_byte = chVTGetSystemTimeX();
 
   if (payload_need > 0) {
     payload[payload_len++] = c;
@@ -219,13 +231,13 @@ void PExReceiveByte(unsigned char c) {
       if (c == 't')
         state++;
       else
-        state = 0;
+        state = c == 'S'; // "SStc": an 'S' starts the prefix again
       break;
     case 2:
       if (c == 'c')
         state++;
       else
-        state = 0;
+        state = c == 'S';
       break;
     case 3:
       state = 0;
@@ -262,10 +274,10 @@ void PExReceiveByte(unsigned char c) {
       }
       else if (c == 'V') { // firmware version
         config.send_usb_bulk = 0;
+        // drop the stream data not sent yet; a packet the host hasn't fetched stays (a reset under
+        // it halted the board, D1)
         chSysLock();
-        if (!obqIsEmptyI(&BDU1.obqueue)) {
-          obqResetI(&BDU1.obqueue);
-        }
+        bduDiscardOutputI(&BDU1);
         chSysUnlock();
         chprintf((BaseSequentialStream *)&BDU1, FWVERSION " %08X%08X%08X ",
                  ((uint32_t*)UID_BASE)[2], ((uint32_t*)UID_BASE)[1], ((uint32_t*)UID_BASE)[0]);
@@ -380,6 +392,24 @@ void PExReceiveByte(unsigned char c) {
   }
 }
 
+// One USB-MIDI event packet (USB MIDI 1.0, 4): dispatch by its code index number (CIN), 7-bit
+// data only. Dropped: reserved CINs (0, 1), SysEx (4-7, not handled here), a channel message
+// whose status doesn't match its CIN, a single byte (CIN 0xF) that isn't real-time, a status
+// without bit 7, a data byte with bit 7 (e.g. CC7 = 255 would set the volume to 4x).
+static void usb_midi_event(const uint8_t *e) {
+  static const uint8_t len[16] = {0, 0, 2, 3, 3, 1, 2, 3, 3, 3, 3, 3, 2, 2, 3, 1};
+  const uint8_t cin = e[0] & 0x0F;
+  if (cin < 2 || (cin >= 4 && cin <= 7)) return;
+  if (!(e[1] & 0x80)) return;
+  if (cin >= 8 && cin <= 0x0E && (e[1] >> 4) != cin) return;
+  if (cin == 0x0F && e[1] < 0xF8) return;
+  for (int i = 2; i <= len[cin]; i++) {
+    if (e[i] & 0x80) return;
+  }
+  MidiInMsgHandler(MIDI_DEVICE_USB_DEVICE, ((e[0] & 0xF0) >> 4) + 1, e[1],
+                   len[cin] >= 2 ? e[2] : 0, len[cin] >= 3 ? e[3] : 0);
+}
+
 void PExReceive(void) {
   // get USB bulk bytes from host
   unsigned char received;
@@ -387,12 +417,24 @@ void PExReceive(void) {
     PExReceiveByte(received);
   }
 
-  // get USB MIDI bytes from host
-  // TODO: check if midi buffer is alligned with 4 bytes
-  uint8_t r[4];
-  while (chnReadTimeout(&MDU1, &r[0], 4, TIME_IMMEDIATE)) {
-    MidiInMsgHandler(MIDI_DEVICE_USB_DEVICE, ((r[0] & 0xF0) >> 4) + 1, r[1],
-                    r[2], r[3]);
+  // get USB MIDI events from host, a whole transfer at a time: events are 4 bytes and never span
+  // transfers, so the tail of a transfer that isn't a multiple of 4 is dropped instead of
+  // shifting every later event
+  for (;;) {
+    uint8_t ev[MIDI_USB_BUFFERS_SIZE];
+    size_t n;
+    chSysLock();
+    if (ibqGetFullBufferTimeoutS(&MDU1.ibqueue, TIME_IMMEDIATE) != MSG_OK) {
+      chSysUnlock();
+      break;
+    }
+    n = (size_t)(MDU1.ibqueue.top - MDU1.ibqueue.ptr);
+    memcpy(ev, MDU1.ibqueue.ptr, n);
+    ibqReleaseEmptyBufferS(&MDU1.ibqueue);
+    chSysUnlock();
+    for (size_t i = 0; i + 4 <= n; i += 4) {
+      usb_midi_event(&ev[i]);
+    }
   }
 }
 

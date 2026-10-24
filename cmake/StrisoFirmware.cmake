@@ -21,7 +21,6 @@ option(STRISO_LTO "link time optimisation" ON)
 option(STRISO_SYNTH_LTO "compile the synth DSP file with LTO too (OFF: a normal object, all per-file flags apply)" ON)
 option(STRISO_LISTING "write an objdump -S listing next to the ELF" OFF)
 option(STRISO_USB_AUDIO_PRE_VOLUME "USB audio gets the synth before the volume control, at a fixed gain (config.h)" OFF)
-option(STRISO_USB_AUDIO_UAC1 "USB audio as USB Audio Class 1.0 (default: 2.0, doc/usb_audio.md)" OFF)
 option(STRISO_KERNEL_STATS "ChibiOS kernel statistics (CH_DBG_STATISTICS): StcU shows the longest lock sections" ON)
 find_program(FAUST_EXECUTABLE faust)
 if(FAUST_EXECUTABLE)
@@ -134,9 +133,6 @@ endif()
 if(STRISO_USB_AUDIO_PRE_VOLUME)
   list(APPEND _defs USB_AUDIO_PRE_VOLUME=1)
 endif()
-if(STRISO_USB_AUDIO_UAC1)
-  list(APPEND _defs USB_AUDIO_UAC2=0)
-endif()
 set(_kernel_stats_src "")
 if(STRISO_KERNEL_STATS)
   list(APPEND _defs CH_DBG_STATISTICS=TRUE)
@@ -202,16 +198,15 @@ add_custom_command(TARGET striso_control POST_BUILD
 add_test(NAME usb_descriptors
   COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/usbaudio/check_descriptors.py"
           --elf "$<TARGET_FILE:striso_control>")
+# every USB string descriptor is handed out with exactly its bLength (D6)
+add_test(NAME usb_string_sizes
+  COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tests/test_usb_strings.py"
+          "$<TARGET_FILE:striso_control>")
 # the USB descriptors (with the MS OS descriptors) and default_config byte for byte against
 # tests/golden/firmware_bytes.txt (tools/firmware_goldens.py --update after an intended change)
-if(STRISO_USB_AUDIO_UAC1)
-  set(_usb_variant uac1)
-else()
-  set(_usb_variant uac2)
-endif()
 add_test(NAME firmware_bytes
   COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/firmware_goldens.py"
-          --elf "$<TARGET_FILE:striso_control>" --variant ${_usb_variant})
+          --elf "$<TARGET_FILE:striso_control>")
 # tools/striso.py flash accepts the UF2 (app region only) and expects the version the build embedded
 add_test(NAME striso_py_firmware
   COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tests/test_striso_py.py"

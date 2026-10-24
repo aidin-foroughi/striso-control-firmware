@@ -5,13 +5,10 @@
 
 Checks the configuration descriptor's lengths and totals, interface and endpoint numbering, the
 IADs, the MIDI and vendor functions (unchanged: interface 2 is the WinUSB console the app and
-tools/striso.py claim), the MS OS compat-ID descriptor, and the audio function, which may be
-either class version (the AudioControl interface's protocol says which):
-- USB Audio Class 1.0 (STRISO_USB_AUDIO_UAC1=ON builds, bcdDevice 2.01): Audio Devices 1.0
-  4.3.2 AC header, 4.3.2.1/2 terminals, 4.5.2 AS general, 4.6.1.1/2 endpoints; Formats 1.0 2.2.5.
-- USB Audio Class 2.0 (the default, bcdDevice 2.02): ADC-2 4.6 IAD, 4.7.2 AC header, 4.7.2.1
-  clock source, 4.7.2.4/5 terminals and their clock links, 4.9.2 AS general, 4.10.1.1/2
-  endpoints; FMT-2 2.3.1.6 Type I format; plus what Windows' usbaudio2.sys requires (one clock
+tools/striso.py claim), the MS OS compat-ID descriptor, and the audio function, USB Audio Class
+2.0 (bcdDevice 2.02): ADC-2 4.6 IAD, 4.7.2 AC header, 4.7.2.1 clock source, 4.7.2.4/5 terminals
+and their clock links, 4.9.2 AS general, 4.10.1.1/2 endpoints; FMT-2 2.3.1.6 Type I format; plus
+what Windows' usbaudio2.sys requires (one clock
   source with GET CUR and GET RANGE, the same terminal link in every alt setting, alt settings in
   ascending order, one bmFormats bit, packets within +-1 frame of nominal) and what the firmware
   answers to the clock source's GET CUR / GET RANGE / validity requests (from the ELF, or with
@@ -51,6 +48,10 @@ def elf_symbols(path):
                 if sec[1] == 8:   # NOBITS
                     continue
                 base = n.split(".")[0]   # LTO renames statics to name.lto_priv.N
+                # a name can repeat (statics of other files, e.g. ChibiOS' 8-byte ADC
+                # default_config next to the firmware's): the firmware's tables are the larger
+                if base in syms and len(syms[base]) >= size:
+                    continue
                 syms[base] = data[sec[4] + value - sec[3]:sec[4] + value - sec[3] + size]
     return syms
 
@@ -127,7 +128,7 @@ def main():
     check(bl == 18 and bt == 1, "device descriptor header")
     check((cls, sub, proto) == (0xEF, 0x02, 0x01), "device class must be Misc/IAD (EF/02/01)")
     check((vid, pid) == (0xF055, 0x57C0), "VID/PID changed")
-    check(bcddev in (0x0201, 0x0202), f"bcdDevice {bcddev:04x}, expected 0201 (UAC1) or 0202 (UAC2)")
+    check(bcddev == 0x0202, f"bcdDevice {bcddev:04x}, expected 0202 (USB Audio Class 2.0)")
     for k, v in sorted(strings.items()):
         print(f"  string {k}: {v!r}")
     check(strings.get(5) == "Striso Synth", "string 5 must be 'Striso Synth'")
@@ -218,14 +219,9 @@ def main():
 
     # --- audio function: interfaces 3 (AC) and 4 (AS) ----------------------------------------
     ac = by.get((3, 0))
-    uac2 = bool(ac) and ac["proto"] == 0x20
-    check(bcddev == (0x0202 if uac2 else 0x0201),
-          f"bcdDevice {bcddev:04x} with USB Audio Class {2 if uac2 else 1}: expected {'0202' if uac2 else '0201'} "
-          "(a new value per class version, so Windows binds the driver afresh)")
-    if uac2:
+    if check(bool(ac) and ac["proto"] == 0x20, "interface 3 must be a USB Audio Class 2.0 AudioControl (IP 2.0)"):
         check_uac2(by, iads, ac, clock)
-        return report()
-    return check_uac1(by)
+    return report()
 
 
 def check_uac2(by, iads, ac, clock):
@@ -341,77 +337,6 @@ def check_uac2(by, iads, ac, clock):
     check(len(links) == 1, f"the terminal link must be the same in every alt setting, got {sorted(links)}")
     print(f"  periodic bandwidth: {periodic} + 9 bytes per frame of 1350 allowed")
     check(periodic + 9 <= 1350, "periodic bandwidth")
-
-
-def check_uac1(by):
-    print("audio function (USB Audio Class 1.0)")
-    ac = by.get((3, 0))
-    if not check(ac and ac["cls"] == 1 and ac["sub"] == 1 and ac["neps"] == 0, "interface 3 must be AudioControl without endpoints"):
-        return report()
-    hdr = ac["cs"][0]
-    check(hdr[2] == 0x01 and len(hdr) == 8 + hdr[7], "AC header: subtype 1, bLength 8 + bInCollection (Table 4-2)")
-    check(struct.unpack_from("<H", hdr, 3)[0] == 0x0100, "AC header bcdADC must be 1.00")
-    ac_total = struct.unpack_from("<H", hdr, 5)[0]
-    check(ac_total == sum(len(b) for b in ac["cs"]), f"AC header wTotalLength {ac_total} != {sum(len(b) for b in ac['cs'])}")
-    coll = list(hdr[8:8 + hdr[7]])
-    check(coll == [4], f"AC header baInterfaceNr {coll}, expected [4]")
-    terms = {}
-    for b in ac["cs"][1:]:
-        if b[2] == 0x02:
-            check(len(b) == 12, "input terminal bLength 12 (Table 4-3)")
-            tt, = struct.unpack_from("<H", b, 4)
-            terms[b[3]] = ("in", tt, b[7])
-            print(f"  input terminal {b[3]}: type {tt:#06x}, {b[7]} channels, config {struct.unpack_from('<H', b, 8)[0]:#06x}, iTerminal {b[11]}")
-            check(b[7] == 2 and struct.unpack_from("<H", b, 8)[0] == 0x0003, "input terminal: 2 channels L/R")
-        elif b[2] == 0x03:
-            check(len(b) == 9, "output terminal bLength 9 (Table 4-4)")
-            tt, = struct.unpack_from("<H", b, 4)
-            terms[b[3]] = ("out", tt, b[7])
-            print(f"  output terminal {b[3]}: type {tt:#06x}, source {b[7]}")
-        else:
-            check(False, f"unexpected AC descriptor subtype {b[2]}")
-    for tid, (kind, tt, src) in terms.items():
-        if kind == "out":
-            check(src in terms and terms[src][0] == "in", f"output terminal {tid}: source {src} is not an input terminal")
-    usb_terms = [t for t, v in terms.items() if v[0] == "out" and v[1] == 0x0101]
-    check(len(usb_terms) == 1, "exactly one USB streaming output terminal")
-
-    a0 = by.get((4, 0))
-    check(a0 and a0["cls"] == 1 and a0["sub"] == 2 and a0["neps"] == 0, "interface 4 alt 0: AudioStreaming, zero bandwidth")
-    alts = sorted(k[1] for k in by if k[0] == 4)
-    check(alts == [0, 1, 2], f"interface 4 alt settings {alts}")
-    periodic = 0
-    for alt in alts[1:]:
-        i = by[(4, alt)]
-        check(i["cls"] == 1 and i["sub"] == 2 and i["neps"] == 1, f"alt {alt}: AudioStreaming with one endpoint")
-        gen, fmt = (i["cs"] + [b"", b""])[:2]
-        check(len(gen) == 7 and gen[2] == 0x01, f"alt {alt}: AS general bLength 7 subtype 1 (Table 4-19)")
-        check(gen[3] in usb_terms, f"alt {alt}: bTerminalLink {gen[3]} is not the USB streaming terminal")
-        check(struct.unpack_from("<H", gen, 5)[0] == 0x0001, f"alt {alt}: wFormatTag must be PCM")
-        check(fmt[2] == 0x02 and fmt[3] == 0x01, f"alt {alt}: Type I format descriptor")
-        nch, sub, bits, nfreq = fmt[4:8]
-        check(nfreq >= 1 and len(fmt) == 8 + 3 * nfreq, f"alt {alt}: format bLength {len(fmt)} for {nfreq} discrete rates (Formats Table 2-1)")
-        freqs = [fmt[8 + 3 * k] | fmt[9 + 3 * k] << 8 | fmt[10 + 3 * k] << 16 for k in range(nfreq)]
-        check(nch == 2 and bits <= 8 * sub and sub in (2, 3), f"alt {alt}: channels {nch}, subframe {sub}, bits {bits}")
-        check(freqs == [48000], f"alt {alt}: sampling frequencies {freqs}")
-        e = i["eps"][0]["d"]
-        mps, = struct.unpack_from("<H", e, 4)
-        need = (max(freqs) // 1000 + 1) * nch * sub
-        print(f"  alt {alt}: {nch} ch, {sub} byte subframes, {bits} bit, {freqs} Hz; endpoint {e[2]:#04x} "
-              f"attr {e[3]:#04x} wMaxPacketSize {mps} (49 frames: {need}) bInterval {e[6]}")
-        check(len(e) == 9, f"alt {alt}: audio endpoint descriptor must be 9 bytes (Table 4-20)")
-        check(e[2] == 0x83, f"alt {alt}: endpoint {e[2]:#04x}, expected 0x83")
-        check(e[3] & 0x03 == 1 and (e[3] >> 2) & 3 == 1, f"alt {alt}: endpoint must be isochronous asynchronous")
-        check(mps == need and mps <= 1023, f"alt {alt}: wMaxPacketSize {mps}, need {need} (<= 1023 at full speed)")
-        check(e[6] == 1 and e[7] == 0 and e[8] == 0, f"alt {alt}: bInterval 1, bRefresh 0, bSynchAddress 0")
-        cs = i["eps"][0]["cs"]
-        check(len(cs) == 1 and len(cs[0]) == 7 and cs[0][1] == 0x25 and cs[0][2] == 0x01,
-              f"alt {alt}: class-specific iso endpoint descriptor (Table 4-21)")
-        periodic = max(periodic, mps)
-    # full speed: periodic transfers may use 90% of a frame (1500 bytes); iso overhead ~9 bytes
-    print(f"  periodic bandwidth: {periodic} + 9 bytes per frame of 1350 allowed")
-    check(periodic + 9 <= 1350, "periodic bandwidth")
-    return report()
 
 
 def report():

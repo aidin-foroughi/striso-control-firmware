@@ -6,33 +6,24 @@ speed. The jack keeps playing; USB gets the same samples. Code: `src/usb/usb_aud
 glue, diagnostics), `src/usb/usb_audio_core.h` (ring, servo, packing; tested on the PC by
 `tools/usbaudio/test_core.c`), descriptors in `src/usb/usbcfg.c`.
 
-## Class version: USB Audio 2.0 by default
+## Class version: USB Audio 2.0
 
-The audio function is USB Audio Class 2.0 (UAC2). `-DSTRISO_USB_AUDIO_UAC1=ON` builds the
-earlier UAC1 function instead (bcdDevice 2.01), for a host without a UAC2 driver.
+The audio function is USB Audio Class 2.0 (UAC2). On Windows 10 1703+ and 11 it loads
+`usbaudio2.sys`, a WaveRT miniport (the low latency path, exclusive mode); macOS (AppleUSBAudio)
+and Linux (snd-usb-audio) have class drivers. Full speed UAC2 is common (TinyUSB devices, RP2040
+boards, many USB microphones). Microsoft's driver page (learn.microsoft.com, "USB Audio 2.0
+Drivers") sets the rules the descriptor follows: one clock source answering GET CUR and GET
+RANGE (a fixed clock needs no SET CUR), the same terminal link in every alt setting, alt
+settings in ascending order from a zero bandwidth alt 0, exactly one `bmFormats` bit, and
+packets within one frame of nominal (47/48/49).
 
-| Host | UAC1 | UAC2 |
-|---|---|---|
-| Windows 10 1703+, 11 | `usbaudio.sys`, the legacy KS driver, with large internal buffering | `usbaudio2.sys`, a WaveRT miniport (the low latency path, exclusive mode) |
-| Windows before 10 1703 | works | no class driver: no audio (MIDI and the console still work) |
-| macOS (AppleUSBAudio) | works | works; the class Apple's own pro devices use |
-| Linux (snd-usb-audio) | works | works |
+The MIDI function (interfaces 0, 1) is a USB Audio 1.0 MIDIStreaming function: Windows loads
+`usbaudio.sys` for it, macOS and Linux their USB MIDI drivers, as with any UAC2 device that has
+MIDI. Interface 2 (vendor bulk, WinUSB through the MS OS 1.0 compat ID) and its endpoints are
+what the app and `tools/striso.py` claim.
 
-So UAC2 is the better choice on Windows and costs nothing on macOS and Linux. Full speed UAC2
-is common (TinyUSB devices, RP2040 boards, many USB microphones). Microsoft's driver page
-(learn.microsoft.com, "USB Audio 2.0 Drivers") sets the rules the descriptor follows: one clock
-source answering GET CUR and GET RANGE (a fixed clock needs no SET CUR), the same terminal link
-in every alt setting, alt settings in ascending order from a zero bandwidth alt 0, exactly one
-`bmFormats` bit, and packets within one frame of nominal (47/48/49).
-
-The MIDI function (interfaces 0, 1) stays a USB Audio 1.0 MIDIStreaming function in both
-builds: Windows loads `usbaudio.sys` for it, macOS and Linux their USB MIDI drivers, as with any
-UAC2 device that has MIDI. Interface 2 (vendor bulk, WinUSB through the MS OS 1.0 compat ID)
-and its endpoints are byte-identical in both builds. The app and `tools/striso.py` claim it.
-
-`bcdDevice` is 2.02 for UAC2 and 2.01 for UAC1. Windows keys its hardware IDs (`REV_0202`) and
-its MS OS descriptor cache (`usbflags\F05557C00202`) on it, so a class change gets a fresh
-device node and driver binding instead of a stale one.
+`bcdDevice` is 2.02. Windows keys its hardware IDs (`REV_0202`) and its MS OS descriptor cache
+(`usbflags\F05557C00202`) on it.
 
 ## Descriptors (UAC2, the audio function)
 
@@ -180,4 +171,4 @@ frames, and `Stct000` prints it.
 - live target changes;
 - the target sweep above.
 
-`ctest --preset firmware` checks the descriptors of the built ELF (UAC2 or UAC1).
+`ctest --preset firmware` checks the descriptors of the built ELF.

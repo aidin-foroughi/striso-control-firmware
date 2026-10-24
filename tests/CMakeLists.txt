@@ -112,6 +112,99 @@ target_compile_options(test_usb_audio_core PRIVATE -O2 -Werror)
 target_link_libraries(test_usb_audio_core PRIVATE m striso_host_options)
 add_test(NAME usb_audio_core COMMAND test_usb_audio_core)
 set_tests_properties(usb_audio_core PROPERTIES LABELS unit)
+# usb_audio_wrap: the ring across the wrap of its free-running 32-bit frame counters (24.85 h)
+add_executable(test_ua_wrap test_ua_wrap.c)
+target_include_directories(test_ua_wrap PRIVATE "${PROJECT_SOURCE_DIR}/src/usb")
+target_compile_options(test_ua_wrap PRIVATE -O2 -Werror)
+target_link_libraries(test_ua_wrap PRIVATE striso_host_options)
+add_test(NAME usb_audio_wrap COMMAND test_ua_wrap)
+set_tests_properties(usb_audio_wrap PROPERTIES LABELS unit)
+
+# --- drivers and USB (C) ------------------------------------------------------------------------------
+# usb_obq_discard: the console's 'V' drops the bulk console's pending output while an IN transfer
+# may be reading it (src/usb/obq_discard.h, D1), against ChibiOS' own hal_buffers.c
+if(EXISTS "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c")
+  add_executable(test_obq_discard usb_queue/test_obq_discard.c "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c")
+  target_include_directories(test_obq_discard PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/usb_queue/stubs"
+    "${STRISO_CHIBIOS_DIR}/os/hal/include"
+    "${PROJECT_SOURCE_DIR}/src/usb")
+  target_link_libraries(test_obq_discard PRIVATE striso_host_options)
+  target_compile_options(test_obq_discard PRIVATE -O1 -Wno-unused-parameter)
+  add_test(NAME usb_obq_discard COMMAND test_obq_discard)
+  set_tests_properties(usb_obq_discard PROPERTIES LABELS unit)
+  # console_sim: the USB console and USB MIDI in end to end (R1, R3-R10): the real pconnection.c,
+  # bulk_usb.c, midi_usb.c, config_store.c and ChibiOS hal_buffers.c/chprintf.c against a fake USB
+  # controller and a host that parses like Striso Live. chprintf.c gets a larger digit buffer:
+  # on the 64-bit host "%lx" of a uint32_t reads 64 bits (on the board long is 32 bits).
+  set(_streams "${STRISO_CHIBIOS_DIR}/os/hal/lib/streams")
+  file(READ "${_streams}/chprintf.c" _chprintf)
+  string(REPLACE "#define MAX_FILLER 11" "#define MAX_FILLER 23" _chprintf "${_chprintf}")
+  file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/chprintf_lp64.c" CONTENT "${_chprintf}" @ONLY)
+  add_executable(test_console_sim
+    console_sim/test_console_sim.c console_sim/sim.c config_defaults.c
+    "${PROJECT_SOURCE_DIR}/src/app/pconnection.c"
+    "${PROJECT_SOURCE_DIR}/src/usb/bulk_usb.c"
+    "${PROJECT_SOURCE_DIR}/src/usb/midi_usb.c"
+    "${PROJECT_SOURCE_DIR}/src/app/config_store.c"
+    "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/chprintf_lp64.c"
+    "${_streams}/memstreams.c")
+  target_include_directories(test_console_sim PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/console_sim/stubs"
+    "${CMAKE_CURRENT_SOURCE_DIR}/console_sim"
+    "${PROJECT_SOURCE_DIR}/src/app"
+    "${PROJECT_SOURCE_DIR}/src/usb"
+    "${PROJECT_SOURCE_DIR}/src/synth"
+    "${PROJECT_SOURCE_DIR}/src/drivers"
+    "${STRISO_CHIBIOS_DIR}/os/hal/include"
+    "${_streams}")
+  target_link_libraries(test_console_sim PRIVATE striso_host_options)
+  target_compile_options(test_console_sim PRIVATE -O1 -Wno-unused-parameter -Wno-unused-function
+    -Wno-sign-compare -Wno-missing-field-initializers -Wno-format -Wno-unused-but-set-variable
+    -fno-strict-aliasing $<$<BOOL:${STRISO_SANITIZE}>:-fno-sanitize=alignment>)
+  add_test(NAME console_sim COMMAND test_console_sim)
+  set_tests_properties(console_sim PROPERTIES LABELS unit)
+else()
+  message(WARNING "ChibiOS not found (git submodule update --init): tests usb_obq_discard, console_sim skipped")
+endif()
+
+# aux_jack: src/drivers/aux_jack.c's detection state machine against an electrical model of the
+# jack (D3: a TS switch pedal is detected in autodetect); tests/aux_jack/stubs stand in for the HAL
+add_executable(test_aux_jack aux_jack/test_aux_jack.c)
+target_include_directories(test_aux_jack PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/aux_jack/stubs"
+  "${PROJECT_SOURCE_DIR}/src/drivers")
+target_link_libraries(test_aux_jack PRIVATE striso_host_options)
+target_compile_options(test_aux_jack PRIVATE -O1 -Wno-unused-parameter -Wno-unused-variable -Wno-switch)
+add_test(NAME aux_jack COMMAND test_aux_jack)
+set_tests_properties(aux_jack PROPERTIES LABELS unit)
+
+# messaging_model[_small]: src/app/messaging.c's ring never loses or corrupts an accepted message
+# (R2): exhaustively on a 7-slot ring, and under key traffic on the board's 240 slots
+foreach(_m IN ITEMS "messaging_model_small;-DBUFFERSIZE=7" "messaging_model;")
+  list(GET _m 0 _name)
+  list(GET _m 1 _def)
+  add_executable(test_${_name} messaging/test_messaging_model.c)
+  target_include_directories(test_${_name} PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/messaging/stubs"
+    "${PROJECT_SOURCE_DIR}/src/app")
+  if(_def)
+    target_compile_definitions(test_${_name} PRIVATE ${_def})
+  endif()
+  target_link_libraries(test_${_name} PRIVATE striso_host_options)
+  target_compile_options(test_${_name} PRIVATE -O2)
+  add_test(NAME ${_name} COMMAND test_${_name})
+  set_tests_properties(${_name} PROPERTIES LABELS unit)
+endforeach()
+
+# codec_linein: the codec's line-in writes (src/drivers/codec_aic3x_linein.h) open and close the
+# analog path LINE2 -> ADC PGA -> line out, in a model of the TLV320AIC3104 registers (D4)
+add_executable(test_codec_linein test_codec_linein.c)
+target_include_directories(test_codec_linein PRIVATE "${PROJECT_SOURCE_DIR}/src/drivers")
+target_link_libraries(test_codec_linein PRIVATE striso_host_options)
+add_test(NAME codec_linein COMMAND test_codec_linein)
+set_tests_properties(codec_linein PROPERTIES LABELS unit)
 
 # --- tools/striso.py: UF2 and config records ----------------------------------------------------------
 add_test(NAME striso_py COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_striso_py.py")
@@ -124,6 +217,11 @@ set_tests_properties(stackcheck PROPERTIES LABELS unit)
 # button_read.c source checks (the ADC interrupt can't run on the PC): S12 cache invalidate size
 add_test(NAME button_read_src COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_button_read_src.py")
 set_tests_properties(button_read_src PROPERTIES LABELS unit)
+
+# src/usb source checks: endpoints re-armed after a USB suspend and resume (D2), bulk_out (D16),
+# GET_STATUS self powered (D18)
+add_test(NAME usb_src COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_usb_src.py")
+set_tests_properties(usb_src PROPERTIES LABELS unit)
 
 # the StcK console command's settings key whitelist against config_but() (source check)
 add_test(NAME settings_keys COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_settings_keys.py")

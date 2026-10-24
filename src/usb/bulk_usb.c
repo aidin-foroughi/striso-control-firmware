@@ -26,8 +26,11 @@
  * @{
  */
 
+#include <string.h>
+
 #include "hal.h"
 #include "bulk_usb.h"
+#include "obq_discard.h"
 
 #if 1 // HAL_USE_BULK_USB || defined(__DOXYGEN__)
 
@@ -58,7 +61,7 @@ static bool bdu_start_receive(BulkUSBDriver *bdup) {
   }
 
   /* Checking if there is already a transaction ongoing on the endpoint.*/
-  if (usbGetReceiveStatusI(bdup->config->usbp, bdup->config->bulk_in)) {
+  if (usbGetReceiveStatusI(bdup->config->usbp, bdup->config->bulk_out)) {
     return true;
   }
 
@@ -68,11 +71,56 @@ static bool bdu_start_receive(BulkUSBDriver *bdup) {
     return true;
   }
 
-  /* Buffer found, starting a new transaction.*/
-  usbStartReceiveI(bdup->config->usbp, bdup->config->bulk_out,
-                   buf, BULK_USB_BUFFERS_SIZE);
+  /* Buffer found, starting a new transaction. One packet per transfer: the OTG core completes
+     an OUT transfer on a short packet or when it is full, so a host write of exactly 64*k bytes
+     (no zero-length packet, e.g. libusb) would wait in a 256-byte transfer for the next write.*/
+  usbStartReceiveI(bdup->config->usbp, bdup->config->bulk_out, buf,
+                   bdup->config->usbp->epc[bdup->config->bulk_out]->out_maxsize);
 
   return false;
+}
+
+/*
+ * Two writers share the output queue: the stream interface below (the console's chprintf, from
+ * the main thread) and bduWriteFrame (ThreadSend's binary frames). ChibiOS buffer queues assume
+ * one writer: a writer woken from a full queue sets the write pointer to the start of the freed
+ * buffer again, over a frame the other one wrote there meanwhile. So a stream write counts as in
+ * progress (writers), bduWriteFrame holds its frames back during one, and the stream write
+ * writes them when it ends. The threads have the same priority and don't preempt each other.
+ */
+static void bdu_flush_frames(BulkUSBDriver *bdup) {
+  size_t n;
+
+  osalSysLock();
+  n = bdup->frame_pend_n;
+  bdup->frame_pend_n = 0;
+  if (n > 0 && !obq_fitsI(&bdup->obqueue, n)) {
+    bdup->frames_dropped++;
+    n = 0;
+  }
+  osalSysUnlock();
+  /* written from frame_pend itself: nothing else writes it during this non-blocking write */
+  if (n > 0) {
+    (void) obqWriteTimeout(&bdup->obqueue, bdup->frame_pend, n, TIME_IMMEDIATE);
+  }
+}
+
+static void bdu_writer_enter(BulkUSBDriver *bdup) {
+  osalSysLock();
+  bdup->writers++;
+  osalSysUnlock();
+}
+
+static void bdu_writer_leave(BulkUSBDriver *bdup) {
+  bool flush;
+
+  osalSysLock();
+  bdup->writers--;
+  flush = (bdup->writers == 0) && (bdup->frame_pend_n > 0);
+  osalSysUnlock();
+  if (flush) {
+    bdu_flush_frames(bdup);
+  }
 }
 
 /*
@@ -80,9 +128,13 @@ static bool bdu_start_receive(BulkUSBDriver *bdup) {
  */
 
 static size_t _write(void *ip, const uint8_t *bp, size_t n) {
+  BulkUSBDriver *bdup = (BulkUSBDriver *)ip;
+  size_t w;
 
-  return obqWriteTimeout(&((BulkUSBDriver *)ip)->obqueue, bp,
-                         n, TIME_INFINITE);
+  bdu_writer_enter(bdup);
+  w = obqWriteTimeout(&bdup->obqueue, bp, n, TIME_INFINITE);
+  bdu_writer_leave(bdup);
+  return w;
 }
 
 static size_t _read(void *ip, uint8_t *bp, size_t n) {
@@ -92,8 +144,13 @@ static size_t _read(void *ip, uint8_t *bp, size_t n) {
 }
 
 static msg_t _put(void *ip, uint8_t b) {
+  BulkUSBDriver *bdup = (BulkUSBDriver *)ip;
+  msg_t msg;
 
-  return obqPutTimeout(&((BulkUSBDriver *)ip)->obqueue, b, TIME_INFINITE);
+  bdu_writer_enter(bdup);
+  msg = obqPutTimeout(&bdup->obqueue, b, TIME_INFINITE);
+  bdu_writer_leave(bdup);
+  return msg;
 }
 
 static msg_t _get(void *ip) {
@@ -102,8 +159,13 @@ static msg_t _get(void *ip) {
 }
 
 static msg_t _putt(void *ip, uint8_t b, sysinterval_t timeout) {
+  BulkUSBDriver *bdup = (BulkUSBDriver *)ip;
+  msg_t msg;
 
-  return obqPutTimeout(&((BulkUSBDriver *)ip)->obqueue, b, timeout);
+  bdu_writer_enter(bdup);
+  msg = obqPutTimeout(&bdup->obqueue, b, timeout);
+  bdu_writer_leave(bdup);
+  return msg;
 }
 
 static msg_t _gett(void *ip, sysinterval_t timeout) {
@@ -113,8 +175,13 @@ static msg_t _gett(void *ip, sysinterval_t timeout) {
 
 static size_t _writet(void *ip, const uint8_t *bp, size_t n,
                       sysinterval_t timeout) {
+  BulkUSBDriver *bdup = (BulkUSBDriver *)ip;
+  size_t w;
 
-  return obqWriteTimeout(&((BulkUSBDriver *)ip)->obqueue, bp, n, timeout);
+  bdu_writer_enter(bdup);
+  w = obqWriteTimeout(&bdup->obqueue, bp, n, timeout);
+  bdu_writer_leave(bdup);
+  return w;
 }
 
 static size_t _readt(void *ip, uint8_t *bp, size_t n,
@@ -226,6 +293,9 @@ void bduObjectInit(BulkUSBDriver *bdup) {
   obqObjectInit(&bdup->obqueue, true, bdup->ob,
                 BULK_USB_BUFFERS_SIZE, BULK_USB_BUFFERS_NUMBER,
                 obnotify, bdup);
+  bdup->writers = 0;
+  bdup->frame_pend_n = 0;
+  bdup->frames_dropped = 0;
 }
 
 /**
@@ -321,10 +391,25 @@ void bduSuspendHookI(BulkUSBDriver *bdup) {
  * @iclass
  */
 void bduWakeupHookI(BulkUSBDriver *bdup) {
+  USBDriver *usbp = bdup->config->usbp;
 
   chnAddFlagsI(bdup, CHN_CONNECTED);
   bqResumeX(&bdup->ibqueue);
   bqResumeX(&bdup->obqueue);
+
+  /* The suspend aborted the endpoint's transfers (the OTG LLD disabled them, _usb_suspend
+     cleared the transmitting and receiving flags) and nothing else restarts them: re-arm the
+     OUT transfer, and send the queue's head buffer again (it may be the one in flight at the
+     suspend).*/
+  (void) bdu_start_receive(bdup);
+  if ((usbGetDriverStateI(usbp) == USB_ACTIVE) && (bdup->state == BDU_READY) &&
+      !usbGetTransmitStatusI(usbp, bdup->config->bulk_in)) {
+    size_t n;
+    uint8_t *buf = obqGetFullBufferI(&bdup->obqueue, &n);
+    if (buf != NULL) {
+      usbStartTransmitI(usbp, bdup->config->bulk_in, buf, n);
+    }
+  }
 }
 
 /**
@@ -342,6 +427,69 @@ void bduConfigureHookI(BulkUSBDriver *bdup) {
   bqResumeX(&bdup->obqueue);
   chnAddFlagsI(bdup, CHN_CONNECTED);
   (void) bdu_start_receive(bdup);
+}
+
+/**
+ * @brief   Writes one binary frame (ThreadSend's messages) whole, or not at all.
+ * @details Never blocks. A frame that doesn't fit in the queue now is dropped (a frame cut
+ *          part way made the host read the next console text as its values). During a stream
+ *          write (the console) the frame is held back and written when that write ends.
+ *
+ * @param[in] bdup      pointer to a @p BulkUSBDriver object
+ * @param[in] frame     the frame
+ * @param[in] n         its size (at most BULK_USB_FRAME_PENDING)
+ * @return              false if the frame was dropped (counted in frames_dropped).
+ *
+ * @api
+ */
+bool bduWriteFrame(BulkUSBDriver *bdup, const uint8_t *frame, size_t n) {
+  bool ok;
+
+  osalSysLock();
+  if (bdup->writers > 0) {
+    ok = bdup->frame_pend_n + n <= sizeof bdup->frame_pend;
+    if (ok) {
+      memcpy(bdup->frame_pend + bdup->frame_pend_n, frame, n);
+      bdup->frame_pend_n += n;
+    }
+    else {
+      bdup->frames_dropped++;
+    }
+    osalSysUnlock();
+    return ok;
+  }
+  osalSysUnlock();
+
+  /* frames held back before go first, in order */
+  if (bdup->frame_pend_n > 0) {
+    bdu_flush_frames(bdup);
+  }
+  osalSysLock();
+  ok = obq_fitsI(&bdup->obqueue, n);
+  if (!ok) {
+    bdup->frames_dropped++;
+  }
+  osalSysUnlock();
+  if (ok) {
+    /* nobody writes in between (same priority, the USB ISR only frees space): all of it fits */
+    (void) obqWriteTimeout(&bdup->obqueue, frame, n, TIME_IMMEDIATE);
+  }
+  return ok;
+}
+
+/**
+ * @brief   Drops the output not yet sent (e.g. a binary stream left on), safely.
+ * @details An IN transfer in flight keeps its buffer: obqResetI() under it would make its
+ *          completion assert (chSysHalt), see obq_discard.h.
+ *
+ * @param[in] bdup      pointer to a @p BulkUSBDriver object
+ *
+ * @iclass
+ */
+void bduDiscardOutputI(BulkUSBDriver *bdup) {
+
+  obq_discard_pendingI(&bdup->obqueue,
+                       usbGetTransmitStatusI(bdup->config->usbp, bdup->config->bulk_in));
 }
 
 /**

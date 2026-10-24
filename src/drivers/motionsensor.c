@@ -33,6 +33,7 @@
 #ifdef USE_LSM6DSL
 #include "lsm6dsl.h"
 #endif
+#include "i2c_recover.h"
 
 /* I2C interface #1 */
 #if defined(STM32F4XX)
@@ -79,7 +80,23 @@ static const I2CConfig i2ccfg_motion = {
 
 #define pow2(x) ((x)*(x))
 
+#define MOTION_I2C_PIN_MODE (PAL_MODE_ALTERNATE(4) | PAL_STM32_OTYPE_OPENDRAIN | PAL_STM32_OSPEED_HIGHEST)
+
 #ifdef USE_LSM6DSL
+// I2C failures since boot (timeouts, bus errors, no acknowledge); each one restarted the bus
+volatile uint32_t motion_i2c_errors;
+
+static msg_t motion_transfer(const uint8_t *tx, size_t ntx, uint8_t *rx, size_t nrx) {
+  msg_t status = i2cMasterTransmitTimeout(&I2CD_MOTION, LSM6DSL_SAD_GND, tx, ntx, rx, nrx,
+                                          I2C_TRANSFER_TIMEOUT);
+  if (status != MSG_OK) {
+    motion_i2c_errors++;
+    i2c_recover(&I2CD_MOTION, &i2ccfg_motion, LINE_MOTION_I2C_SCL, LINE_MOTION_I2C_SDA,
+                MOTION_I2C_PIN_MODE);
+  }
+  return status;
+}
+
 /*
  * I2C TX and RX buffers.
  */
@@ -95,10 +112,9 @@ uint8_t lsm6dslReadRegister(uint8_t RegisterAddr) {
 
   txbuf[0] = RegisterAddr;
   cacheBufferFlush(&txbuf[0], sizeof txbuf);
-  status = i2cMasterTransmit(&I2CD_MOTION, LSM6DSL_SAD_GND, txbuf, 1,
-                             rxbuf, 1);
+  status = motion_transfer(txbuf, 1, rxbuf, 1);
   cacheBufferInvalidate(&rxbuf[0], sizeof rxbuf);
-  return (rxbuf[0]);
+  return status == MSG_OK ? rxbuf[0] : 0;
 }
 
 uint8_t lsm6dslReadMotion(int16_t* motion) {
@@ -110,8 +126,7 @@ uint8_t lsm6dslReadMotion(int16_t* motion) {
 
   txbuf[0] = LSM6DSL_AD_OUTX_L_G;
   cacheBufferFlush(&txbuf[0], sizeof txbuf);
-  status = i2cMasterTransmit(&I2CD_MOTION, LSM6DSL_SAD_GND, txbuf, 1,
-                             rxbuf, 12);
+  status = motion_transfer(txbuf, 1, rxbuf, 12);
   cacheBufferInvalidate(&rxbuf[0], sizeof rxbuf);
   for (int i = 0; i<6; i++) {
     motion[i] = ((int16_t*)rxbuf)[i];
@@ -123,8 +138,8 @@ float lsm6dslReadTemp(void) {
   msg_t status;
   txbuf[0] = LSM6DSL_AD_OUT_TEMP_L;
   cacheBufferFlush(&txbuf[0], sizeof txbuf);
-  status = i2cMasterTransmit(&I2CD_MOTION, LSM6DSL_SAD_GND, txbuf, 1,
-                             rxbuf, 2);
+  status = motion_transfer(txbuf, 1, rxbuf, 2);
+  (void)status;
   cacheBufferInvalidate(&rxbuf[0], sizeof rxbuf);
   return (float)(((int16_t*)rxbuf)[0])/256.0f + 25.0f;
 }
@@ -140,8 +155,8 @@ void lsm6dslWriteRegister(uint8_t RegisterAddr, uint8_t RegisterValue) {
   txbuf[1] = RegisterValue;
 
   cacheBufferFlush(&txbuf[0], sizeof txbuf);
-  status = i2cMasterTransmit(&I2CD_MOTION, LSM6DSL_SAD_GND, txbuf, 2,
-                             rxbuf, 0);
+  status = motion_transfer(txbuf, 2, rxbuf, 0);
+  (void)status;
 
   static uint8_t rd;
   rd = lsm6dslReadRegister(RegisterAddr);
@@ -155,7 +170,7 @@ void lsm6dslWriteRegister(uint8_t RegisterAddr, uint8_t RegisterValue) {
 /*
  * This is a periodic thread that reads accelerometer and sends messages
  */
-static THD_WORKING_AREA(waThreadAccel, 256);
+static THD_WORKING_AREA(waThreadAccel, 320); // I2C with timeouts and recovery
 static void ThreadAccel(void *arg) {
   chRegSetThreadName("motion");
 
@@ -253,8 +268,18 @@ static void ThreadAccel(void *arg) {
   lsm6dslWriteRegister(LSM6DSL_AD_CTRL3_C, LSMDSL_CTRL3_C_IF_INC | LSMDSL_CTRL3_C_SW_RESET);
 
   chThdSleepMilliseconds(1);
+  // block data update: the output registers of a sample stay until both of their bytes are read,
+  // so the 12-byte burst never combines bytes of two samples (spikes up to 256 LSB)
+  lsm6dslWriteRegister(LSM6DSL_AD_CTRL3_C, LSMDSL_CTRL3_C_IF_INC | LSMDSL_CTRL3_C_BDU);
+  // accelerometer full scale in g (2, 4, 8 or 16): sets CTRL1_XL and the scaling below
 #define ACC_FS 2
-  lsm6dslWriteRegister(LSM6DSL_AD_CTRL1_XL, LSM6DSL_ACC_ODR_208Hz | LSM6DSL_ACC_FS_2G); // TODO: setting sensitivity doesn't seem to work
+#define ACC_FS_XL (ACC_FS == 16 ? LSM6DSL_ACC_FS_16G : ACC_FS == 8 ? LSM6DSL_ACC_FS_8G : \
+                   ACC_FS == 4 ? LSM6DSL_ACC_FS_4G : LSM6DSL_ACC_FS_2G)
+  _Static_assert(ACC_FS == 2 || ACC_FS == 4 || ACC_FS == 8 || ACC_FS == 16, "ACC_FS: 2, 4, 8 or 16 g");
+  _Static_assert(((LSM6DSL_ACC_FS_4G | LSM6DSL_ACC_FS_8G | LSM6DSL_ACC_FS_16G) & ~LSMDSL_CTRL1_XL_FS_MASK) == 0 &&
+                 LSM6DSL_ACC_FS_16G == 0x04 && LSM6DSL_ACC_FS_4G == 0x08 && LSM6DSL_ACC_FS_8G == 0x0C,
+                 "the accelerometer full scale is CTRL1_XL FS_XL (bits 3:2): 2, 16, 4, 8 g");
+  lsm6dslWriteRegister(LSM6DSL_AD_CTRL1_XL, LSM6DSL_ACC_ODR_208Hz | ACC_FS_XL);
   lsm6dslWriteRegister(LSM6DSL_AD_CTRL2_G, LSM6DSL_GYRO_ODR_208Hz | LSM6DSL_GYRO_FS_500DPS);
 
 
@@ -263,7 +288,11 @@ static void ThreadAccel(void *arg) {
   int16_t motion[6];
   int stream_count = 0;
   while (TRUE) {
-    lsm6dslReadMotion(motion);
+    if (lsm6dslReadMotion(motion) != MSG_OK) {
+      // the bus was restarted (motion_transfer); no new reading this time
+      chThdSleepMilliseconds(3);
+      continue;
+    }
 
     ax = -motion[3]; gx = -motion[0];
     ay = -motion[4]; gy = -motion[1];
@@ -283,10 +312,9 @@ static void ThreadAccel(void *arg) {
       if (config.send_motion_interval != 127) {
         // 127 means only internal synth
         // acceleration in message has maximum range 8g (16g for acc_abs)
-        // TODO: make /4 dependent on ACC_FS
-        msg[2] = (ax/4)>>2;
-        msg[3] = (ay/4)>>2;
-        msg[4] = (az/4)>>2;
+        msg[2] = (ax*ACC_FS/8)>>2;
+        msg[3] = (ay*ACC_FS/8)>>2;
+        msg[4] = (az*ACC_FS/8)>>2;
         msg[5] = ((int16_t)(acc_abs * 32768.0f/8.0f))>>2;
         msg[6] = gx>>2;
         msg[7] = gy>>2;
@@ -298,9 +326,9 @@ static void ThreadAccel(void *arg) {
         // 4th reading (~60 per second) as stream-only motion data, no MIDI side effects
         stream_count = 0;
         msg[0] = ID_ACCEL_STREAM;
-        msg[2] = (ax/4)>>2;
-        msg[3] = (ay/4)>>2;
-        msg[4] = (az/4)>>2;
+        msg[2] = (ax*ACC_FS/8)>>2;
+        msg[3] = (ay*ACC_FS/8)>>2;
+        msg[4] = (az*ACC_FS/8)>>2;
         msg[5] = ((int16_t)(acc_abs * 32768.0f/8.0f))>>2;
         msg[6] = gx>>2;
         msg[7] = gy>>2;
@@ -342,24 +370,7 @@ void MotionSensorStart(void) {
   // see no daughterboard until a power cycle. With SCL high (pullups present) but SDA low, clock
   // SCL up to 9 times until the sensor releases SDA, then send a STOP condition.
   if (palReadLine(LINE_MOTION_I2C_SCL) && !palReadLine(LINE_MOTION_I2C_SDA)) {
-    palSetLine(LINE_MOTION_I2C_SCL);
-    palSetLineMode(LINE_MOTION_I2C_SCL, PAL_MODE_OUTPUT_OPENDRAIN);
-    palSetLineMode(LINE_MOTION_I2C_SDA, PAL_MODE_INPUT);
-    for (int i = 0; i < 9 && !palReadLine(LINE_MOTION_I2C_SDA); i++) {
-      palClearLine(LINE_MOTION_I2C_SCL);
-      chThdSleepMilliseconds(1);
-      palSetLine(LINE_MOTION_I2C_SCL);
-      chThdSleepMilliseconds(1);
-    }
-    // STOP: SDA low to high while SCL is high
-    palClearLine(LINE_MOTION_I2C_SCL);
-    palClearLine(LINE_MOTION_I2C_SDA);
-    palSetLineMode(LINE_MOTION_I2C_SDA, PAL_MODE_OUTPUT_OPENDRAIN);
-    chThdSleepMilliseconds(1);
-    palSetLine(LINE_MOTION_I2C_SCL);
-    chThdSleepMilliseconds(1);
-    palSetLine(LINE_MOTION_I2C_SDA);
-    chThdSleepMilliseconds(1);
+    i2c_bus_clear(LINE_MOTION_I2C_SCL, LINE_MOTION_I2C_SDA);
     palSetLineMode(LINE_MOTION_I2C_SCL, PAL_MODE_INPUT_PULLDOWN);
     palSetLineMode(LINE_MOTION_I2C_SDA, PAL_MODE_INPUT_PULLDOWN);
     chThdSleepMilliseconds(1);
@@ -372,8 +383,8 @@ void MotionSensorStart(void) {
     return;
   }
 
-  palSetLineMode(LINE_MOTION_I2C_SCL, PAL_MODE_ALTERNATE(4) | PAL_STM32_OTYPE_OPENDRAIN | PAL_STM32_OSPEED_HIGHEST);
-  palSetLineMode(LINE_MOTION_I2C_SDA, PAL_MODE_ALTERNATE(4) | PAL_STM32_OTYPE_OPENDRAIN | PAL_STM32_OSPEED_HIGHEST);
+  palSetLineMode(LINE_MOTION_I2C_SCL, MOTION_I2C_PIN_MODE);
+  palSetLineMode(LINE_MOTION_I2C_SDA, MOTION_I2C_PIN_MODE);
 
   /* I2C interface for MPU-6050 */
   i2cStart(&I2CD_MOTION, &i2ccfg_motion);

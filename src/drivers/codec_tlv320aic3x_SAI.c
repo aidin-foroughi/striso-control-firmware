@@ -21,6 +21,8 @@
 
 #include "hal_sai_lld.h"
 #include "codec_tlv320aic3x.h"
+#include "codec_aic3x_linein.h"
+#include "i2c_recover.h"
 #include "codec.h"
 #include "usb_audio.h"
 
@@ -82,26 +84,40 @@ CC_ALIGN(CACHE_LINE_SIZE) static uint8_t i2crxbuf[32];
 CC_ALIGN(CACHE_LINE_SIZE) static uint8_t i2ctxbuf[32];
 
 #define I2CD_CODEC      I2CD2
+#define CODEC_I2C_PIN_MODE (PAL_MODE_ALTERNATE(4) | PAL_STM32_OTYPE_OPENDRAIN)
 
+// I2C failures since boot (timeouts, bus errors, no acknowledge); each one restarted the bus
+volatile uint32_t codec_i2c_errors;
+
+static msg_t codec_transfer(size_t ntx, size_t nrx) {
+  msg_t status = i2cMasterTransmitTimeout(&I2CD_CODEC, AIC3X_I2C_ADDR, i2ctxbuf, ntx, i2crxbuf, nrx,
+                                          I2C_TRANSFER_TIMEOUT);
+  if (status != MSG_OK) {
+    codec_i2c_errors++;
+    i2c_recover(&I2CD_CODEC, &i2ccfg, LINE_I2C2_SCL, LINE_I2C2_SDA, CODEC_I2C_PIN_MODE);
+  }
+  return status;
+}
 
 uint8_t aic3xReadRegister(uint8_t RegisterAddr) {
   msg_t status;
   i2ctxbuf[0] = RegisterAddr;
   cacheBufferFlush(&i2ctxbuf[0], sizeof i2ctxbuf);
-  status = i2cMasterTransmit(&I2CD_CODEC, AIC3X_I2C_ADDR, i2ctxbuf, 1,
-                             i2crxbuf, 1);
+  status = codec_transfer(1, 1);
   cacheBufferInvalidate(&i2crxbuf[0], sizeof i2crxbuf);
-  return (i2crxbuf[0]);
+  return status == MSG_OK ? i2crxbuf[0] : 0;
 }
 
-void aic3xWriteRegister(uint8_t RegisterAddr, uint8_t RegisterValue) {
-  msg_t status;
+static msg_t aic3x_write(uint8_t RegisterAddr, uint8_t RegisterValue) {
   i2ctxbuf[0] = RegisterAddr;
   i2ctxbuf[1] = RegisterValue;
 
   cacheBufferFlush(&i2ctxbuf[0], sizeof i2ctxbuf);
-  status = i2cMasterTransmit(&I2CD_CODEC, AIC3X_I2C_ADDR, i2ctxbuf, 2,
-                             i2crxbuf, 0);
+  return codec_transfer(2, 0);
+}
+
+void aic3xWriteRegister(uint8_t RegisterAddr, uint8_t RegisterValue) {
+  (void)aic3x_write(RegisterAddr, RegisterValue);
 
   static uint8_t rd;
   rd = aic3xReadRegister(RegisterAddr);
@@ -113,15 +129,17 @@ void aic3xWriteRegister(uint8_t RegisterAddr, uint8_t RegisterValue) {
 
 void codec_aic3x_init(uint16_t samplerate) {
 
-  palSetLineMode(LINE_I2C2_SDA, PAL_MODE_ALTERNATE(4) | PAL_STM32_OTYPE_OPENDRAIN);
-  palSetLineMode(LINE_I2C2_SCL, PAL_MODE_ALTERNATE(4) | PAL_STM32_OTYPE_OPENDRAIN);
+  palSetLineMode(LINE_I2C2_SDA, CODEC_I2C_PIN_MODE);
+  palSetLineMode(LINE_I2C2_SCL, CODEC_I2C_PIN_MODE);
   i2cStart(&I2CD_CODEC, &i2ccfg);
 
   palSetLine(LINE_CODEC_EN);
   chThdSleepMilliseconds(1);
 
-  // Reset
-  aic3xWriteRegister(AIC3X_RESET, 0x01);
+  // Software reset: page 0 register 1 D7 (self-clearing; D6-D0 reserved, write zeros). The
+  // register is write only: no read-back.
+  (void)aic3x_write(AIC3X_RESET, SOFT_RESET);
+  chThdSleepMilliseconds(1);
   // Set Audio data word length = 32 bits
   aic3xWriteRegister(AIC3X_ASD_INTF_CTRLB, 0b00110000);
   // Route Line1LP to the Left ADC, Power up Left ADC
@@ -169,9 +187,23 @@ void codec_aic3x_init(uint16_t samplerate) {
   palSetLine(LINE_HP_EN);
 }
 
+// SAI TX DMA transfer errors since boot (each one restarted the stream); read with the debugger
+volatile uint32_t codec_dma_errors;
+
 static void dma_sai_a_interrupt(void* dat, uint32_t flags) {
   (void)dat;
-  (void)flags;
+
+  if (flags & STM32_DMA_ISR_TEIF) {
+    // A transfer error: the hardware has disabled the stream, so audio would stop for good.
+    // Count it and restart the stream from the first buffer; this block is not computed.
+    codec_dma_errors++;
+    sai_a_dma->stream->CR &= ~STM32_DMA_CR_CT;
+    dmaStreamSetMemory0(sai_a_dma, buf);
+    dmaStreamSetMemory1(sai_a_dma, buf2);
+    dmaStreamSetTransactionSize(sai_a_dma, PLAYBACK_BUFFER_SIZE);
+    dmaStreamEnable(sai_a_dma);
+    return;
+  }
 
   //codec_interrupt_timestamp = hal_lld_get_counter_value();
   usb_audio_codec_tickI(); // USB audio diagnostics: the synth's commit delay and lost blocks
@@ -233,15 +265,17 @@ void codec_i2s_init(uint16_t sampleRate) {
       | STM32_DMA_CR_PL(STM32_SAI_A_DMA_PRIORITY) | STM32_DMA_CR_DIR_M2P
       | STM32_DMA_CR_TEIE | STM32_DMA_CR_TCIE | STM32_DMA_CR_DBM | // double buffer mode
       STM32_DMA_CR_PSIZE_WORD | STM32_DMA_CR_MSIZE_WORD;
+  // RX: no interrupts (the stream has no handler; the TX interrupt picks the RX buffer)
   uint32_t sai_b_dma_mode = STM32_DMA_CR_CHSEL(SAI_B_DMA_CHANNEL)
       | STM32_DMA_CR_PL(STM32_SAI_B_DMA_PRIORITY) | STM32_DMA_CR_DIR_P2M
-      | STM32_DMA_CR_TEIE | STM32_DMA_CR_TCIE | STM32_DMA_CR_DBM | // double buffer mode
+      | STM32_DMA_CR_DBM | // double buffer mode
       STM32_DMA_CR_PSIZE_WORD | STM32_DMA_CR_MSIZE_WORD;
 
   sai_a_dma = dmaStreamAlloc(STM32_SAI_A_DMA_STREAM,
                              STM32_SAI_A_IRQ_PRIORITY,
                              (stm32_dmaisr_t)dma_sai_a_interrupt,
                              (void *)0);
+  if (sai_a_dma == NULL) chSysHalt("SAI TX DMA stream allocation");
   dmaSetRequestSource(sai_a_dma, STM32_DMAMUX1_SAI1_A);
   dmaStreamSetPeripheral(sai_a_dma, &(sai_a->DR));
   dmaStreamSetMemory0(sai_a_dma, buf);
@@ -253,6 +287,7 @@ void codec_i2s_init(uint16_t sampleRate) {
                              STM32_SAI_B_IRQ_PRIORITY,
                              (stm32_dmaisr_t)0,
                              (void *)0);
+  if (sai_b_dma == NULL) chSysHalt("SAI RX DMA stream allocation");
   dmaSetRequestSource(sai_b_dma, STM32_DMAMUX1_SAI1_B);
 
   dmaStreamSetPeripheral(sai_b_dma, &(sai_b->DR));
@@ -293,24 +328,13 @@ void codec_start(void) {
 void codec_stop(void) {
 }
 
+// LINE2 through the ADC PGA to the line outs (codec_aic3x_linein.h)
 void codec_linein_enable(void) {
-  // Route Line2L to the Left ADC
-  aic3xWriteRegister(LINE2L_2_LADC_CTRL, 0b00001111);
-  // Route Line2R to the Right ADC
-  aic3xWriteRegister(LINE2R_2_RADC_CTRL, 0b11110000);
-  // Route Left input to Left line outs
-  aic3xWriteRegister(PGAL_2_LLOPM_VOL, 0x80);
-  // Route Right input to Right line outs
-  aic3xWriteRegister(PGAR_2_RLOPM_VOL, 0x80);
+  for (unsigned i = 0; i < sizeof aic3x_linein_on / sizeof aic3x_linein_on[0]; i++)
+    aic3xWriteRegister(aic3x_linein_on[i][0], aic3x_linein_on[i][1]);
 }
 
 void codec_linein_disable(void) {
-  // Route Line2L to the Left ADC
-  aic3xWriteRegister(LINE2L_2_LADC_CTRL, 0b11111111);
-  // Route Line2R to the Right ADC
-  aic3xWriteRegister(LINE2R_2_RADC_CTRL, 0b11111111);
-  // Route Left input to Left line outs
-  aic3xWriteRegister(PGAL_2_LLOPM_VOL, 0x00);
-  // Route Right input to Right line outs
-  aic3xWriteRegister(PGAR_2_RLOPM_VOL, 0x00);
+  for (unsigned i = 0; i < sizeof aic3x_linein_off / sizeof aic3x_linein_off[0]; i++)
+    aic3xWriteRegister(aic3x_linein_off[i][0], aic3x_linein_off[i][1]);
 }

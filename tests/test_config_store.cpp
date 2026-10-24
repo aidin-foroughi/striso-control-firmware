@@ -23,15 +23,23 @@ namespace {
 
 std::string field(const char* s) { return std::string(s, 8); }
 
-// the board's config flash page, mapped once at its address (0x08020000), erased (0xFF: no user
-// settings); nullptr if the address isn't available on this host
+constexpr size_t kSector = 128 * 1024; // the config sector, 0x08020000-0x0803FFFF
+
+// the board's config flash sector, mapped once at its address (0x08020000), erased (0xFF: no user
+// settings), and after it the firmware's .fwinfo text as on the board (0x08040000); nullptr if the
+// address isn't available on this host
 char* flash_page() {
 	static char* page = [] {
 		void* want = reinterpret_cast<void*>(flash_config);
-		void* p = mmap(want, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+		void* p = mmap(want, kSector + 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE,
+		    -1, 0);
 		if (p == MAP_FAILED || p != want) return static_cast<char*>(nullptr);
-		std::memset(p, 0xff, 4096);
-		return static_cast<char*>(p);
+		auto* c = static_cast<char*>(p);
+		std::memset(c, 0xff, kSector);
+		std::memset(c + kSector, 0, 4096);
+		static const char fw[] = "Firmware version: striso_control_2026-10-24_v2.2.4_all\r\n";
+		std::memcpy(c + kSector, fw, sizeof fw - 1);
+		return c;
 	}();
 	return page;
 }
@@ -96,4 +104,72 @@ TEST_CASE("lookup: the flash settings override the defaults, unknown keys are an
 	CHECK(getConfigSetting(default_config[2].key) == default_config[2].value);
 	std::memset(flash, 0xff, 4096); // erased again: the defaults apply
 	CHECK(getConfigSetting(d.key) == d.value);
+}
+
+TEST_CASE("value parsing is strict: a number, then only spaces (R12)") {
+	// no digits
+	CHECK(atoi8("-       ") == CONFIG_UNDEFINED);
+	CHECK(atoi8("+       ") == CONFIG_UNDEFINED);
+	CHECK(atof8("-       ") == CONFIG_UNDEFINED);
+	CHECK(atof8("+       ") == CONFIG_UNDEFINED);
+	CHECK(atof8(".       ") == CONFIG_UNDEFINED);
+	CHECK(atof8("-.      ") == CONFIG_UNDEFINED);
+	// trailing garbage
+	CHECK(atoi8("1-2     ") == CONFIG_UNDEFINED);
+	CHECK(atoi8("1.2.3   ") == CONFIG_UNDEFINED);
+	CHECK(atoi8("-.5     ") == CONFIG_UNDEFINED);
+	CHECK(atof8("1-2     ") == CONFIG_UNDEFINED);
+	CHECK(atof8("1.2.3   ") == CONFIG_UNDEFINED);
+	CHECK(atof8("1e5     ") == CONFIG_UNDEFINED);
+	CHECK(atof8("5 0     ") == CONFIG_UNDEFINED);
+	// well formed: unchanged
+	CHECK(atof8("-.5     ") == doctest::Approx(-0.5f));
+	CHECK(atof8("1.      ") == doctest::Approx(1.0f));
+	CHECK(atof8("696.7742") == doctest::Approx(696.7742f));
+	CHECK(atoi8("-0      ") == 0);
+	CHECK(atoi8("7\0\0\0\0\0\0\0") == 7);
+	// every default value parses as its key's type (i, f, h) or is blank
+	for (size_t n = 1; n < 4096 && field(default_config[n].key) != "MCfgEnd "; n++) {
+		const ConfigParam& c = default_config[n];
+		CAPTURE(field(c.key));
+		CAPTURE(field(c.value));
+		const bool blank = field(c.value) == "        ";
+		if (c.key[0] == 'i') CHECK((blank || atoi8(c.value) != CONFIG_UNDEFINED));
+		if (c.key[0] == 'f') CHECK((blank || atof8(c.value) != CONFIG_UNDEFINED));
+	}
+}
+
+TEST_CASE("atox8: 8 hex digits, no signed overflow (R11)") {
+	CHECK(atox8("FFFFFFFF") == 0xffffffffu);
+	CHECK(atox8("80000000") == 0x80000000u);
+	CHECK(atox8("99999999") == 0x99999999u);
+	CHECK(atox8("#FFFFFFF") == 0x0fffffffu);
+}
+
+TEST_CASE("lookup stays in the config sector and needs the MConfig v1.0 header (R13)") {
+	char* flash = flash_page();
+	REQUIRE_MESSAGE(flash != nullptr, "0x08020000 is not mappable on this host");
+	const ConfigParam& d = default_config[1];
+	// a whole sector of printable records without the end marker: the scan must not run into .fwinfo
+	std::memcpy(flash, "MConfig v1.0    ", 16);
+	for (size_t o = 16; o < kSector; o += 16) std::memcpy(flash + o, "xPadding........", 16);
+	const char* v = getConfigSetting("Firmware");
+	CHECK(std::string(v) == "(ERROR!)");
+	CHECK(getConfigSetting(d.key) == d.value);
+	// a page that doesn't start with the header (garbage, or a partial write) is not used
+	std::memset(flash, 0xff, kSector);
+	std::memcpy(flash, "xGarbage", 8);
+	std::memcpy(flash + 8, "        ", 8);
+	std::memcpy(flash + 16, d.key, 8);
+	std::memcpy(flash + 24, "override", 8);
+	std::memcpy(flash + 32, "MCfgEnd         ", 16);
+	CHECK(getConfigSetting(d.key) == d.value);
+	// with the header it is
+	std::memcpy(flash, "MConfig v1.0    ", 16);
+	CHECK(field(getConfigSetting(d.key)) == "override");
+	// a power loss while the page was programmed: the header and one record, then erased
+	std::memset(flash + 32, 0xff, 16);
+	CHECK(field(getConfigSetting(d.key)) == "override");
+	CHECK(getConfigSetting(default_config[2].key) == default_config[2].value);
+	std::memset(flash, 0xff, kSector);
 }

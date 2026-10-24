@@ -128,7 +128,7 @@ cmake --preset firmware -DSTRISO_VOICE=all && cmake --build --preset firmware
 make VOICE=all                    # the same, through the thin Makefile wrapper (also prog_*, gdb)
 ```
 
-CMake options: `STRISO_VOICE` (strisy, all, or a name), `STRISO_SYNTH_ENGINE` (strisy, faust), `STRISO_SYNTH_OPT`/`STRISO_SYNTH_LTO` (flags of the synth DSP file), `STRISO_FAUST_REGENERATE`, `STRISO_USB_AUDIO_PRE_VOLUME`, `STRISO_USB_AUDIO_UAC1` (USB Audio Class 1.0 instead of 2.0), `STRISO_KERNEL_STATS` (ChibiOS lock-section statistics for `StcU`, on by default), `STRISO_LISTING`. Every build exports `compile_commands.json` for clangd and IDEs.
+CMake options: `STRISO_VOICE` (strisy, all, or a name), `STRISO_SYNTH_ENGINE` (strisy, faust), `STRISO_SYNTH_OPT`/`STRISO_SYNTH_LTO` (flags of the synth DSP file), `STRISO_FAUST_REGENERATE`, `STRISO_USB_AUDIO_PRE_VOLUME`, `STRISO_KERNEL_STATS` (ChibiOS lock-section statistics for `StcU`, on by default), `STRISO_LISTING`. Every build exports `compile_commands.json` for clangd and IDEs.
 
 ### Tests
 
@@ -174,7 +174,7 @@ In a checkout from before this layout, `git submodule update --init` puts the su
 - `tools/build.sh`, `tools/test.sh`, `tools/update_goldens.sh`, `tools/format.sh`, `tools/tidy.sh`: run in Docker (see Building).
 - `tools/record_keys.py`: records the key stream from the board to CSV.
 - `tools/review_voice.sh`: builds and checks a voice engine before it may be flashed.
-- `tools/usbaudio/`: USB audio descriptor checks (UAC2 and UAC1), a simulation of the audio buffer and clock-rate matching (servo, latency per ring target), and a test-tone analyzer. On the board: `striso.py cmd U` prints the stream statistics, `cmd u` toggles a test tone, `cmd t096` sets the ring target (see [doc/usb_audio.md](doc/usb_audio.md)).
+- `tools/usbaudio/`: USB audio descriptor checks (UAC2), a simulation of the audio buffer and clock-rate matching (servo, latency per ring target), and a test-tone analyzer. On the board: `striso.py cmd U` prints the stream statistics, `cmd u` toggles a test tone, `cmd t096` sets the ring target (see [doc/usb_audio.md](doc/usb_audio.md)).
 
 ## Credits and licence
 
