@@ -103,10 +103,13 @@ void ks_reset_calibration(scan_cal_t cal[SCAN_BUTTONS], int32_t base_calib_force
 void ks_init(void);                                  // the KeyScanner's initial state; ks_cal from it
 void ks_calibration_changed(void);                   // after writing ks_cal
 void ks_set_zero_offset(int b, int32_t zero_offset); // before the scanner thread starts
-// the scanner thread: the zero level pass of the first scans, then the normal processing. The
-// thread passes the interrupt's frame; column col of it must be complete.
-void ks_boot_column(const ScanFrame* f, int col);
-void ks_column(const ScanFrame* f, int col);
+// the scanner thread: it copies the interrupt's columns into ks_work() (key_scanner_link.h), then
+// the zero level pass of the first scans, then the normal processing, column by column; ks_lost:
+// the interrupt overwrote a column before the thread took it
+ScanFrame* ks_work(void);
+void ks_boot_column(int col);
+void ks_column(int col);
+void ks_lost(void);
 // a button's state for the console (StcZ)
 void ks_key_state(int b, int* status, int32_t* c_force, int32_t* zero_offset, int32_t* pres);
 

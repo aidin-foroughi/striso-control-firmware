@@ -76,7 +76,7 @@ target_compile_options(striso_dsp_headers PRIVATE -Wno-unused-function -Wno-unus
 # --- the key scanner (src/drivers/key_scanner*.hpp) ----------------------------------------------
 # scanner.*: the KeyScanner against the original key processing (tests/ref, compiled with -fwrapv:
 # the board's int32 products wrap), the raw recording format and its replay
-add_executable(test_key_scanner main.cpp test_key_scanner.cpp ref/button_read_ref.c)
+add_executable(test_key_scanner main.cpp test_key_scanner.cpp test_scan_link.cpp ref/button_read_ref.c)
 target_include_directories(test_key_scanner PRIVATE
   "${PROJECT_SOURCE_DIR}/third_party/doctest"
   "${PROJECT_SOURCE_DIR}/src/drivers"

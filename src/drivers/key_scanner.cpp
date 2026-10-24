@@ -83,14 +83,6 @@ struct MsgSink {
 };
 MsgSink sink;
 
-void copy_column(const ScanFrame& f, int col) {
-	for (int n = 0; n < ks::kRows; n++) {
-		const int b = col + n * ks::kColumns;
-		work.on[b] = f.on[b];
-		work.m[b] = f.m[b];
-	}
-}
-
 // once per scan, before column 0: the configuration and calibration, and the recording
 void frame_start(const ScanFrame& f) {
 	const ks::Config cfg{config.zero_offset, config.message_interval};
@@ -106,8 +98,7 @@ void frame_start(const ScanFrame& f) {
 			scanner.keys[b].c_force2 = ks_cal[b].c_force2;
 		}
 	}
-	work.seq = f.seq;
-	work.t_start = f.t_start;
+	(void)f;
 
 	if (cap_state == Cap::armed) {
 		cap_head = ks::CaptureHeader{};
@@ -212,15 +203,24 @@ void ks_calibration_changed(void) { cal_gen = cal_gen + 1; }
 
 void ks_set_zero_offset(int b, int32_t zero_offset) { scanner.keys[b].zero_offset = zero_offset; }
 
-void ks_boot_column(const ScanFrame* f, int col) {
-	if (col == 0) frame_start(*f);
-	copy_column(*f, col);
+ScanFrame* ks_work(void) { return &work; }
+
+void ks_boot_column(int col) {
+	if (col == 0) frame_start(work);
 	scanner.boot_column(work, col);
 }
 
-void ks_column(const ScanFrame* f, int col) {
-	if (col == 0) frame_start(*f);
-	copy_column(*f, col);
+void ks_lost(void) {
+	// the scan in progress is cut short: a recording can't replay past it
+	if (cap_state == Cap::running) {
+		cap_head.flags |= 2;
+		cap_state = Cap::done;
+	}
+}
+
+void ks_column(int col) {
+	const ScanFrame* f = &work;
+	if (col == 0) frame_start(work);
 	if (cap_state == Cap::running) {
 		rec.column(work, col);
 		// the noise floor of every key: on always, p when the interrupt measured the column
