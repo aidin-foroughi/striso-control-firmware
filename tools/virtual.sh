@@ -41,7 +41,8 @@ esac
 
 q() { [ $# -eq 0 ] || printf '"%s" ' "$@"; }
 if [ "$what" = build ] || [ "$what" = all ]; then
-  in_env "cmake --preset host-virtual" > /dev/null
+  log="$(mktemp)"
+  in_env "cmake --preset host-virtual" > "$log" 2>&1 || { cat "$log"; exit 1; }
   in_env "cmake --build --preset host-virtual"
 fi
 if [ "$what" = test ] || [ "$what" = all ]; then
