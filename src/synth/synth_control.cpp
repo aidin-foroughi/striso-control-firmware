@@ -193,6 +193,12 @@ class MidiParam {
 
 class MotionSensor {
     public:
+        // when each value of CC 16, 17, 18 was last sent (+1; 0: never), to spot an echo (SC-16)
+        systime_t sent_at[3][128] = {};
+        bool sent_recently(int n, int value) const {
+            systime_t t = sent_at[n][value & 0x7f];
+            return t != 0 && (systime_t)(chVTGetSystemTime() - (t - 1)) < TIME_MS2I(500);
+        }
         int send_motion_time = 0;
         int last_acc_x = INT32_MAX;
         int last_acc_y = INT32_MAX;
@@ -265,16 +271,19 @@ class MotionSensor {
                     if (acc_x != last_acc_x) {
                         MidiSend3(MIDI_CONTROL_CHANGE,
                                            16, acc_x);
+                        sent_at[0][acc_x] = chVTGetSystemTime() + 1;
                         last_acc_x = acc_x;
                     }
                     if (acc_y != last_acc_y) {
                         MidiSend3(MIDI_CONTROL_CHANGE,
                                            17, acc_y);
+                        sent_at[1][acc_y] = chVTGetSystemTime() + 1;
                         last_acc_y = acc_y;
                     }
                     if (acc_z != last_acc_z) {
                         MidiSend3(MIDI_CONTROL_CHANGE,
                                            18, acc_z);
+                        sent_at[2][acc_z] = chVTGetSystemTime() + 1;
                         last_acc_z = acc_z;
                     }
                     if (acc_abs != last_acc_abs) {
@@ -371,6 +380,7 @@ class Instrument {
         int cur_tuning = 0;
         float tuning_note_offset = 0;
         float note_offset = 0;
+        float midi_in_bend = 0;  // the part of note_offset from MIDI in pitch bend (SC-15)
         float start_note_offset = 62;
         float min_note_offset = 32;
         float max_note_offset = 92;
@@ -601,7 +611,8 @@ class Instrument {
                 notegen0 = 12.0f;
                 set_notegen1(7.0f);
                 reset_note_offsets();
-                note_offset = tuning_note_offset = 0.0f;
+                tuning_note_offset = 0.0f;
+                note_offset = tuning_note_offset + midi_in_bend;
                 led_rgb(tuning_color);
                 cur_tuning = n;
                 return;
@@ -619,7 +630,8 @@ class Instrument {
             strset(key, 3, "off  ");
             f = getConfigFloat(key);
             if (f == CONFIG_UNDEFINED) f = 0.0f;
-            note_offset = tuning_note_offset = f / 100;
+            tuning_note_offset = f / 100;
+            note_offset = tuning_note_offset + midi_in_bend;
             for (int n = 0; n < 61; n++) {
                 put_button_name(n, &key[3]);
                 // the key that plays note n: on a flipped layout, the mirrored one (SC-12)
@@ -1633,7 +1645,7 @@ void load_preset(int n) {
     if (has_tuning || has_toff) {
         // the tuning's offset plus the preset's: a preset with a tuning and no Toff also clears an
         // earlier preset's Toff and the fine tune (load_tuning keeps them for the same tuning, SC-04)
-        dis.note_offset = dis.tuning_note_offset + (has_toff ? f / 100.0f : 0.0f);
+        dis.note_offset = dis.tuning_note_offset + (has_toff ? f / 100.0f : 0.0f) + dis.midi_in_bend;
     }
 
     key[0] = 'i';
@@ -2392,6 +2404,30 @@ float config_but(int but, int type, float adjust) {
 }
 #endif // !OLD_CONFIG_LAYOUT
 
+/*
+ * MIDI in's configuration CCs overlap what the Striso sends, so a DAW's MIDI thru or a loop through
+ * an interface that echoes the Striso's own output back reconfigured it (the tilt value became
+ * the Y axis CC number, the motion CCs the message interval and the transposition, SC-16). An
+ * echo is recognised by the pattern of that output, and ignored:
+ * - on the channels of the notes: their pitch bend and their pressure, x, y and continuous
+ *   velocity CCs;
+ * - on channel 1: a motion CC (16, 17, 18) with a value sent in the last 0.5 s.
+ */
+static bool note_channel(int channel) {
+    if (config.midi_mode == MIDI_MODE_MPE) {
+        return channel >= dis.midi_channel_offset && channel < dis.midi_channel_offset + dis.voicecount;
+    }
+    return channel == dis.midi_channel_offset;
+}
+
+static bool note_cc(int cc) {
+    if (config.midi_mode == MIDI_MODE_POLY) {
+        return cc == config.midi_pres || cc == config.midi_x || cc == config.midi_y;
+    }
+    return cc == config.mpe_pres || cc == config.mpe_x || cc == config.mpe_y
+           || (config.mpe_contvelo < 120 && (cc == 72 || cc == 73));
+}
+
 void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
                       uint8_t data1, uint8_t data2) {
     (void) dev;
@@ -2418,6 +2454,14 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
         msg[3] = data1;
         msg[4] = data2;
         msgSend(5, msg);
+    }
+
+    if (status == MIDI_CONTROL_CHANGE && data1 < 120 && note_channel(channel) && note_cc(data1)) {
+        return;  // the Striso's own note data, echoed
+    }
+    if (status == MIDI_CONTROL_CHANGE && channel == 0 && data1 >= 16 && data1 <= 18
+        && motion.sent_recently(data1 - 16, data2)) {
+        return;  // its own motion CC, echoed
     }
 
     if (status == MIDI_CONTROL_CHANGE) {
@@ -2525,7 +2569,14 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
             default: break;
         }
     } else if (status == MIDI_PITCH_BEND) {
-        dis.note_offset = (float)((int)((data2<<7)+data1)-0x2000) * (2.0/8192);
+        // a bend of the whole instrument (+-2 semitones), on top of the tuning's offset, the
+        // preset's and the fine tune (it replaced them all, SC-15); not on the channels the
+        // Striso sends its notes' bends on (an echo, SC-16)
+        if (!note_channel(channel)) {
+            float bend = (float)((int)((data2<<7)+data1)-0x2000) * (2.0f/8192);
+            dis.note_offset += bend - dis.midi_in_bend;
+            dis.midi_in_bend = bend;
+        }
     }
 }
 
