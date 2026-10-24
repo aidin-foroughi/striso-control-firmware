@@ -130,6 +130,17 @@ else()
   message(WARNING "ChibiOS not found (git submodule update --init): test usb_obq_discard skipped")
 endif()
 
+# aux_jack: src/drivers/aux_jack.c's detection state machine against an electrical model of the
+# jack (D3: a TS switch pedal is detected in autodetect); tests/aux_jack/stubs stand in for the HAL
+add_executable(test_aux_jack aux_jack/test_aux_jack.c)
+target_include_directories(test_aux_jack PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/aux_jack/stubs"
+  "${PROJECT_SOURCE_DIR}/src/drivers")
+target_link_libraries(test_aux_jack PRIVATE striso_host_options)
+target_compile_options(test_aux_jack PRIVATE -O1 -Wno-unused-parameter -Wno-unused-variable)
+add_test(NAME aux_jack COMMAND test_aux_jack)
+set_tests_properties(aux_jack PROPERTIES LABELS unit)
+
 # --- tools/striso.py: UF2 and config records ----------------------------------------------------------
 add_test(NAME striso_py COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_striso_py.py")
 set_tests_properties(striso_py PROPERTIES LABELS unit)

@@ -217,7 +217,8 @@ static THD_FUNCTION(AuxJack, arg) {
           // Tests: 5200 with axoloti, 5100 with Casio keyboard (out of 8192)
           aux_jack_switch_mode(JACK2_MODE_MIDI);
         }
-        short_circuit_count = 0;
+        // count consecutive passes with the ring shorted (above): reset only when it isn't
+        if (aux_adc_samples[1] >= 6000) short_circuit_count = 0;
       } break;
       case JACK2_MODE_MIDI: {
         // jack_detect high, tx alternate, rx input_analog, aux_power on
@@ -385,6 +386,7 @@ void aux_jack_switch_mode(jack2_mode_t mode) {
   }
   aux_power_disable();
   palSetLine(LINE_AUX_JACK_DETECT);
+  short_circuit_count = 0; // a count from the previous mode must not decide in the new one
 
   switch (config.jack2_mode) {
   case (JACK2_MODE_MIDI): {
