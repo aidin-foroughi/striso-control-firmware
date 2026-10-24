@@ -16,7 +16,6 @@
 //   --expect HASH     fail unless the render's hash (FNV-1a 64 of the float bits) is HASH
 //   --golden-name N   with the environment variable STRISO_GOLDEN_OUT=<dir>: write the hash to
 //                     <dir>/N.hash instead of comparing it (tools/update_goldens.sh)
-//   --param NAME=V    set a live parameter (strisy::EngineParams) after the preset, as the console does
 // Prints "<voices>, <seconds>, host compute, peak" (as before) and "hash <hex>".
 #include <algorithm>
 #include <chrono>
@@ -68,7 +67,6 @@ int main(int argc, char** argv) {
 	const char* expect = nullptr;
 	const char* golden_name = nullptr;
 	bool use_fx = false, check = false;
-	std::vector<std::string> params;
 	double max_peak = 8.0, silent_after = -1;
 	for (int a = 1; a < argc; a++) {
 		const std::string s = argv[a];
@@ -89,7 +87,6 @@ int main(int argc, char** argv) {
 		else if (s == "--silent-after") silent_after = std::atof(next());
 		else if (s == "--expect") expect = next();
 		else if (s == "--golden-name") golden_name = next();
-		else if (s == "--param") params.emplace_back(next());
 		else if (s.size() > 1 && s[0] == '-' && s[1] == '-') {
 			std::fprintf(stderr, "unknown option %s\n", s.c_str());
 			return 2;
@@ -122,19 +119,6 @@ int main(int argc, char** argv) {
 	if (!set_preset_checked(e, preset)) {
 		std::fprintf(stderr, "no preset %d for this engine\n", preset);
 		return 2;
-	}
-	for (const std::string& pv : params) {
-		using EP = strisy::EngineParams<eng::Engine>;
-		const size_t eq = pv.find('=');
-		int found = -1;
-		for (int i = 0; i < EP::count && eq != std::string::npos; i++)
-			if (pv.compare(0, eq, EP::desc(i)->name) == 0 && std::strlen(EP::desc(i)->name) == eq) found = i;
-		if (found < 0) {
-			std::fprintf(stderr, "no parameter %s\n", pv.c_str());
-			return 2;
-		}
-		*EP::ptr(e, found) = static_cast<float>(std::atof(pv.c_str() + eq + 1));
-		EP::changed(e, found);
 	}
 	static fx::Engine fxe;
 	if (use_fx) fx::init(fxe, SAMPLERATE);

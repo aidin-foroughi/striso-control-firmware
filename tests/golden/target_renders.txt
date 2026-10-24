@@ -43,9 +43,6 @@ target.sine.default c16faaa4ee336b6f
 target.strisy.default 5869927f9a7ca428
 target.trumpet.p0.default b62230c2d990a624
 target.trumpet.p1.default b795ba00348eabd8
-target.trumpet.p10.default 77aea2b354102292
-target.trumpet.p11.default cb8475741ab3e1ce
-target.trumpet.p12.default af9ac54adcb27a86
 target.trumpet.p2.default 0fdb268225d7f0be
 target.trumpet.p3.default 83d9d71b6123132f
 target.trumpet.p4.default 31cbf9d3d3ab3b26
@@ -53,7 +50,6 @@ target.trumpet.p5.default 1153a7b755fbe8f4
 target.trumpet.p6.default d8a6ad04b56ba1c5
 target.trumpet.p7.default 3d0377fa6383df8f
 target.trumpet.p8.default 1a28d3d3d7402436
-target.trumpet.p9.default ba2d2e11a83a561b
 target.va.p0.default 8a5f6414ee5ea5da
 target.va.p1.default 89b1d7950dbb372d
 target.va.p2.default 62a2e55a3beaf673
