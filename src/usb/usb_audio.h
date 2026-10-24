@@ -3,10 +3,9 @@
  * sound card input, 48 kHz stereo, 24 bit (alt setting 1) or 16 bit (alt 2). The codec jack keeps
  * playing; USB gets the same samples (see usb_audio_core.h).
  *
- * USB Audio Class 2.0 by default (USB_AUDIO_UAC2, CMake STRISO_USB_AUDIO_UAC1=ON for 1.0): on
- * Windows 10 1703+ UAC2 loads usbaudio2.sys (WaveRT, the low latency path) instead of the legacy
- * usbaudio.sys, which buffers far more; macOS (AppleUSBAudio) and Linux (snd-usb-audio) support
- * both equally. doc/usb_audio.md has the descriptors and the reasoning.
+ * USB Audio Class 2.0: on Windows 10 1703+ it loads usbaudio2.sys (WaveRT, the low latency path);
+ * macOS (AppleUSBAudio) and Linux (snd-usb-audio) have class drivers. doc/usb_audio.md has the
+ * descriptors and the reasoning.
  *
  * USB function layout (usbcfg.c): interfaces 0 (AudioControl) + 1 (MIDIStreaming) are the MIDI
  * function, 2 is the vendor bulk interface (WinUSB), 3 (AudioControl) + 4 (AudioStreaming) are
@@ -17,10 +16,6 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-
-#ifndef USB_AUDIO_UAC2 // CMake: -DSTRISO_USB_AUDIO_UAC1=ON gives 0
-#define USB_AUDIO_UAC2 1
-#endif
 
 #define UA_AC_INTERFACE 3
 #define UA_AS_INTERFACE 4

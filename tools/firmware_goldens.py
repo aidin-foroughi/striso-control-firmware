@@ -1,7 +1,7 @@
 """Byte goldens of the firmware image: the USB descriptors and the default configuration.
 
-  firmware_goldens.py --elf build/firmware/striso_control.elf --variant uac2            compare
-  firmware_goldens.py --elf build/firmware/striso_control.elf --variant uac2 --update   rewrite
+  firmware_goldens.py --elf build/firmware/striso_control.elf            compare
+  firmware_goldens.py --elf build/firmware/striso_control.elf --update   rewrite
 
 Compares, byte for byte, what the host sees and what the config editor and the config store
 start from, as the ELF has them (no board needed), with tests/golden/firmware_bytes.txt:
@@ -10,9 +10,7 @@ start from, as the ELF has them (no board needed), with tests/golden/firmware_by
 - the Microsoft OS descriptors: the 0xEE string (MSFT100), the extended compat ID and the two
   extended properties descriptors (WinUSB on interface 2, the console's device interface GUID),
 - default_config (config.h): every key and default value of the configuration.
-The descriptors depend on the USB audio class (STRISO_USB_AUDIO_UAC1): --variant uac1 or uac2
-keeps one set per class. ctest --preset firmware runs it (test firmware_bytes). An intended change
-is rewritten with --update (say in the commit message what changed and why).
+ctest --preset firmware runs it (test firmware_bytes). An intended change is rewritten with --update (say in the commit message what changed and why).
 Exit code 1 on a difference or a missing symbol.
 """
 import argparse
@@ -59,7 +57,6 @@ def write_golden(path, entries, header):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--elf", required=True)
-    ap.add_argument("--variant", required=True, choices=["uac1", "uac2"])
     ap.add_argument("--golden", default=str(Path(__file__).resolve().parent.parent / "tests/golden/firmware_bytes.txt"))
     ap.add_argument("--update", action="store_true")
     a = ap.parse_args()
@@ -70,7 +67,7 @@ def main():
         print("missing symbols in the ELF:", ", ".join(missing))
         return 1
     for s in USB:
-        have[f"usb.{a.variant}.{s}"] = syms[s]
+        have[f"usb.{s}"] = syms[s]
     for s in CONFIG:
         have[f"config.{s}"] = syms[s]
 

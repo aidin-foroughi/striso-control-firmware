@@ -278,7 +278,6 @@ static void ua_set_alt(uint8_t alt) {
   osalSysUnlockFromISR();
 }
 
-#if USB_AUDIO_UAC2
 // UAC2 clock source (UA2_CLOCK_ID), one fixed 48 kHz frequency (ADC-2 5.2.5.1)
 static const uint8_t ua2_freq_cur[4] = {0x80, 0xBB, 0x00, 0x00};
 static const uint8_t ua2_freq_range[14] = {
@@ -288,18 +287,15 @@ static const uint8_t ua2_freq_range[14] = {
     0x00, 0x00, 0x00, 0x00, // dRES 0 (a discrete frequency)
 };
 static const uint8_t ua2_valid[1] = {1};
-#else
-static const uint8_t ua_freq_48k[3] = {0x80, 0xBB, 0x00};
-#endif
 
 static bool ua_reply(USBDriver *usbp, const uint8_t *data, size_t size, uint16_t length) {
   usbSetupTransfer(usbp, (uint8_t *)data, length < size ? length : size, NULL);
   return true;
 }
 
-// Standard SET/GET_INTERFACE for the audio interfaces (3, 4) and the class requests: UAC2, the
+// Standard SET/GET_INTERFACE for the audio interfaces (3, 4) and the class requests: the
 // clock source's sampling frequency (GET CUR/RANGE, SET CUR accepted) and validity (GET CUR) on
-// interface 3; UAC1, the sampling frequency on the endpoint. Everything else (including
+// interface 3. Everything else (including
 // SET_INTERFACE to interfaces 0..2, which the firmware never handled) goes to the existing
 // handling; unknown class requests stall.
 bool usb_audio_requests_hook(USBDriver *usbp) {
@@ -325,7 +321,6 @@ bool usb_audio_requests_hook(USBDriver *usbp) {
     return false;
   }
 
-#if USB_AUDIO_UAC2
   if (rtype == (USB_RTYPE_TYPE_CLASS | USB_RTYPE_RECIPIENT_INTERFACE) && index == UA_AC_INTERFACE &&
       usbp->setup[5] == UA2_CLOCK_ID && (value & 0xFF) == 0) {
     const uint8_t cs = (uint8_t)(value >> 8);
@@ -340,18 +335,6 @@ bool usb_audio_requests_hook(USBDriver *usbp) {
     if (cs == 0x02 && in && req == 0x01) return ua_reply(usbp, ua2_valid, 1, length); // CS_CLOCK_VALID
     return false;
   }
-#else
-  if (rtype == (USB_RTYPE_TYPE_CLASS | USB_RTYPE_RECIPIENT_ENDPOINT) && index == (0x80 | UA_EP) &&
-      (value >> 8) == 0x01 /* SAMPLING_FREQ_CONTROL */) {
-    const size_t n = length < 3 ? length : 3;
-    if (req == 0x01) { // SET_CUR: accept (only 48 kHz exists)
-      usbSetupTransfer(usbp, ua_ctl, n, NULL);
-      return true;
-    }
-    if (req >= 0x81 && req <= 0x84) // GET_CUR, GET_MIN, GET_MAX, GET_RES
-      return ua_reply(usbp, ua_freq_48k, sizeof ua_freq_48k, length);
-  }
-#endif
   return false;
 }
 
@@ -407,7 +390,7 @@ __attribute__((noinline)) void usb_audio_print_status(void *chp) {
 #endif
   chSysUnlock();
 
-  chprintf(out, "usb audio (UAC%d): %s, source %s\r\n", USB_AUDIO_UAC2 ? 2 : 1,
+  chprintf(out, "usb audio (UAC2): %s, source %s\r\n",
       alt == UA_ALT_24BIT     ? "streaming 48000 Hz 24 bit (alt 1)" :
           alt == UA_ALT_16BIT ? "streaming 48000 Hz 16 bit (alt 2)" :
                                 "idle (alt 0)",
