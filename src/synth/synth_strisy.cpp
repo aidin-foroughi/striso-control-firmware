@@ -99,19 +99,22 @@ struct VoiceEntry {
 	const char* engine_name;
 	const char* preset_name;
 };
-static constexpr int MAX_ENTRIES = 64;
+// every entry of VOICE_LIST: one per engine without presets, one per preset of the others
+#define COUNT_ENTRY(ns) +1
+#define COUNT_PRESETS(ns) COUNT_PRESETS_(ns)
+#define COUNT_PRESETS_(ns) +ns::NUM_PRESETS
+static constexpr int MAX_ENTRIES = 0 VOICE_LIST(COUNT_ENTRY, COUNT_PRESETS);
+static_assert(MAX_ENTRIES <= 128, "the console selects an entry with one byte, 0x80 + n (pconnection.c)");
 static std::array<VoiceEntry, MAX_ENTRIES> entries;
 static int num_entries;
 
 static void build_entries(void) {
 	num_entries = 0;
 #define ADD_ENTRY(ns) ADD_ENTRY_(ns)
-#define ADD_ENTRY_(ns) \
-	if (num_entries < MAX_ENTRIES) entries[num_entries++] = {VOICE_##ns, -1, #ns, nullptr};
+#define ADD_ENTRY_(ns) entries[num_entries++] = {VOICE_##ns, -1, #ns, nullptr};
 #define ADD_PRESETS(ns) ADD_PRESETS_(ns)
 #define ADD_PRESETS_(ns) \
-	for (int i = 0; i < ns::NUM_PRESETS && num_entries < MAX_ENTRIES; i++) \
-		entries[num_entries++] = {VOICE_##ns, (int8_t)i, #ns, ns::preset_name(i)};
+	for (int i = 0; i < ns::NUM_PRESETS; i++) entries[num_entries++] = {VOICE_##ns, (int8_t)i, #ns, ns::preset_name(i)};
 	VOICE_LIST(ADD_ENTRY, ADD_PRESETS)
 }
 
@@ -388,8 +391,9 @@ void computebufI(int32_t* inp, int32_t* outp) {
 		chEvtSignalI(pThreadDSP, (eventmask_t)1);
 		chSysUnlockFromISR();
 	} else
+		// no synth yet (the DMA starts before it, with the codec unmuted): silence (D12)
 		for (int i = 0; i < PLAYBACK_BUFFER_SIZE; i++) {
-			outp[i] = (i - PLAYBACK_BUFFER_SIZE / 2) * 1 << 22;
+			outp[i] = 0;
 		}
 }
 
