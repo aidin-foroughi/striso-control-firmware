@@ -125,6 +125,10 @@ using strisy::rmin;
 }
 // log2(f / 440)
 [[nodiscard]] static inline real fast_log2_ratio(real f) { return log2_fast(f * (1.0f / 440.0f)); }
+// key pressure to bellows pressure: p^curve (0 at 0)
+[[nodiscard]] static inline real pres_curve(real p, real curve) {
+	return p > 1e-6f ? pow2(clampr(curve, 0.2f, 2.0f) * log2_fast(p)) : 0.0f;
+}
 [[nodiscard]] static inline real cos_poly(real x) {
 	const real x2 = x * x;
 	return 1.0f + x2 * (-0.5f + x2 * (1.0f / 24 + x2 * (-1.0f / 720 + x2 * (1.0f / 40320))));
@@ -162,6 +166,7 @@ struct Params {
 	real cassotto;   // 16' and first 8' through the tone chamber (on/off)
 	// bellows
 	real bellows;    // 0 per-note pressure .. 1 one shared bellows
+	real curve;      // key pressure to bellows pressure: exponent (< 1: normal playing is mf..f)
 	real bel_ms;     // bellows smoothing, ms
 	real valve;      // key pressure that opens the pallet fully
 	real throttle;   // pallet throttling (reed section / full pallet section)
@@ -182,6 +187,7 @@ struct Params {
 	real flat;      // pitch drop at full pressure, cents (8'; 16' x1.3, 4' x0.6)
 	real bend;      // pallet bend: cents down at full bellows on a barely open pallet
 	real spread;    // reed tuning tolerance, +- cents
+	real voicing;   // level across the compass: amplitude ~ (f / 262 Hz)^-voicing
 	// tone
 	real ch_hz;     // reed chamber resonance, Hz (8')
 	real ch_db;     // its peak
@@ -218,12 +224,13 @@ static constexpr const char* preset_names[NUM_PRESETS] = {
 	p.beat_track = 0.0f;
 	p.cassotto = 0.0f;
 	p.bellows = 0.5f;
+	p.curve = 0.6f;
 	p.bel_ms = 40.0f;
 	p.valve = 0.25f;
 	p.throttle = 0.35f;
-	p.chamber_ms = 10.0f;
+	p.chamber_ms = 6.0f;
 	p.release_ms = 18.0f;
-	p.speak_ms = 35.0f;
+	p.speak_ms = 22.0f;
 	p.low_slow = 0.35f;
 	p.thresh = 0.025f;
 	p.amp = 3.5f;
@@ -237,6 +244,7 @@ static constexpr const char* preset_names[NUM_PRESETS] = {
 	p.flat = 3.0f;
 	p.bend = 30.0f;
 	p.spread = 0.5f;
+	p.voicing = 1.1f;
 	p.ch_hz = 2500.0f;
 	p.ch_db = 13.0f;
 	p.ch_q = 1.4f;
@@ -258,13 +266,13 @@ static constexpr const char* preset_names[NUM_PRESETS] = {
 		p.level = 0.95f;
 		break;
 	case 1: // bassoon
-		p.level = 2.1f;
+		p.level = 1.05f;
 		p.r8a = 0.0f;
 		p.r16 = 1.0f;
 		p.cassotto = 1.0f;
 		break;
 	case 2: // piccolo
-		p.level = 0.88f;
+		p.level = 1.45f;
 		p.r8a = 0.0f;
 		p.r4 = 1.0f;
 		break;
@@ -295,7 +303,7 @@ static constexpr const char* preset_names[NUM_PRESETS] = {
 		p.cassotto = 1.0f;
 		break;
 	case 7: // bandoneon: 16' + 8' in octaves, dry; big reeds on long zinc plates
-		p.level = 0.85f;
+		p.level = 0.68f;
 		p.r16 = 1.0f;
 		p.r8a = 0.9f;
 		p.speak_ms = 50.0f;
@@ -311,7 +319,7 @@ static constexpr const char* preset_names[NUM_PRESETS] = {
 		p.flat = 5.0f;
 		break;
 	case 8: // harmonium: 8' + 4' reed organ, no reed chambers, one wind supply
-		p.level = 1.65f;
+		p.level = 1.8f;
 		p.r4 = 0.5f;
 		p.bellows = 1.0f;
 		p.bel_ms = 90.0f;
@@ -564,7 +572,7 @@ static inline void process_voice(Engine& e, int v) {
 	const real o2 = s.o * s.o;
 	const real tau = o2 * (1.0f + kap * kap) / (o2 + kap * kap);
 	const real bl = clampr(q.bellows, 0.0f, 1.0f);
-	const real src = bl * e.bel + (1.0f - bl) * pres;
+	const real src = bl * e.bel + (1.0f - bl) * pres_curve(pres, q.curve);
 	const real dpt = src * tau;
 	const real kch = 1.0f - exp_neg(dt * 1000.0f / clampr(q.chamber_ms, 1.0f, 200.0f));
 	s.dp += (dpt - s.dp) * (dpt > s.dp ? kch : kclose);
@@ -583,7 +591,12 @@ static inline void process_voice(Engine& e, int v) {
 	const real f8 = 440.0f * pow2((s.note - 69.0f) * (1.0f / 12.0f) + (bend_c) * (1.0f / 1200.0f));
 	const real beat_a4 = clampr(q.beat, 0.0f, 20.0f);
 	const real btr = clampr(q.beat_track, 0.0f, 1.0f);
-	const real beat8 = beat_a4 * pow2(btr * fast_log2_ratio(f8));
+	const real L8 = (s.note - 69.0f) * (1.0f / 12.0f); // log2(f8 / 440) (bends of a few cents aside)
+	const real beat8 = beat_a4 * pow2(btr * L8);
+	// per-voice parts of the reeds' voicing and onset rate (the ranks are octaves apart)
+	const real vo = clampr(q.voicing, 0.0f, 2.0f), ls = clampr(q.low_slow, 0.0f, 1.0f);
+	const real voice8 = pow2(-vo * (L8 + 0.748f)), vo_oct = pow2(vo);
+	const real slow8 = pow2(ls * L8), ls_oct = pow2(ls);
 
 	// tilt: voicing
 	const real ty = clampr(c.but_y, -1.0f, 1.0f) * q.tilt;
@@ -600,12 +613,18 @@ static inline void process_voice(Engine& e, int v) {
 		const real lvl = clampr(lv[r], 0.0f, 2.0f);
 		const int b = rank_bus[r];
 		const real fm = r == 0 ? 1.3f : (r == 4 ? 0.6f : 1.0f);
-		real f = f8 * rank_oct[r] * pow2((flat_c * fm + d.tune) * (1.0f / 1200.0f));
+		// 2^(cents / 1200) for a few cents: 1 + a + a^2 / 2 (a = cents ln2 / 1200)
+		const real ca = (flat_c * fm + d.tune) * 5.7762265e-4f;
+		real f = f8 * rank_oct[r] * (1.0f + ca * (1.0f + 0.5f * ca));
+		const real oct_v = r == 0 ? vo_oct : (r == 4 ? 1.0f / vo_oct : 1.0f);
+		const real oct_s = r == 0 ? 1.0f / ls_oct : (r == 4 ? ls_oct : 1.0f);
 		if (r == 2) f += beat8;
 		if (r == 3) f -= beat8 * clampr(q.beat_flat, 0.0f, 3.0f);
 		// the registers' compass: fade out below 25 Hz and above 5 kHz
 		const real comp = clampr((f - 18.0f) * (1.0f / 7.0f), 0.0f, 1.0f) * clampr((9000.0f - f) * (1.0f / 4000.0f), 0.0f, 1.0f);
-		const real g = lvl * comp;
+		// voicing across the compass: bigger reeds pass more air (the radiated du/dt and the
+		// chamber favour high notes by ~8 dB/octave; reed makers voice an even keyboard)
+		const real g = lvl * comp * voice8 * oct_v;
 		if (g <= 1e-4f && d.vj < 1e-5f && d.pg < 1e-5f) {
 			d.on = 0;
 			d.A = 0.0f;
@@ -624,7 +643,7 @@ static inline void process_voice(Engine& e, int v) {
 			const real kick = clampr(q.push, 0.0f, 1.5f) * rise * rmin(1.0f, 0.5f / (f * dt));
 			A = rmax(A + kick, 0.004f * At);
 			// logistic growth, exact over the block; slower for long reeds, faster when pushed
-			const real sig = sig0 * pow2(clampr(q.low_slow, 0.0f, 1.0f) * fast_log2_ratio(f)) * fsqrt(rmin(z * 2.0f, 4.0f));
+			const real sig = sig0 * slow8 * oct_s * fsqrt(rmin(z * 2.0f, 4.0f));
 			const real ex = exp_neg(rmin(sig * dt, 20.0f));
 			A = At / (1.0f + (At / A - 1.0f) * ex);
 		} else {
@@ -684,7 +703,7 @@ static inline void bellows(Engine& e, real dt) {
 		const real p = e.vc[v].pres;
 		if (p == p && p > mx) mx = p;
 	}
-	mx = rmin(mx, 1.5f);
+	mx = pres_curve(rmin(mx, 1.5f), q.curve);
 	e.bel += (mx - e.bel) * (1.0f - exp_neg(dt * 1000.0f / clampr(q.bel_ms, 2.0f, 500.0f)));
 	if (!(e.bel == e.bel)) e.bel = 0.0f;
 
@@ -801,7 +820,7 @@ static inline void process(Engine& e, real* __restrict__ output) {
 	// grille and body: resonant lowpass, then a gentle second one; level, soft limit above 4
 	const strisy::SvfCoef g1 = svf_hz(q.grille_hz, sr, 1.6f);
 	const strisy::SvfCoef g2 = svf_hz(q.grille_hz * 1.6f, sr, 0.55f);
-	const real lvl = clampr(q.level, 0.0f, 4.0f) * 0.21f;
+	const real lvl = clampr(q.level, 0.0f, 4.0f) * 0.55f;
 	real b1 = e.gr1.ic1, b2 = e.gr1.ic2, c1 = e.gr2.ic1, c2 = e.gr2.ic2;
 	for (int n = 0; n < BLOCK; n++) {
 		real v1, v2, w1, w2;
@@ -840,6 +859,7 @@ static constexpr ParamEntry param_table[] = {
     {{"beat_track", "musette", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::beat_track}, // 0 Hz .. 1 cents
     {{"cassotto", "register", 0.0f, 1.0f, strisy::ParamKind::toggle}, &Params::cassotto},
     {{"bellows", "bellows", 0.0f, 1.0f, strisy::ParamKind::continuous}, &Params::bellows}, // 0 per note .. 1 one bellows
+    {{"curve", "bellows", 0.3f, 1.5f, strisy::ParamKind::continuous}, &Params::curve},     // pressure curve exponent
     {{"bel_ms", "bellows", 5.0f, 300.0f, strisy::ParamKind::continuous}, &Params::bel_ms},
     {{"valve", "bellows", 0.05f, 1.0f, strisy::ParamKind::continuous}, &Params::valve}, // pressure for a full pallet
     {{"throttle", "bellows", 0.05f, 1.5f, strisy::ParamKind::continuous}, &Params::throttle},
@@ -856,9 +876,10 @@ static constexpr ParamEntry param_table[] = {
     {{"down", "reed", 0.0f, 2.5f, strisy::ParamKind::continuous}, &Params::down},
     {{"constrict", "reed", 0.3f, 4.0f, strisy::ParamKind::continuous}, &Params::constrict},
     {{"pump", "reed", 0.0f, 1.5f, strisy::ParamKind::continuous}, &Params::pump},
-    {{"flat", "reed", 0.0f, 30.0f, strisy::ParamKind::continuous}, &Params::flat},    // cents at full pressure
-    {{"bend", "reed", 0.0f, 100.0f, strisy::ParamKind::continuous}, &Params::bend},   // pallet bend, cents
-    {{"spread", "reed", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::spread}, // tuning tolerance, cents
+    {{"flat", "reed", 0.0f, 30.0f, strisy::ParamKind::continuous}, &Params::flat},      // cents at full pressure
+    {{"bend", "reed", 0.0f, 100.0f, strisy::ParamKind::continuous}, &Params::bend},     // pallet bend, cents
+    {{"spread", "reed", 0.0f, 3.0f, strisy::ParamKind::continuous}, &Params::spread},   // tuning tolerance, cents
+    {{"voicing", "reed", 0.0f, 2.0f, strisy::ParamKind::continuous}, &Params::voicing}, // level across the compass
     {{"ch_hz", "tone", 500.0f, 5000.0f, strisy::ParamKind::continuous}, &Params::ch_hz},
     {{"ch_db", "tone", 0.0f, 20.0f, strisy::ParamKind::continuous}, &Params::ch_db},
     {{"ch_q", "tone", 0.4f, 5.0f, strisy::ParamKind::continuous}, &Params::ch_q},
