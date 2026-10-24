@@ -1108,3 +1108,7 @@ int synth_param_set(int target, int index, float value) {
 	(void)target; (void)index; (void)value;
 	return 0;
 }
+
+uint32_t synth_params_signature(void) {
+	return 0;
+}

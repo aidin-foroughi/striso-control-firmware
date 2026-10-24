@@ -466,6 +466,25 @@ void synth_params_print(void* chp, int target) {
 	}
 }
 
+uint32_t synth_params_signature(void) {
+	uint32_t h = 2166136261u; // FNV-1a over 32-bit words
+	const auto mix = [&h](uint32_t w) {
+		for (int b = 0; b < 4; b++) h = (h ^ ((w >> (8 * b)) & 0xff)) * 16777619u;
+	};
+	mix(param_head);
+	mix(static_cast<uint32_t>(voice_request));
+	const int k = entries[voice_request].engine;
+	for (int i = 0; i < engine_param_count(k); i++) {
+		const float* p = engine_param_ptr(k, i);
+		mix(p ? float_bits(*p) : 0u);
+	}
+	for (int i = 0; i < strisy::EngineParams<fx::Engine>::count; i++) {
+		const float* p = strisy::EngineParams<fx::Engine>::ptr(fx_engine, i);
+		mix(p ? float_bits(*p) : 0u);
+	}
+	return h;
+}
+
 int synth_param_set(int target, int index, float value) {
 	if (target < 0 || target > 1 || index < 0) return 0;
 	const int count = target == 0 ? engine_param_count(entries[voice_request].engine) : strisy::EngineParams<fx::Engine>::count;

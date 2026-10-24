@@ -83,6 +83,9 @@ int synth_select_voice(int n);
 void synth_params_print(void *chp, int target);
 // queue a parameter write, applied at the next audio block; returns 0 if out of range or queue full
 int synth_param_set(int target, int index, float value);
+// a hash of the live parameters of both targets (their values) and of the writes queued so far:
+// changes when a value changes or a write is queued (the change counter, Stcy)
+uint32_t synth_params_signature(void);
 
 // Global touch parameters (synth_control.cpp, parameter target 2): pressure, velocity, tilt and
 // bend sensitivity and the note-on threshold. Applied immediately, not saved on the board.
@@ -102,6 +105,11 @@ int synth_settings_key(int id);
 // The settings-key layout (console command StcX, read only): what every key does with Settings
 // held, one line per key, format in synth_control.cpp (settings_keys[]).
 void synth_settings_keys_print(void *chp);
+// The board's state as the console shows it (StcY, one line) and a counter that goes up whenever
+// any of it, or anything else the console lists (V v p f g k N), changed since the last look (Stcy).
+// Formats in synth_control.cpp (synth_state_print).
+uint32_t synth_state_counter(void);
+void synth_state_print(void *chp);
 
 int synth_message(int size, int* msg);
 void synth_tick(void);

@@ -4,6 +4,7 @@
 #include "led.h"
 
 int last_color[3] = {0};
+static uint32_t updown_last = 0; // the state of the last led_updown()
 systime_t led_blink_timer = UINT32_MAX;
 
 static PWMConfig pwmcfg = {
@@ -114,6 +115,7 @@ static inline int led_updown_state(ioline_t line, uint32_t state) {
  * Only one led can be dimmed at the same time.
  */
 void led_updown(uint32_t state) {
+  updown_last = state;
 
   // combine all led calls in one SysLock zone to not have previous dimmed led
   // turn on or off accidentally
@@ -142,6 +144,10 @@ void led_updown(uint32_t state) {
     pwmDisablePeriodicNotificationI(&PWMD3);
   }
   osalSysUnlock();
+}
+
+uint32_t led_updown_get(void) {
+  return updown_last;
 }
 
 void led_updown_dial(int angle) {

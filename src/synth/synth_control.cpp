@@ -29,6 +29,7 @@ extern "C" {
     #include "led.h"
     #include "aux_jack.h"
     #include "messaging.h"
+    #include "button_read.h"
 }
 
 #include "config.h"
@@ -2883,6 +2884,149 @@ void synth_tuning_print(void* chp) {
         const float pitch = striso::tuning::key_pitch(t, b.tuning_note_offset, b.coord0, b.coord1);
         chprintf(out, "%d %s %08lx %08lx\r\n", n, name, bits(pitch), bits(b.tuning_note_offset));
     }
+}
+
+// --- StcY / Stcy: the board's state and its change counter --------------------------------------
+
+// everything the console shows (StcY and the lists), as a snapshot to compare: no padding (all
+// 32-bit words), so memcmp compares exactly the values
+typedef struct {
+    uint32_t params;  // synth_params_signature: the voice and every live parameter of targets 0, 1
+    int32_t voice, midi_mode, channel_offset, voicecount, midinote_mode;
+    float bend_range;
+    int32_t tuning, tuning_color;
+    float notegen0, notegen1, note_offset, tuning_note_offset, start_note_offset;
+    uint32_t key_offsets;  // a hash of the keys' tuning offsets (N)
+    uint32_t key_factors;  // a hash of the keys' sensitivity factors (k)
+    float pres, velo, tilt, bend;
+    int32_t zero_offset;
+    float volume, pedal;
+    int32_t message_interval, alt, portamento, flipdir, debug;
+    int32_t led[3];
+    uint32_t updown;
+} observed_state_t;
+
+static uint32_t hash_floats(uint32_t h, float f) {
+    const uint32_t w = std::bit_cast<uint32_t>(f);
+    for (int b = 0; b < 4; b++) h = (h ^ ((w >> (8 * b)) & 0xff)) * 16777619u;
+    return h;
+}
+
+static void observe(observed_state_t* o) {
+    memset(o, 0, sizeof *o);
+#ifdef USE_INTERNAL_SYNTH
+    o->params = synth_params_signature();
+#endif
+    o->voice = synth_current_voice();
+    o->midi_mode = config.midi_mode;
+    o->channel_offset = dis.midi_channel_offset;
+    o->voicecount = dis.voicecount;
+    o->midinote_mode = config.midinote_mode;
+    o->bend_range = dis.midi_bend_range;
+    o->tuning = dis.cur_tuning;
+    o->tuning_color = dis.tuning_color;
+    o->notegen0 = dis.notegen0;
+    o->notegen1 = dis.notegen1;
+    o->note_offset = dis.note_offset;
+    o->tuning_note_offset = dis.tuning_note_offset;
+    o->start_note_offset = dis.start_note_offset;
+    uint32_t h = 2166136261u;
+    for (int n = 0; n < BUTTONCOUNT; n++) h = hash_floats(h, dis.buttons[n].tuning_note_offset);
+    o->key_offsets = h;
+    h = 2166136261u;
+    for (int n = 0; n < buttonKeyCount(); n++) h = hash_floats(h, buttonGetKeyFactor(n));
+    o->key_factors = h;
+    o->pres = dis.pres_sensitivity;
+    o->velo = dis.velo_sensitivity;
+    o->tilt = dis.y_sensitivity;
+    o->bend = dis.bend_sensitivity;
+    o->zero_offset = config.zero_offset;
+    o->volume = volume_linear;
+    o->pedal = dis.synth_interface && dis.synth_interface->pedal ? *(dis.synth_interface->pedal) : 0.0f;
+    o->message_interval = config.message_interval;
+    o->alt = dis.altmode & 1;
+    o->portamento = dis.portamento;
+    o->flipdir = dis.flipdir;
+    o->debug = config.debug;
+    for (int i = 0; i < 3; i++) o->led[i] = last_color[i];
+    o->updown = led_updown_get();
+}
+
+static uint32_t state_counter = 0;
+static observed_state_t state_last;
+
+// Stcy: compares the state with the last look's; called from the console only (one thread)
+uint32_t synth_state_counter(void) {
+    observed_state_t o;
+    observe(&o);
+    if (memcmp(&o, &state_last, sizeof o) != 0) {
+        state_last = o;
+        state_counter++;
+    }
+    return state_counter;
+}
+
+// a float as text with 2 or 3 decimals, rounded (chprintf has no floats here)
+static void put_fixed(char* buf, size_t size, float v, int decimals) {
+    const int32_t scale = decimals == 2 ? 100 : 1000;
+    if (!(v == v)) {
+        chsnprintf(buf, size, "nan");
+        return;
+    }
+    const bool neg = v < 0.0f;
+    const float a = neg ? -v : v;
+    const uint32_t q = a < 2.0e6f ? (uint32_t)(a * scale + 0.5f) : 2000000u * scale;
+    const uint32_t ip = q / scale, fp = q % scale;
+    if (q == 0) chsnprintf(buf, size, decimals == 2 ? "0.00" : "0.000");
+    else if (decimals == 2) chsnprintf(buf, size, "%s%lu.%02lu", neg ? "-" : "", (unsigned long)ip, (unsigned long)fp);
+    else chsnprintf(buf, size, "%s%lu.%03lu", neg ? "-" : "", (unsigned long)ip, (unsigned long)fp);
+}
+
+/*
+ * StcY: the board's state in one line, the counter first (what Stcy says now):
+ *   Z <counter> voice=<n> midi=<mpe|poly|mono> ch=<n> voices=<n> bend=<semitones> tuning=<index>
+ *     fine=<cents> transpose=<semitones> pres=<f> velo=<f> tilt=<f> bendsens=<f> thres=<f>
+ *     vol=<0..127> sustain=<f> rate=<ms> alt=<0|1> porta=<0|1> flip=<0|1> led=<rrggbb>
+ *     updown=<up2 up down down2: 0 off, 1 dim, 2 on>
+ * ch: the first channel the notes go to (1..16; MPE: the first member channel); voices: the MPE
+ * voices; bend: the MPE pitch bend range; tuning: the loaded tuning (-1: a fifth set by MIDI CC1);
+ * fine: the fine tuning (the knob, MIDI pitch bend) in cents above the tuning's own offset;
+ * transpose: the transposition in semitones (octave buttons, free transpose; not a whole number in
+ * other tunings); pres velo tilt bendsens thres: the touch parameters (target 2, as Stcg lists them);
+ * vol: the volume (CC7); sustain: the synth's pedal value; rate: the MIDI message interval; alt: the
+ * Settings button is held; porta: glissando on (mono mode keeps it on); led: the indicator colour as
+ * last set (r g b, a blink not shown). Floats with 3 decimals, fine with 2.
+ */
+void synth_state_print(void* chp) {
+    BaseSequentialStream* out = (BaseSequentialStream*)chp;
+    const uint32_t counter = synth_state_counter();
+    const observed_state_t& o = state_last;
+    static const char* const modes[] = {"mpe", "poly", "mono"};
+    char fine[16], transpose[16], pres[16], velo[16], tilt[16], bend[16], thres[16], sustain[16];
+    put_fixed(fine, sizeof fine, (o.note_offset - o.tuning_note_offset) * 100.0f, 2);
+    put_fixed(transpose, sizeof transpose, o.start_note_offset - 62.0f, 3);
+    put_fixed(pres, sizeof pres, synth_touch_get(0), 3);
+    put_fixed(velo, sizeof velo, synth_touch_get(1), 3);
+    put_fixed(tilt, sizeof tilt, synth_touch_get(2), 3);
+    put_fixed(bend, sizeof bend, synth_touch_get(3), 3);
+    put_fixed(thres, sizeof thres, synth_touch_get(4), 3);
+    put_fixed(sustain, sizeof sustain, o.pedal, 3);
+    int rgb[3];
+    for (int i = 0; i < 3; i++) rgb[i] = clamp(o.led[i], 0, 255);
+    char updown[5];
+    for (int i = 0; i < 4; i++) {
+        const uint32_t s = (o.updown >> (4 * i)) & 0xf;  // led.c: up2 is the lowest nibble
+        updown[i] = s == 0 ? '0' : (s == 0xf ? '2' : '1');
+    }
+    updown[4] = 0;
+    const int mode = o.midi_mode >= 0 && o.midi_mode <= 2 ? o.midi_mode : 0;
+    chprintf(out, "Y %lu voice=%d midi=%s ch=%d voices=%d bend=%d tuning=%d fine=%s transpose=%s "
+                  "pres=%s velo=%s tilt=%s bendsens=%s thres=%s vol=%d sustain=%s rate=%d alt=%d porta=%d "
+                  "flip=%d led=%02x%02x%02x updown=%s\r\n",
+             (unsigned long)counter, (int)o.voice, modes[mode], (int)o.channel_offset + 1, (int)o.voicecount,
+             (int)(o.bend_range + 0.5f), (int)o.tuning, fine, transpose, pres, velo, tilt, bend, thres,
+             (int)(o.volume + 0.5f), sustain, (int)o.message_interval, (int)o.alt, o.portamento ? 1 : 0,
+             o.flipdir < 0 ? 1 : 0, rgb[0], rgb[1], rgb[2], updown);
 }
 
 void synth_control_init(void) {

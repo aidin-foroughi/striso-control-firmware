@@ -317,6 +317,13 @@ void PExReceiveByte(unsigned char c) {
       else if (c == 'X') { // the settings-key layout (read only): "X keys <n>", a line per key, "X end"
         synth_settings_keys_print(&BDU1);
       }
+      else if (c == 'Y') { // the board's state in one line (read only), format in synth_control.cpp
+        synth_state_print(&BDU1);
+      }
+      else if (c == 'y') { // the state's change counter: "y <n>", goes up when anything StcY or the
+        // lists show changed since the last look
+        chprintf((BaseSequentialStream *)&BDU1, "y %lu\r\n", (unsigned long)synth_state_counter());
+      }
 #ifdef USE_INTERNAL_SYNTH
       else if (c == 'P') { // synth engine profile per section since last read
         synth_profile_print(&BDU1);
