@@ -150,4 +150,5 @@ TEST_CASE("scan link S2: the thread never sleeps with a column waiting") {
 	}
 	CHECK(taken > 15000);
 	CHECK(slept_with_work == 0);
+	CHECK(caught > 0); // the second check under the lock found the columns the window published
 }

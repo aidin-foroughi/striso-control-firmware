@@ -108,15 +108,23 @@ static inline int scan_link_take(scan_link_t *l, scan_pos_t *pos, ScanFrame *wor
   return -2;
 }
 
-// The next column, sleeping until the interrupt has one (or -2, see scan_link_take).
+// The next column, sleeping until the interrupt has one (or -2, see scan_link_take). The check
+// is repeated under the lock, right before the sleep (S2: the interrupt could publish between the
+// check and the sleep, and its wakeup was lost: the thread slept with the column waiting, until
+// the next wakeup, a measured column or a scan later). *caught counts the columns the second
+// check found: each one was a lost wakeup before.
 static inline int scan_link_wait(scan_link_t *l, scan_pos_t *pos, ScanFrame *work, uint32_t *caught) {
-  (void)caught;
   for (;;) {
     const int c = scan_link_take(l, pos, work);
     if (c != -1) return c;
     SCAN_OS_WINDOW();
     SCAN_OS_LOCK();
-    SCAN_OS_SLEEP_S();
+    const int avail = scan_link_avail(l, pos->k);
+    if (avail >= 0 && avail <= pos->col) {
+      SCAN_OS_SLEEP_S();
+    } else {
+      (*caught)++;
+    }
     SCAN_OS_UNLOCK();
   }
 }
