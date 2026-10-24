@@ -100,6 +100,12 @@ SV_API int32_t sv_realtime_stop(sv_board* b);
 /* Takes up to max_frames of the real-time audio (interleaved stereo). Returns the frames taken. */
 SV_API int32_t sv_read_audio(sv_board* b, float* stereo, int32_t max_frames);
 
+/* An audio callback that renders the board, for an output device's own thread (Striso Live's
+ * audition: striso_audio's sa_set_source(sv_audio_source, board)): runs the board for the
+ * buffer's time and writes its USB audio, resampled (linear) when the device is not at 48 kHz.
+ * Returns frames written (0 while real time runs: one of the two drives the board). */
+SV_API int32_t sv_audio_source(void* board, float* stereo, int32_t frames, int32_t rate);
+
 /* --- USB ---------------------------------------------------------------------------------------- */
 
 #define SV_USB_DETACHED 0   /* off the bus: booting, resetting */

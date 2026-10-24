@@ -296,3 +296,23 @@ TEST_CASE("api: real time: the board runs by itself, its audio comes through the
 	const uint64_t t = sv_time_frames(bd.b);
 	CHECK(t > static_cast<uint64_t>(SR)); // boot + real time
 }
+
+TEST_CASE("api: sv_audio_source renders for an output's callback, at 48 kHz exactly, resampled at others") {
+	Board a, b;
+	sv_select_voice(a.b, 1);
+	sv_select_voice(b.b, 1);
+	sv_inject_key(a.b, 0, 30, 5000, 2000, 0, 0);
+	sv_inject_key(b.b, 0, 30, 5000, 2000, 0, 0);
+	std::vector<float> x(2 * 4800), y(2 * 4800);
+	for (int k = 0; k < 10; k++) CHECK(sv_audio_source(a.b, x.data() + 2 * 480 * k, 480, 48000) == 480);
+	REQUIRE(sv_render(b.b, y.data(), 4800) == 4800);
+	CHECK(x == y); // the same as sv_render
+	std::vector<float> z(2 * 4410);
+	for (int k = 0; k < 10; k++) CHECK(sv_audio_source(a.b, z.data() + 2 * 441 * k, 441, 44100) == 441);
+	CHECK(finite(z));
+	CHECK(rms(z) > 1e-3);
+	CHECK(sv_time_frames(a.b) - sv_time_frames(b.b) >= 4799); // 0.1 s more at 44.1 kHz
+	REQUIRE(sv_realtime_start(a.b, 0) == 0);
+	CHECK(sv_audio_source(a.b, z.data(), 441, 44100) == 0); // one of the two drives the board
+	sv_realtime_stop(a.b);
+}

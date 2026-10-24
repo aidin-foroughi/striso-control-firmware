@@ -67,7 +67,9 @@ target_link_libraries(striso_virtual PRIVATE striso::dsp striso_host_options)
 # the DSP as the host renderers build it (-O2, no FMA contraction): the goldens' arithmetic
 target_compile_options(striso_virtual PRIVATE -O2 -ffp-contract=off -fno-strict-aliasing
   -Wno-unused-parameter -Wno-missing-field-initializers -Wno-sign-compare -Wno-unused-function
-  -Wno-unused-variable -Wno-unused-but-set-variable -Wno-implicit-fallthrough)
+  -Wno-unused-variable -Wno-unused-but-set-variable -Wno-implicit-fallthrough
+  # pconnection.c cmd_threads prints addresses as 32 bits (on the PC: the low half)
+  -Wno-pointer-to-int-cast $<$<COMPILE_LANG_AND_ID:C,Clang,AppleClang>:-Wno-void-pointer-to-int-cast>)
 # led.c, config_store.c: 'inline' functions in C, which GCC on the board emits (led.c inlines
 # it, config_store.h declares cmp8 without inline); clang for Windows treats C inline as MSVC does
 set_source_files_properties("${_fw}/drivers/led.c" board/fw_config_store.c PROPERTIES COMPILE_OPTIONS "-fgnu89-inline")

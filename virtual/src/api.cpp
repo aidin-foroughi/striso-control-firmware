@@ -29,6 +29,7 @@
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
 #include <windows.h>
 #else
 #include <dlfcn.h>
@@ -234,6 +235,9 @@ struct sv_board {
 	std::vector<float> fifo;
 	uint64_t fifo_w = 0, fifo_r = 0;
 	size_t fifo_frames = 0;
+	// sv_audio_source at another rate: rendered frames not yet used, the read position in them
+	std::vector<float> rs;
+	double rs_pos = 0;
 };
 
 namespace {
@@ -494,6 +498,36 @@ SV_API uint64_t sv_time_frames(sv_board* b) {
 	if (!b) return 0;
 	std::lock_guard<std::mutex> lk(b->m);
 	return b->time;
+}
+
+SV_API int32_t sv_audio_source(void* board, float* stereo, int32_t frames, int32_t rate) {
+	auto* b = static_cast<sv_board*>(board);
+	if (!b || !stereo || frames <= 0) return 0;
+	if (b->rt_run.load()) return 0;
+	std::lock_guard<std::mutex> lk(b->m);
+	if (rate <= 0 || rate == SV_SAMPLE_RATE) {
+		const int32_t n = advance_locked(b, frames, stereo, nullptr, nullptr);
+		return n < 0 ? 0 : n;
+	}
+	// linear interpolation: output frame k is at rs_pos + k * step in the rendered frames
+	const double step = static_cast<double>(SV_SAMPLE_RATE) / rate;
+	const double last = b->rs_pos + (frames - 1) * step;
+	const size_t need = static_cast<size_t>(last) + 2, have = b->rs.size() / 2;
+	if (need > have) {
+		b->rs.resize(need * 2);
+		if (advance_locked(b, static_cast<int32_t>(need - have), b->rs.data() + have * 2, nullptr, nullptr) < 0) return 0;
+	}
+	for (int32_t k = 0; k < frames; k++) {
+		const double t = b->rs_pos + k * step;
+		const size_t i = static_cast<size_t>(t);
+		const float f = static_cast<float>(t - static_cast<double>(i));
+		for (int c = 0; c < 2; c++) stereo[2 * k + c] = b->rs[2 * i + c] + f * (b->rs[2 * (i + 1) + c] - b->rs[2 * i + c]);
+	}
+	const double end = b->rs_pos + frames * step;
+	const size_t used = static_cast<size_t>(end);
+	b->rs.erase(b->rs.begin(), b->rs.begin() + static_cast<std::ptrdiff_t>(std::min(used, b->rs.size() / 2) * 2));
+	b->rs_pos = end - static_cast<double>(used);
+	return frames;
 }
 
 SV_API int32_t sv_realtime_start(sv_board* b, int32_t fifo_frames) {
