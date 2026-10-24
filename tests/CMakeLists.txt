@@ -161,9 +161,10 @@ set_tests_properties(stackcheck PROPERTIES LABELS unit)
 add_test(NAME button_read_src COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_button_read_src.py")
 set_tests_properties(button_read_src PROPERTIES LABELS unit)
 
-# src/usb source checks: endpoints re-armed after a USB suspend and resume (D2), bulk_out (D16)
-add_test(NAME usb_wakeup_src COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_usb_wakeup_src.py")
-set_tests_properties(usb_wakeup_src PROPERTIES LABELS unit)
+# src/usb source checks: endpoints re-armed after a USB suspend and resume (D2), bulk_out (D16),
+# GET_STATUS self powered (D18)
+add_test(NAME usb_src COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_usb_src.py")
+set_tests_properties(usb_src PROPERTIES LABELS unit)
 
 # the StcK console command's settings key whitelist against config_but() (source check)
 add_test(NAME settings_keys COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_settings_keys.py")

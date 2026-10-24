@@ -542,6 +542,9 @@ static void usb_event(USBDriver *usbp, usbevent_t event) {
     chSysUnlockFromISR();
     return;
   case USB_EVENT_RESET:
+    /* GET_STATUS(device) answers usbp->status, which the reset cleared: report self powered
+       (D0), as the configuration descriptor's bmAttributes (0xC0) says.*/
+    usbp->status |= 1U;
     /* Falls into.*/
   case USB_EVENT_UNCONFIGURED:
     /* Falls into.*/

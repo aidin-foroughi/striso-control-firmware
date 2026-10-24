@@ -1,4 +1,4 @@
-"""Source checks of the USB suspend/resume handling (src/usb), which needs the OTG core to run:
+"""Source checks of src/usb where the behaviour needs the OTG core and a host to run:
 
 - D2: after a suspend and a resume without a bus reset, ChibiOS' OTGv1 LLD has disabled every
   endpoint's transfer and masked all endpoint interrupts but EP0's (otg_disable_ep), and nothing
@@ -8,6 +8,8 @@
   must re-arm their OUT transfer and restart the IN transfer of their queue's head buffer.
 - D16: *_start_receive checks the receive status of the OUT endpoint (bulk_out), as upstream
   hal_serial_usb.c does.
+- D18: GET_STATUS(device) reports self powered, as bmAttributes (0xC0) says: ChibiOS answers
+  usbp->status, which a bus reset clears, so the RESET event sets bit 0.
 """
 import re
 import sys
@@ -30,6 +32,10 @@ def body(src, signature):
 
 def test():
     cfg = (USB / "usbcfg.c").read_text()
+    reset = cfg[cfg.index("case USB_EVENT_RESET:"):]
+    reset = reset[:reset.index("case USB_EVENT_UNCONFIGURED:")]
+    assert re.search(r"usbp->status\s*\|=\s*1U?;", reset), "usb_event RESET must set the self-powered status bit (D18)"
+    assert re.search(r"0xC0,\s*/\* bmAttributes \(self powered\)", cfg), "bmAttributes must say self powered"
     wake = cfg[cfg.index("case USB_EVENT_WAKEUP:"):]
     wake = wake[:wake.index("return;")]
     assert "usb_resume_endpointsI(usbp)" in wake, "usb_event WAKEUP must call usb_resume_endpointsI(usbp)"
@@ -56,4 +62,4 @@ if __name__ == "__main__":
     except AssertionError as e:
         print("FAIL:", e)
         sys.exit(1)
-    print("USB wakeup source checks: all passed")
+    print("USB source checks: all passed")
