@@ -26,7 +26,6 @@ function(_synth_control_test target)
     $<$<COMPILE_LANGUAGE:CXX>:-Wno-write-strings -Wno-unused-parameter -Wno-sign-compare -Wno-missing-field-initializers>)
   target_link_options(${target} PRIVATE
     -Wl,--wrap=getConfigSetting -Wl,--wrap=getConfigFloat -Wl,--wrap=getConfigInt -Wl,--wrap=getConfigHex)
-  set_source_files_properties("${PROJECT_SOURCE_DIR}/src/app/config_store.c" PROPERTIES COMPILE_OPTIONS "-fno-strict-aliasing;$<$<BOOL:${STRISO_SANITIZE}>:-fno-sanitize=alignment>")
 endfunction()
 
 _synth_control_test(test_synth_control)

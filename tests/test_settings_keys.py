@@ -1,7 +1,7 @@
-"""The StcK whitelist (settings_key_allowed in src/synth/synth_control.cpp) against config_but():
-every allowed id is a real settings key of the current layout, and the keys that reboot, write or
-send configuration, or need an amount (dials), are refused. A source check: the firmware itself
-runs only on the board.
+"""The StcK whitelist (the settings_keys[] rows flagged SKF_CONSOLE in src/synth/synth_control.cpp,
+which settings_key_allowed reads) against config_but(): every allowed id is a real settings key of
+the current layout, and the keys that reboot, write or send configuration, or need an amount
+(dials), are refused. A source check: the firmware itself runs only on the board.
 usage: test_settings_keys.py [synth_control.cpp]"""
 import re
 import sys
@@ -10,8 +10,11 @@ from pathlib import Path
 src = Path(sys.argv[1] if len(sys.argv) > 1 else
            Path(__file__).resolve().parent.parent / "src/synth/synth_control.cpp").read_text()
 
-allowed_body = re.search(r"static bool settings_key_allowed\(int id\) \{(.*?)\n\}", src, re.S).group(1)
-allowed = {int(x) for x in re.findall(r"case (\d+):", allowed_body)}
+# the layout table: {id, kind, group, flags, ...} per key
+table = src[src.index("static const settings_key_info_t settings_keys[] = {"):]
+table = table[:table.index("\n};\n")]
+rows = re.findall(r"^\s*\{(\d+), (SK_\w+), (SG_\w+), ([^,]+),", table, re.M)
+allowed = {int(i) for i, kind, group, flags in rows if "SKF_CONSOLE" in flags}
 
 # config_but(): from its definition to the closing brace at the start of a line
 cb = src[src.index("float config_but(int but, int type, float adjust) {"):]

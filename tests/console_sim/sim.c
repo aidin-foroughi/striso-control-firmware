@@ -277,6 +277,10 @@ int usb_audio_target(void) { return ua_target; }
 void usb_audio_set_tone(bool on) { ua_tone = on; }
 bool usb_audio_tone(void) { return ua_tone; }
 void usb_audio_print_status(void *chp) { chprintf((BaseSequentialStream *)chp, "usb audio status\r\n"); }
+/* the settings-key layout (StcX) and the state (StcY, Stcy): synth_control.cpp's, not tested here */
+void synth_settings_keys_print(void *chp) { chprintf((BaseSequentialStream *)chp, "X keys 0\r\nX end\r\n"); }
+void synth_state_print(void *chp) { chprintf((BaseSequentialStream *)chp, "Y 0\r\n"); }
+uint32_t synth_state_counter(void) { return 0; }
 /* the latency marker (Stcl): no stream here */
 bool usb_audio_marker_request(void) { sim_logf("ua_marker\n"); return true; }
 void usb_audio_marker_poll(void *chp) { (void)chp; }

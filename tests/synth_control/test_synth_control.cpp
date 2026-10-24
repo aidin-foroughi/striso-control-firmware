@@ -51,15 +51,25 @@ int chprintf(BaseSequentialStream* /*chp*/, const char* fmt, ...) {
 	va_end(ap);
 	return r;
 }
+int chsnprintf(char* str, size_t size, const char* fmt, ...) {
+	va_list ap;
+	va_start(ap, fmt);
+	const int r = vsnprintf(str, size, fmt, ap);
+	va_end(ap);
+	return r;
+}
 static int last_r, last_g, last_b, last_dial = -999, blink_count = 0;
+int last_color[3];
 void led_rgb3(int r, int g, int b) {
-	last_r = r;
-	last_g = g;
-	last_b = b;
+	last_r = last_color[0] = r;
+	last_g = last_color[1] = g;
+	last_b = last_color[2] = b;
 }
 void led_rgb(uint32_t rgb) { led_rgb3(rgb >> 16 & 0xff, rgb >> 8 & 0xff, rgb & 0xff); }
 void led_rgb3_blink(int /*r*/, int /*g*/, int /*b*/, sysinterval_t /*time*/) { blink_count++; }
-void led_updown(uint32_t /*state*/) {}
+static uint32_t last_updown = 0;
+void led_updown(uint32_t state) { last_updown = state; }
+uint32_t led_updown_get(void) { return last_updown; }
 void led_updown_dial(int angle) { last_dial = angle; }
 void aux_jack_switch_mode_setting(jack2_mode_t /*mode*/) {}
 // the message queue to the key thread: what the firmware queues for it (MIDI in, its tick, StcK)
@@ -77,6 +87,9 @@ const char* synth_voice_name(int n, const char** preset) {
 	                                    nullptr;
 }
 int synth_current_voice(void) { return 0; }
+uint32_t synth_params_signature(void) { return 0; }
+int buttonKeyCount(void) { return 61; }
+float buttonGetKeyFactor(int /*n*/) { return 1.0f; }
 int synth_select_voice(int /*n*/) { return 1; }
 }
 
@@ -126,7 +139,10 @@ static ConfigParam* user_config() {
 			std::exit(2);
 		}
 		auto* c = static_cast<ConfigParam*>(p);
-		memcpy(c[0].key, "MCfgEnd ", 8);
+		// the header the config editor writes: without it the flash settings aren't used (R13)
+		memcpy(c[0].key, "MConfig ", 8);
+		memcpy(c[0].value, "v1.0    ", 8);
+		memcpy(c[1].key, "MCfgEnd ", 8);
 		return c;
 	}();
 	return page;

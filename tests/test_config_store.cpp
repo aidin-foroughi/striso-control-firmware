@@ -155,7 +155,8 @@ TEST_CASE("cmp8: all 8 characters, at any alignment (B12)") {
 		buf[off] = 'i'; // only in the first
 		CHECK_FALSE(cmp8(buf + off, "fCfacC_3"));
 	}
-	// a lookup with an unaligned name finds the default
+	// a lookup with an unaligned name finds the default (the flash erased: no user settings)
+	REQUIRE_MESSAGE(flash_page() != nullptr, "0x08020000 is not mappable on this host");
 	std::memcpy(buf + 3, "iGoct   ", 8);
 	CHECK(field(getConfigSetting(buf + 3)) != "(ERROR!)");
 	CHECK(field(getConfigSetting(buf + 3)) == field(getConfigSetting("iGoct   ")));
