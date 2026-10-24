@@ -132,6 +132,12 @@ SECTIONS
     } > ETH_RAM
 }
 
+/* The MPU makes only the first 16 KB of SRAM3 non-cacheable (ChibiOS STM32H7xx hal_lld.c,
+   STM32_NOCACHE_SRAM3: MPU_RASR_SIZE_16K at 0x30040000), though ram3 is 32 KB: a DMA buffer
+   in .nocache or .eth past 16 KB would silently be cacheable.*/
+ASSERT(__nocache_base__ == 0x30040000 && __eth_end__ <= 0x30040000 + 16K,
+       ".nocache/.eth exceed the 16 KB non-cacheable MPU region at the start of SRAM3")
+
 /* Code rules inclusion.*/
 INCLUDE rules_code.ld
 
