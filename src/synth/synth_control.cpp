@@ -722,7 +722,7 @@ class Instrument {
                     if (config.midi_pres == CFG_POLY_PRESSURE) {
                         float presf = buttons[but].pres * pres_sensitivity;
                         float d; // calculate direction for hysteresis
-                        d = (buttons[but].last_pres > (presf)) * 0.5 - 0.25;
+                        d = (buttons[but].last_pres > presf * 127) * 0.5 - 0.25; // (last_pres is 0..127)
                         int pres = presf * 127 + 0.5 + d;
                         pres = clamp(pres, 0, 127);
 
@@ -757,7 +757,7 @@ class Instrument {
                         float d; // calculate direction for hysteresis
 
                         if (config.midi_pres != CFG_POLY_PRESSURE) {
-                            d = (buttons[0].last_pres > (presf)) * 0.5 - 0.25;
+                            d = (buttons[0].last_pres > presf * 127) * 0.5 - 0.25; // (last_pres is 0..127)
                             int pres = presf * 127 + 0.5 + d;
                             pres = clamp(pres, 0, 127);
                             if (pres != buttons[0].last_pres) {
@@ -1230,7 +1230,7 @@ class Instrument {
             float d; // calculate direction for hysteresis
             // TODO: fix hysteresis!
             // TODO: last_... values per midi channel instead of per button
-            d = (buttons[but].last_pres > (presf)) * 0.5 - 0.25;
+            d = (buttons[but].last_pres > presf * 127) * 0.5 - 0.25; // (last_pres is 0..127)
             int pres = presf * 127 + 0.5 + d;
             pres = clamp(pres, 0, 127);
 
