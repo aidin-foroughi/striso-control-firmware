@@ -33,6 +33,17 @@
       "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
     },
     {
+      "name": "host-virtual",
+      "displayName": "Host, the virtual board only (striso_virtual and its tests; Windows, macOS, Linux with clang)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "STRISO_HOST_TESTS": "OFF"
+      }
+    },
+    {
       "name": "host-asan",
       "displayName": "Host tests under AddressSanitizer + UndefinedBehaviorSanitizer",
       "inherits": "base",
@@ -43,11 +54,16 @@
     { "name": "firmware", "configurePreset": "firmware" },
     { "name": "firmware-debug", "configurePreset": "firmware-debug" },
     { "name": "host", "configurePreset": "host" },
+    { "name": "host-virtual", "configurePreset": "host-virtual" },
     { "name": "host-asan", "configurePreset": "host-asan" }
   ],
   "testPresets": [
     {
       "name": "host", "configurePreset": "host",
+      "output": { "outputOnFailure": true }, "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "host-virtual", "configurePreset": "host-virtual",
       "output": { "outputOnFailure": true }, "execution": { "noTestsAction": "error" }
     },
     {

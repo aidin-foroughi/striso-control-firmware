@@ -1,0 +1,9 @@
+stklimit    stack     addr   unused refs prio     state         name
+20000400 2000070C 24005140      540    0  128   CURRENT         main
+240051E0 24005224 24005300      132    0    1     READY         idle
+2404A728 2404A954 2404AA38      316    0  128 SUSPENDED send messages
+2404A538 2404A61C 2404A6C8      184    0  128  SLEEPING      blinker
+20000800 2000177C 20001910     3224    0  130   WTOREVT        SYNTH
+24049BB0 24049CD4 24049DC0      248    0  128 SUSPENDED      auxjack
+24049E20 24049F5C 2404A030      164    0  128 SUSPENDED read_buttons
+2404A090 2404A18C 2404A2A0      188    0  128 SUSPENDED       motion
