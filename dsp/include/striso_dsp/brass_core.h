@@ -203,7 +203,31 @@ template <class F> struct Player {
 	int wfn, wbn;        // samples left to seed
 	real wfu, wbu, winc; // their table phases, the phase step per sample
 	real level;          // smoothed output level (stealing)
+	// slide instruments: the slide's extension and where the player wants it (one-way samples), the
+	// cents the moving slide still lags the note (the lips follow the slide), placed at once next block
+	real sl, sl_to, lag_c;
+	int sl_jump;
+	// the player layer (F::LAYER): the last transition, its context and what it does to the breath
+	int tr_kind;      // Transition
+	int tr_pending;   // classified in the next block, when the new fingering is known
+	real tr_strike;   // its strike
+	real tr_gap;      // s since this player's last release (< 0: an overlap, the old key still held)
+	real tr_interval; // semitones from the previous note (signed)
+	int tr_k0, tr_c0; // the previous partial and combination
+	real tr_age;      // s since the transition
+	real carry;       // M1: the breath carried across the transition (key pressure units)
+	real ae_d, ae_push, ae_len; // M2: transition envelope (breath dip, push after it, length s)
+	int dip_blocks;   // legato tongue ("doo"): blocks the tongue dips the air
+	real dip_g;       // the gate it dips to
+	uint32_t t_off;   // block of the last release
 };
+
+// what a new note's start is (the player layer's transition classifier, F::LAYER)
+enum Transition : int { TR_ONSET = 0, // tongued from silence
+	TR_SLUR,                         // connected, no tongue: the lips change partial (or the valves move)
+	TR_LTONGUE,                      // connected, a soft legato tongue ("doo"): the air dips while the slide moves
+	TR_RETONGUE,                     // a new tongued note soon after the last one: the breath carries
+	TR_SMEAR };                      // connected, no tongue, the slide (lips) glide: a gliss
 
 struct KeyState {
 	real pres_prev;
@@ -233,6 +257,7 @@ template <class F> struct Engine {
 	real valve_len[F::NCOMBO]; // one-way samples
 	real open_midi;
 	real leff; // one-way effective length of the open horn (samples) at the nominal pitch
+	real sl_max, lvloss; // slide instruments: the slide's reach (one-way samples), log2 of the added tubing's loss per sample
 	real learn[F::NCOMBO][F::NK];
 	real fpitch[F::NCOMBO][F::NK]; // fingering chart (MIDI), -1000: not playable
 	float fir_rev[F::NFIR];        // bell reflection, time reversed (oldest sample first)
@@ -389,6 +414,21 @@ template <class F> static inline void update_bore(Engine<F>& e) {
 	e.leff = (real)F::FS / (2.0f * b.f_nom);
 	for (int c = 0; c < F::NCOMBO; c++)
 		for (int k = 0; k < F::NK; k++) e.learn[c][k] = 0.0f; // learned on top of the calibration
+	if constexpr (F::HAS_SLIDE) {
+		e.sl_max = 0.0f;
+		e.lvloss = log2s(b.vloss);
+		if (b.slide) {
+			// a slide instrument: the combinations are the triggers (none, valve 1 = F, valve 2, both),
+			// the slide's continuous length does the rest (choose_slide); the added length in semitones
+			static constexpr int trig[4][2] = {{0, 0}, {1, 0}, {0, 1}, {1, 1}};
+			for (int c = 0; c < F::NCOMBO; c++) {
+				e.valve_len[c] = c < 4 ? (real)trig[c][0] * b.valve_d[0] + (real)trig[c][1] * b.valve_d[1] : 0.0f;
+				e.combo_semis[c] = 12.0f * log2s((e.leff + e.valve_len[c]) / e.leff);
+				for (int k = 0; k < F::NK; k++) e.fpitch[c][k] = -1000.0f;
+			}
+			e.sl_max = e.leff * (exp2s(b.slide_max * (1.0f / 12)) - 1.0f);
+		}
+	}
 }
 
 template <class F> static inline void update_derived(Engine<F>& e) {
@@ -467,7 +507,77 @@ struct Fingering {
 	real nominal;
 };
 
+// slide instruments (F::HAS_SLIDE, the bore's slide flag): resonance k's deviation (cents) with u
+// semitones of added length (slide + triggers), interpolated in the bore's chart; >= 900: unusable
+template <class F> [[nodiscard]] static inline real res_u_at(const typename F::Bore& b, int k, real u) {
+	const real x = clampr(u, 0.0f, (real)(F::NU - 1) - 0.001f);
+	const int i = (int)x;
+	const real a = b.res_u[i][k], c = b.res_u[i + 1][k];
+	if (a > 900.0f || c > 900.0f) return 999.0f;
+	return a + (x - (real)i) * (c - a);
+}
+// the pitch (MIDI) of resonance k with u semitones of added length
+template <class F> [[nodiscard]] static inline real slide_pitch(const Engine<F>& e, int k, real u) {
+	return e.open_midi + 12.0f * log2s((real)k) - u + 0.01f * res_u_at<F>(bore_of(e), k, u);
+}
+// the slide extension (one-way samples, not yet limited to the slide's reach) that puts resonance k of
+// trigger combination c on the note, and what the lips must add (semitones, + up) where it can't reach
+struct SlideSol {
+	real sl, lip;
+	bool ok;
+};
+template <class F> [[nodiscard]] static inline SlideSol slide_solve(const Engine<F>& e, int c, int k, real note) {
+	const typename F::Bore& b = bore_of(e);
+	const real u0 = e.open_midi + 12.0f * log2s((real)k) - note;
+	real r = res_u_at<F>(b, k, u0);
+	if (r > 900.0f) return {0.0f, 0.0f, false};
+	r = res_u_at<F>(b, k, u0 + 0.01f * r);
+	if (r > 900.0f) return {0.0f, 0.0f, false};
+	const real u = u0 + 0.01f * r;
+	const real sl = e.leff * (exp2s(u * (1.0f / 12)) - 1.0f) - e.valve_len[c];
+	real lip = 0.0f;
+	if (sl < 0.0f) lip = note - slide_pitch(e, k, e.combo_semis[c]);
+	else if (sl > e.sl_max) lip = note - slide_pitch(e, k, 12.0f * log2s((e.leff + e.valve_len[c] + e.sl_max) / e.leff));
+	return {sl, lip, true};
+}
+// the slide position (semitones out from 1st position) of an extension
+template <class F> [[nodiscard]] static inline real slide_pos(const Engine<F>& e, real sl) {
+	return 12.0f * log2s((e.leff + clampr(sl, 0.0f, e.sl_max)) / e.leff);
+}
+// a trombonist's choice: trigger, partial and slide position. Short positions and few triggers first
+// (the triggers replace the long 6th and 7th positions), the pedal only where nothing else reaches,
+// the out-of-tune 7th and 11th partials as alternates; a held note keeps its partial while the slide
+// reaches (a gliss), and breaks to another partial where it can't
+template <class F> static inline Fingering choose_slide(const Engine<F>& e, real note, const Player<F>& s, bool keep) {
+	const typename F::Bore& b = bore_of(e);
+	static constexpr real pen_trig[4] = {0.0f, 14.0f, 16.0f, 26.0f};
+	Fingering best = {0, 2, 0, note};
+	real best_cost = 1e9f;
+	const int nc = b.ncombo < 4 ? b.ncombo : 4;
+	for (int c = 0; c < nc; c++) {
+		for (int k = 1; k < F::NK; k++) {
+			const SlideSol so = slide_solve(e, c, k, note);
+			if (!so.ok || fabsf(so.lip) > 1.2f) continue;
+			const real pos = slide_pos(e, so.sl);
+			real cost = 100.0f * fabsf(so.lip) + pen_trig[c] + 3.0f * pos + 12.0f * rmax(pos - 4.5f, 0.0f);
+			if (k == 1) cost += 20.0f;
+			if (k == 7) cost += 25.0f;
+			if (k == 11 || k >= 13) cost += 30.0f;
+			if (k > 9) cost += 4.0f * (real)(k - 9);
+			if (keep && c == s.combo && k == s.k) cost -= 35.0f;
+			if (cost < best_cost) {
+				best_cost = cost;
+				best = {c, k, 0, note - so.lip};
+			}
+		}
+	}
+	return best;
+}
+
 template <class F> static inline Fingering choose_fingering(const Engine<F>& e, real note, const Player<F>& s, bool keep) {
+	if constexpr (F::HAS_SLIDE) {
+		if (bore_of(e).slide) return choose_slide(e, note, s, keep);
+	}
 	// lowest normal note: partial 2 with 1-2-3; below it the horn grows a 4th (and 5th) valve loop
 	const real lowest = e.open_midi + 12.0f - 6.0f - 0.6f;
 	int ext = 0;
@@ -527,6 +637,9 @@ template <class F> static inline void start_note(Engine<F>& e, int i, real hard,
 		}
 	}
 	if (!tongue) s.atk = 0.0f; // a slur: no attack trajectory
+	if constexpr (F::HAS_SLIDE) {
+		if (from_silence) s.sl_jump = 1; // the slide is in place before the note
+	}
 	s.t_on = e.blocks;
 	s.active = 1;
 	s.good_blocks = s.wrong_blocks = 0;
