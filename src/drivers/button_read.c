@@ -304,7 +304,7 @@ static void scan_frame_done(uint32_t *frame) {
 
 static void adccallback(ADCDriver *adcp) {
   // invalidate buffer after DMA transfer
-  cacheBufferInvalidate(adc_samples, sizeof (adc_samples) / sizeof (adcsample_t));
+  cacheBufferInvalidate(adc_samples, sizeof (adc_samples));  // bytes (S12: was the element count)
 
   isr_callbacks++;
   if (cur_conversion < 17) { // key press detection phase

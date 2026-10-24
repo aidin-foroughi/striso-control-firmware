@@ -118,6 +118,10 @@ set_tests_properties(striso_py PROPERTIES LABELS unit)
 add_test(NAME stackcheck COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_stackcheck.py")
 set_tests_properties(stackcheck PROPERTIES LABELS unit)
 
+# button_read.c source checks (the ADC interrupt can't run on the PC): S12 cache invalidate size
+add_test(NAME button_read_src COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_button_read_src.py")
+set_tests_properties(button_read_src PROPERTIES LABELS unit)
+
 # the StcK console command's settings key whitelist against config_but() (source check)
 add_test(NAME settings_keys COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_settings_keys.py")
 set_tests_properties(settings_keys PROPERTIES LABELS unit)
