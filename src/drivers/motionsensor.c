@@ -253,8 +253,18 @@ static void ThreadAccel(void *arg) {
   lsm6dslWriteRegister(LSM6DSL_AD_CTRL3_C, LSMDSL_CTRL3_C_IF_INC | LSMDSL_CTRL3_C_SW_RESET);
 
   chThdSleepMilliseconds(1);
+  // block data update: the output registers of a sample stay until both of their bytes are read,
+  // so the 12-byte burst never combines bytes of two samples (spikes up to 256 LSB)
+  lsm6dslWriteRegister(LSM6DSL_AD_CTRL3_C, LSMDSL_CTRL3_C_IF_INC | LSMDSL_CTRL3_C_BDU);
+  // accelerometer full scale in g (2, 4, 8 or 16): sets CTRL1_XL and the scaling below
 #define ACC_FS 2
-  lsm6dslWriteRegister(LSM6DSL_AD_CTRL1_XL, LSM6DSL_ACC_ODR_208Hz | LSM6DSL_ACC_FS_2G); // TODO: setting sensitivity doesn't seem to work
+#define ACC_FS_XL (ACC_FS == 16 ? LSM6DSL_ACC_FS_16G : ACC_FS == 8 ? LSM6DSL_ACC_FS_8G : \
+                   ACC_FS == 4 ? LSM6DSL_ACC_FS_4G : LSM6DSL_ACC_FS_2G)
+  _Static_assert(ACC_FS == 2 || ACC_FS == 4 || ACC_FS == 8 || ACC_FS == 16, "ACC_FS: 2, 4, 8 or 16 g");
+  _Static_assert(((LSM6DSL_ACC_FS_4G | LSM6DSL_ACC_FS_8G | LSM6DSL_ACC_FS_16G) & ~LSMDSL_CTRL1_XL_FS_MASK) == 0 &&
+                 LSM6DSL_ACC_FS_16G == 0x04 && LSM6DSL_ACC_FS_4G == 0x08 && LSM6DSL_ACC_FS_8G == 0x0C,
+                 "the accelerometer full scale is CTRL1_XL FS_XL (bits 3:2): 2, 16, 4, 8 g");
+  lsm6dslWriteRegister(LSM6DSL_AD_CTRL1_XL, LSM6DSL_ACC_ODR_208Hz | ACC_FS_XL);
   lsm6dslWriteRegister(LSM6DSL_AD_CTRL2_G, LSM6DSL_GYRO_ODR_208Hz | LSM6DSL_GYRO_FS_500DPS);
 
 
@@ -283,10 +293,9 @@ static void ThreadAccel(void *arg) {
       if (config.send_motion_interval != 127) {
         // 127 means only internal synth
         // acceleration in message has maximum range 8g (16g for acc_abs)
-        // TODO: make /4 dependent on ACC_FS
-        msg[2] = (ax/4)>>2;
-        msg[3] = (ay/4)>>2;
-        msg[4] = (az/4)>>2;
+        msg[2] = (ax*ACC_FS/8)>>2;
+        msg[3] = (ay*ACC_FS/8)>>2;
+        msg[4] = (az*ACC_FS/8)>>2;
         msg[5] = ((int16_t)(acc_abs * 32768.0f/8.0f))>>2;
         msg[6] = gx>>2;
         msg[7] = gy>>2;
@@ -298,9 +307,9 @@ static void ThreadAccel(void *arg) {
         // 4th reading (~60 per second) as stream-only motion data, no MIDI side effects
         stream_count = 0;
         msg[0] = ID_ACCEL_STREAM;
-        msg[2] = (ax/4)>>2;
-        msg[3] = (ay/4)>>2;
-        msg[4] = (az/4)>>2;
+        msg[2] = (ax*ACC_FS/8)>>2;
+        msg[3] = (ay*ACC_FS/8)>>2;
+        msg[4] = (az*ACC_FS/8)>>2;
         msg[5] = ((int16_t)(acc_abs * 32768.0f/8.0f))>>2;
         msg[6] = gx>>2;
         msg[7] = gy>>2;

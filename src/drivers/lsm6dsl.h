@@ -315,12 +315,13 @@ typedef enum {
 
 /**
  * @brief   LSM6DSL accelerometer subsystem full scale.
+ * @note    FS_XL is CTRL1_XL bits 3:2, in the order 2, 16, 4, 8 g (datasheet CTRL1_XL).
  */
 typedef enum {
   LSM6DSL_ACC_FS_2G = 0x00,         /**< Full scale �2g.                    */
-  LSM6DSL_ACC_FS_4G = 0x40,         /**< Full scale �4g.                    */
-  LSM6DSL_ACC_FS_8G = 0x80,         /**< Full scale �8g.                    */
-  LSM6DSL_ACC_FS_16G = 0xC0         /**< Full scale �16g.                   */
+  LSM6DSL_ACC_FS_4G = 0x08,         /**< Full scale �4g.                    */
+  LSM6DSL_ACC_FS_8G = 0x0C,         /**< Full scale �8g.                    */
+  LSM6DSL_ACC_FS_16G = 0x04         /**< Full scale �16g.                   */
 } lsm6dsl_acc_fs_t;
 
 /**
