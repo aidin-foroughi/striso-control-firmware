@@ -1621,15 +1621,19 @@ void load_preset(int n) {
     key[0] = 'i';
     strset(key, 3, "tunin");
     i = getConfigInt(key);
-    if (i >= 0 && i <= 8) {
+    bool has_tuning = i >= 0 && i <= 8;
+    if (has_tuning) {
         dis.load_tuning(i);
     }
 
     key[0] = 'f';
     strset(key, 3, "Toff ");
     f = getConfigFloat(key);
-    if (f >= -4800.0f && f <= 4800.0f) {
-        dis.note_offset = dis.tuning_note_offset + f / 100.0f;
+    bool has_toff = f >= -4800.0f && f <= 4800.0f;
+    if (has_tuning || has_toff) {
+        // the tuning's offset plus the preset's: a preset with a tuning and no Toff also clears an
+        // earlier preset's Toff and the fine tune (load_tuning keeps them for the same tuning, SC-04)
+        dis.note_offset = dis.tuning_note_offset + (has_toff ? f / 100.0f : 0.0f);
     }
 
     key[0] = 'i';
