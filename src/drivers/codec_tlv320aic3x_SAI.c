@@ -175,9 +175,23 @@ void codec_aic3x_init(uint16_t samplerate) {
   palSetLine(LINE_HP_EN);
 }
 
+// SAI TX DMA transfer errors since boot (each one restarted the stream); read with the debugger
+volatile uint32_t codec_dma_errors;
+
 static void dma_sai_a_interrupt(void* dat, uint32_t flags) {
   (void)dat;
-  (void)flags;
+
+  if (flags & STM32_DMA_ISR_TEIF) {
+    // A transfer error: the hardware has disabled the stream, so audio would stop for good.
+    // Count it and restart the stream from the first buffer; this block is not computed.
+    codec_dma_errors++;
+    sai_a_dma->stream->CR &= ~STM32_DMA_CR_CT;
+    dmaStreamSetMemory0(sai_a_dma, buf);
+    dmaStreamSetMemory1(sai_a_dma, buf2);
+    dmaStreamSetTransactionSize(sai_a_dma, PLAYBACK_BUFFER_SIZE);
+    dmaStreamEnable(sai_a_dma);
+    return;
+  }
 
   //codec_interrupt_timestamp = hal_lld_get_counter_value();
   usb_audio_codec_tickI(); // USB audio diagnostics: the synth's commit delay and lost blocks
@@ -239,15 +253,17 @@ void codec_i2s_init(uint16_t sampleRate) {
       | STM32_DMA_CR_PL(STM32_SAI_A_DMA_PRIORITY) | STM32_DMA_CR_DIR_M2P
       | STM32_DMA_CR_TEIE | STM32_DMA_CR_TCIE | STM32_DMA_CR_DBM | // double buffer mode
       STM32_DMA_CR_PSIZE_WORD | STM32_DMA_CR_MSIZE_WORD;
+  // RX: no interrupts (the stream has no handler; the TX interrupt picks the RX buffer)
   uint32_t sai_b_dma_mode = STM32_DMA_CR_CHSEL(SAI_B_DMA_CHANNEL)
       | STM32_DMA_CR_PL(STM32_SAI_B_DMA_PRIORITY) | STM32_DMA_CR_DIR_P2M
-      | STM32_DMA_CR_TEIE | STM32_DMA_CR_TCIE | STM32_DMA_CR_DBM | // double buffer mode
+      | STM32_DMA_CR_DBM | // double buffer mode
       STM32_DMA_CR_PSIZE_WORD | STM32_DMA_CR_MSIZE_WORD;
 
   sai_a_dma = dmaStreamAlloc(STM32_SAI_A_DMA_STREAM,
                              STM32_SAI_A_IRQ_PRIORITY,
                              (stm32_dmaisr_t)dma_sai_a_interrupt,
                              (void *)0);
+  if (sai_a_dma == NULL) chSysHalt("SAI TX DMA stream allocation");
   dmaSetRequestSource(sai_a_dma, STM32_DMAMUX1_SAI1_A);
   dmaStreamSetPeripheral(sai_a_dma, &(sai_a->DR));
   dmaStreamSetMemory0(sai_a_dma, buf);
@@ -259,6 +275,7 @@ void codec_i2s_init(uint16_t sampleRate) {
                              STM32_SAI_B_IRQ_PRIORITY,
                              (stm32_dmaisr_t)0,
                              (void *)0);
+  if (sai_b_dma == NULL) chSysHalt("SAI RX DMA stream allocation");
   dmaSetRequestSource(sai_b_dma, STM32_DMAMUX1_SAI1_B);
 
   dmaStreamSetPeripheral(sai_b_dma, &(sai_b->DR));
