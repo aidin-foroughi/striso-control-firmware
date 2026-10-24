@@ -112,7 +112,9 @@ static void unpack(uint8_t *in, int *out, int n) {
 /*
  * Message send thread
  */
-static THD_WORKING_AREA(waThreadSend, 512);
+// 768: config_but -> load_preset -> midi_config -> MidiSend3 -> a USB write runs on this thread
+// (~400 B by the static count plus the queue's notify callbacks, which it doesn't follow)
+static THD_WORKING_AREA(waThreadSend, 768);
 static void ThreadSend(void *arg) {
 
   (void)arg;
