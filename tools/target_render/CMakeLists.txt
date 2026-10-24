@@ -29,6 +29,24 @@ endforeach()
 # not part of the firmware build: cmake --build --preset firmware --target target_renders
 add_custom_target(target_renders DEPENDS ${_targets})
 
+# instruction counts per block of the engine and the master effects (tools/target_render/profile.sh):
+# target_profile_<voice>, the same renderer with -DTARGET_PROFILE -DTARGET_FX
+set(_ptargets "")
+foreach(v IN LISTS STRISO_VOICES)
+  add_executable(target_profile_${v} "${_dir}/render_target.cpp" "${_dir}/startup.c")
+  striso_voice_defines(defs ${v})
+  target_compile_definitions(target_profile_${v} PRIVATE ${defs} TARGET_PROFILE TARGET_FX)
+  target_include_directories(target_profile_${v} PRIVATE "${STRISO_DSP_INCLUDE_DIR}" "${PROJECT_SOURCE_DIR}/tools/harness")
+  target_compile_options(target_profile_${v} PRIVATE ${_tr_flags})
+  target_link_options(target_profile_${v} PRIVATE ${_mcflags} ${_opt_synth} --specs=rdimon.specs -nostartfiles
+    "-T${_dir}/target.ld" -Wl,--gc-sections
+    $<$<VERSION_GREATER_EQUAL:${CMAKE_C_COMPILER_VERSION},12>:-Wl,--no-warn-rwx-segments>)
+  set_target_properties(target_profile_${v} PROPERTIES LINKER_LANGUAGE CXX SUFFIX ".elf"
+    LINK_DEPENDS "${_dir}/target.ld" EXCLUDE_FROM_ALL ON)
+  list(APPEND _ptargets target_profile_${v})
+endforeach()
+add_custom_target(target_profiles DEPENDS ${_ptargets})
+
 if(NOT QEMU_SYSTEM_ARM)
   message(STATUS "qemu-system-arm not found: no target render tests")
   return()

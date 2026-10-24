@@ -5,8 +5,11 @@
 // renders don't change with the arm compiler). Output: float32 mono, 48000 Hz, through
 // semihosting. Engine/performance like render_strisy.cpp: SYNTH_VOICE_HEADER, SYNTH_VOICE_NS,
 // SYNTH_VOICE_PRESETS, PERF_HEADER.
-// Usage (QEMU semihosting arguments): render_target <out.f32> [preset] [voices] [seconds]
+// Usage (QEMU semihosting arguments): render_target <out.f32> [preset] [voices] [seconds] [fx]
 // Prints "hash <FNV-1a 64 of the float bits> peak <p> nonfinite <n>".
+// With -DTARGET_FX the master effects (fx.h) run after the engine, as in the firmware: fx 0 off,
+// 1 defaults, 2 every stage on (fx_suite.sh's "all"); prints "fxhash <hash of L,R interleaved>".
+// The engine's output and hash are the same as without it.
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -20,12 +23,25 @@ namespace eng = SYNTH_VOICE_NS;
 #else
 namespace eng = strisy;
 #endif
+#ifdef TARGET_FX
+#include "striso_dsp/fx.h" // before the performance (its BLOCK macro)
+#endif
 #ifndef PERF_HEADER
 #define PERF_HEADER "performance.h"
 #endif
 #include PERF_HEADER
 
 static eng::Engine e;
+#ifdef TARGET_FX
+static fx::Engine fxe;
+static void fx_set(const char* name, float v) {
+	for (int i = 0; i < fx::NPARAM; i++)
+		if (!std::strcmp(fx::PARAMS[i].d.name, name)) {
+			*strisy::EngineParams<fx::Engine>::ptr(fxe, i) = v;
+			strisy::EngineParams<fx::Engine>::changed(fxe, i);
+		}
+}
+#endif
 
 #ifdef TARGET_PROFILE
 // -DTARGET_PROFILE with QEMU -icount shift=0 (1 ns per instruction): SysTick on the CPU clock
@@ -45,6 +61,22 @@ int main(int argc, char** argv) {
 	const int nv = argc > 3 ? std::atoi(argv[3]) : 10;
 	const double seconds = argc > 4 ? std::atof(argv[4]) : 17.5;
 	eng::init(e, SAMPLERATE, nv);
+#ifdef TARGET_FX
+	const int fx_mode = argc > 5 ? std::atoi(argv[5]) : 1;
+	fx::init(fxe, SAMPLERATE);
+	if (fx_mode == 2) {
+		fx_set("drive", 0.3f);
+		fx_set("phmix", 0.6f);
+		fx_set("chmix", 0.5f);
+		fx_set("trdepth", 0.5f);
+		fx_set("dlmix", 0.3f);
+		fx_set("rvmix", 0.3f);
+	}
+	uint64_t fxhash = 1469598103934665603ull;
+#ifdef TARGET_PROFILE
+	uint64_t fx_ticks = 0;
+#endif
+#endif
 #ifdef SYNTH_VOICE_PRESETS
 	if (preset >= 0 && preset < eng::NUM_PRESETS) eng::set_preset(e, preset);
 #else
@@ -80,6 +112,26 @@ int main(int argc, char** argv) {
 #ifdef TARGET_PROFILE
 		dsp_ticks += (t0 - SYST_CVR) & 0xffffffu;
 #endif
+#ifdef TARGET_FX
+		if (fx_mode) {
+			eng::real l[BLOCK], r[BLOCK];
+#ifdef TARGET_PROFILE
+			const uint32_t t1 = SYST_CVR;
+#endif
+			fx::process(fxe, buf, l, r);
+#ifdef TARGET_PROFILE
+			fx_ticks += (t1 - SYST_CVR) & 0xffffffu;
+#endif
+			for (int n = 0; n < 2 * BLOCK; n++) {
+				uint32_t u;
+				std::memcpy(&u, n & 1 ? &r[n / 2] : &l[n / 2], 4);
+				for (int i = 0; i < 4; i++) {
+					fxhash ^= (u >> (8 * i)) & 0xffu;
+					fxhash *= 1099511628211ull;
+				}
+			}
+		}
+#endif
 		for (int n = 0; n < BLOCK; n++) {
 			const float x = static_cast<float>(buf[n]);
 			out[k * BLOCK + n] = x;
@@ -103,6 +155,12 @@ int main(int argc, char** argv) {
 #ifdef TARGET_PROFILE
 	std::printf("dsp_ticks %lu per_block %.1f\n", static_cast<unsigned long>(dsp_ticks),
 	    static_cast<double>(dsp_ticks) / nblocks);
+#endif
+#ifdef TARGET_FX
+	std::printf("fxhash %08lx%08lx\n", static_cast<unsigned long>(fxhash >> 32), static_cast<unsigned long>(fxhash & 0xffffffffu));
+#ifdef TARGET_PROFILE
+	std::printf("fx_ticks %lu per_block %.1f\n", static_cast<unsigned long>(fx_ticks), static_cast<double>(fx_ticks) / nblocks);
+#endif
 #endif
 	return 0;
 }
