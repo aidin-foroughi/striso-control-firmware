@@ -25,7 +25,7 @@ struct Res {
 
 static trumpet::Engine e;
 static std::vector<float> A[7]; // f, r, pc, x (outward), y (inward), opening, u
-using trumpet::seed::NSIG;
+using trumpet::seed::NSIGNAL;
 
 static double hz(double n) { return 8.1757989 * std::pow(2.0, n / 12); }
 
@@ -63,9 +63,9 @@ static Res run(int preset, float note, float pres, const State* ovr, double secs
 	const long n1 = trumpet::dbg_n;
 	const long M = std::lround(4 * P);
 	// harmonics over the last 4 periods; pc and x arrays hold the value at the start of each sample
-	cd H[NSIG][NH + 1];
-	double dc[NSIG] = {0};
-	for (int q = 0; q < NSIG; q++) {
+	cd H[NSIGNAL][NH + 1];
+	double dc[NSIGNAL] = {0};
+	for (int q = 0; q < NSIGNAL; q++) {
 		const long nend = q < 2 ? n1 : n1 + 0; // f, r: value written at sample n; pc, x: before sample n
 		for (int k = 0; k <= NH; k++) H[q][k] = 0;
 		for (long m = 1; m <= M; m++) {
@@ -83,7 +83,7 @@ static Res run(int preset, float note, float pres, const State* ovr, double secs
 	// arr[n1 + t]; the fit above used arr[n1 - m] at t = -m: consistent.
 	// phase reference: the lips' fundamental at cos phase 0 at t = 0
 	const double ph = std::arg(H[3][1] + H[4][1]);
-	for (int q = 0; q < NSIG; q++)
+	for (int q = 0; q < NSIGNAL; q++)
 		for (int k = 1; k <= NH; k++) H[q][k] *= std::exp(cd(0, -k * ph));
 	// time shift: the reference moved by -ph / W samples; the state is the signal at that time, so
 	// the seed restarts the oscillation at the lips' crest (any phase is a valid state of the cycle)
@@ -91,7 +91,7 @@ static Res run(int preset, float note, float pres, const State* ovr, double secs
 	st.per = (float)P;
 	st.trim = s.trim;
 	st.um = s.um;
-	for (int q = 0; q < NSIG; q++) {
+	for (int q = 0; q < NSIGNAL; q++) {
 		st.dc[q] = (float)dc[q];
 		for (int k = 0; k < NH; k++) { st.re[q][k] = (float)H[q][k + 1].real(); st.im[q][k] = (float)H[q][k + 1].imag(); }
 	}
@@ -115,8 +115,8 @@ static Res run(int preset, float note, float pres, const State* ovr, double secs
 static void print(int preset, int note, int d, const Res& r) {
 	const State& st = r.st;
 	printf("CAP %d %d %d %d %.3f %.2f %.6g %d %d %d", preset, note, d, (int)st.ok, st.per, st.trim, st.um, st.combo, st.k, st.ext);
-	for (int q = 0; q < NSIG; q++) printf(" %.6g", st.dc[q]);
-	for (int q = 0; q < NSIG; q++)
+	for (int q = 0; q < NSIGNAL; q++) printf(" %.6g", st.dc[q]);
+	for (int q = 0; q < NSIGNAL; q++)
 		for (int k = 0; k < NH; k++) printf(" %.6g %.6g", st.re[q][k], st.im[q][k]);
 	printf("%c", 10);
 	fprintf(stderr, "preset %d note %d dyn %.2f: %s %s cents %.1f drift %.2f amp %.2e trim %.1f k %d c %d e %d\n", preset, note, trumpet::seed::DYN[d], r.ok ? "ok" : "--", r.why, r.cents, r.drift, r.amp, st.trim, st.k, st.combo, st.ext);

@@ -11,12 +11,12 @@
 namespace trumpet::seed {
 static constexpr int NH = 4;
 static constexpr int NDYN = 3;
-static constexpr int NSIG = 5; // cylinder forward input, bell reflection, cup pressure, lip modes out / in
+static constexpr int NSIGNAL = 5; // cylinder forward input, bell reflection, cup pressure, lip modes out / in
 static constexpr float DYN[NDYN] = {0.3f, 0.55f, 0.8f};
 struct State {
     float per, trim, um;
-    float dc[NSIG];
-    float re[NSIG][NH], im[NSIG][NH];
+    float dc[NSIGNAL];
+    float re[NSIGNAL][NH], im[NSIGNAL][NH];
     int8_t combo, k, ext, ok;
 };
 struct Set {
