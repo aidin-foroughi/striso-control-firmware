@@ -81,7 +81,13 @@ static struct {
 // written into the next packet the ISR builds (usb_audio_core.h, ua_mark_packet), reported by the
 // console thread (usb_audio_marker_poll) once the host fetched that packet: its frame, the ring
 // level before it, and the time from the command's OUT packet to the marker's IN transfer.
-enum { UA_MK_IDLE, UA_MK_WANTED, UA_MK_ARMED, UA_MK_SENT, UA_MK_LOST };
+enum {
+  UA_MK_IDLE,
+  UA_MK_WANTED,
+  UA_MK_ARMED,
+  UA_MK_SENT,
+  UA_MK_LOST
+};
 static volatile uint8_t ua_mk_state;
 static uint32_t ua_mk_seq, ua_mk_rx_cyc, ua_mk_done_cyc;
 static uint16_t ua_mk_rx_fn, ua_mk_fn;

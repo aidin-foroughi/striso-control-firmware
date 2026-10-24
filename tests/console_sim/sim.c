@@ -277,6 +277,10 @@ int usb_audio_target(void) { return ua_target; }
 void usb_audio_set_tone(bool on) { ua_tone = on; }
 bool usb_audio_tone(void) { return ua_tone; }
 void usb_audio_print_status(void *chp) { chprintf((BaseSequentialStream *)chp, "usb audio status\r\n"); }
+/* the latency marker (Stcl): no stream here */
+bool usb_audio_marker_request(void) { sim_logf("ua_marker\n"); return true; }
+void usb_audio_marker_poll(void *chp) { (void)chp; }
+void usb_audio_echo(void *chp) { chprintf((BaseSequentialStream *)chp, "usb audio echo\r\n"); }
 int midi_in_calls;
 void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t b0, uint8_t b1, uint8_t b2) {
   (void)dev;
