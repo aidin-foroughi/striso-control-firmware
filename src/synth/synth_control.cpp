@@ -432,6 +432,12 @@ class Instrument {
             set_volume(volume_linear);
         }
 
+        // the channel of the instrument-wide controls (sustain/decay CC64, volume CC7): channel 1
+        // in MPE (the master channel), else the mode's one channel (SC-18)
+        uint8_t control_channel(void) const {
+            return config.midi_mode == MIDI_MODE_MPE ? 0 : midi_channel_offset & 0x0f;
+        }
+
         // the MIDI channel of voice (MPE channel slot) n: offset + n, kept in 0..15 (channels_changed)
         uint8_t voice_channel(int n) const {
             return (midi_channel_offset + n) & 0x0f;
@@ -1494,13 +1500,13 @@ int synth_message(int size, int* msg) {
             // Pedal
             int2float(msg, fmsg, size);
             *(dis.synth_interface->pedal) = fmsg[0];
-            pedal.send(msg[0]>>4, 0);//dis.midi_channel_offset);
+            pedal.send(msg[0]>>4, dis.control_channel());
         }
         else if (id == IDC_PEDAL_1) {
             // Switch pedal 1 (tip)
             int val = config.pedal_sw1_values[msg[0]>0];
             *(dis.synth_interface->pedal) = (float)val/127;
-            pedal.send(val*4, 0);//dis.midi_channel_offset);
+            pedal.send(val*4, dis.control_channel());
         }
         else if (id == IDC_PEDAL_2) {
             // Switch pedal 2 (ring)
@@ -1775,11 +1781,16 @@ void load_preset(int n) {
     strset(key, 3, "Mpgm ");
     i = getConfigInt(key);
     if (i >= 0 && i <= 127) {
-        if (config.midi_mode != MIDI_MODE_POLY && dis.midi_channel_offset == 1) {
-            MidiSend2(MIDI_PROGRAM_CHANGE, i);
-        }
-        for (int n = 0; n < dis.voicecount; n++) {
-            MidiSend2(MIDI_PROGRAM_CHANGE | dis.voice_channel(n), i);
+        if (config.midi_mode == MIDI_MODE_POLY) {
+            // Normal mode has one channel (it went to voicecount channels, SC-19)
+            MidiSend2(MIDI_PROGRAM_CHANGE | dis.voice_channel(0), i);
+        } else {
+            if (dis.midi_channel_offset == 1) {
+                MidiSend2(MIDI_PROGRAM_CHANGE, i);
+            }
+            for (int n = 0; n < dis.voicecount; n++) {
+                MidiSend2(MIDI_PROGRAM_CHANGE | dis.voice_channel(n), i);
+            }
         }
     }
 
@@ -2315,7 +2326,7 @@ float config_but(int but, int type, float adjust) {
         if (type > 0) {
             float vol = clamp_knob(volume_linear, volume_linear + adjust * 8.0f, 0, 127.0f, &rem);
             if ((int)(volume_linear + 0.5f) != (int)(vol + 0.5f)) {
-                MidiSend3(MIDI_CONTROL_CHANGE, MIDI_C_MAIN_VOLUME, vol + 0.5f);
+                MidiSend3(MIDI_CONTROL_CHANGE | dis.control_channel(), MIDI_C_MAIN_VOLUME, vol + 0.5f);
             }
             set_volume(vol);
         }
@@ -2327,7 +2338,7 @@ float config_but(int but, int type, float adjust) {
         float rem = 0;
         if (type > 0) {
             *(dis.synth_interface->pedal) = clamp_knob(*(dis.synth_interface->pedal), *(dis.synth_interface->pedal) + adjust * (1.0f/16.0f), 0, 1.0f, &rem);
-            pedal.send(*(dis.synth_interface->pedal) * 128 * 4, 0);
+            pedal.send(*(dis.synth_interface->pedal) * 128 * 4, dis.control_channel());
         }
         led_updown_dial(*(dis.synth_interface->pedal) * 15 + 0.5f);
         led_rgb3(*(dis.synth_interface->pedal) * 64.0f, 0, *(dis.synth_interface->pedal) * 64.0f);
