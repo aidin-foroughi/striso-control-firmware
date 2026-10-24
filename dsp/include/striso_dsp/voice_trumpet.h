@@ -133,6 +133,45 @@ static constexpr int WARM_PER_BLOCK = 1;
 static constexpr real WARM_TAIL_GATE = 0.15f; // a released player this quiet can be warm started
 // pitch tracker: DC removal of the lip motion (per internal sample), period consistency
 static constexpr real TRK_HP = 0.004f, TRK_TOL = 0.05f;
+// the attack trajectory of a tongued start without a seed (warm 0, no seed for the note, a re-tongue):
+// what the player does with the lips and the breath over the first tens of ms after the release (age =
+// time since the release), searched with the onset metrics (single notes and the recorded takes)
+struct Attack {
+	real l0, lh, lt; // lip tuning offset at the release (cents), held for lh (s), relaxing with lt (s)
+	real pa, ph, pt; // mouth pressure overshoot (fraction), hold, decay
+	real ha, hh, ht; // lip rest opening offset (mm), hold, decay
+	real sd;         // seed swing amplitude scale (x SEED_LIP)
+	real sf;         // seed swing frequency: 0 the lips' own, 1 the note's
+	real ovt;        // the strike's overshoot decay (s)
+	real hc;         // the lips firm up against the overshoot: 1 keeps the static opening
+	real bf, bft;    // breath floor at the release (x strike), its decay (s)
+	real lead;       // the breath leads the key (x pressure velocity) during the first 60 ms
+	real g0, tau;    // tongue: gate at the release, opening time (s) of a soft "d"
+	real tp, tpt;    // pitch placement: slide/lip trim offset at the release (cents), its decay (s)
+	real pr;         // pitch loop: largest step per period during the attack (cents)
+	real bs;         // the breath at the release runs ahead of the breath smoother (0..1 of the raw key breath)
+};
+static constexpr Attack ATK_DEF = {0.0f, 0.0f, 0.012f, 0.787f, 0.00531f, 0.0186f, 0.273f, 0.00655f, 0.0147f, 4.52f, 0.623f, 0.04f, 0.582f, 0.173f, 0.0165f, 0.268f, 0.78f, 0.0197f, 0.0f, 0.02f, 4.0f, 0.743f};
+// a warm (seeded) start: the player starts the note a little softer than meant and blows up into it,
+// so the upper harmonics arrive later (as in a real attack) while the note speaks at once
+struct WarmAtk {
+	real ws; // seed breath re the breath meant (soft .. loud: ws + wsl x dyn)
+	real wsl;
+	real tr;   // breath rise from the seed to the breath meant (s, at dyn 0) ..
+	real trl;  //   .. shortening with the breath (s per dyn)
+	real hold; // the breath meant is held while the key is still going down (1), or decays (0)
+	real bft;  // its decay once the key has settled (s)
+};
+static constexpr WarmAtk WATK_DEF = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.01f};
+#ifdef TRUMPET_DEBUG
+static Attack dbg_atk = ATK_DEF;
+static WarmAtk dbg_watk = WATK_DEF;
+[[nodiscard]] static inline const Attack& attack_shape() { return dbg_atk; }
+[[nodiscard]] static inline const WarmAtk& warm_shape() { return dbg_watk; }
+#else
+[[nodiscard]] static inline const Attack& attack_shape() { return ATK_DEF; }
+[[nodiscard]] static inline const WarmAtk& warm_shape() { return WATK_DEF; }
+#endif
 // output EQ fitted to the Iowa MIS Bb trumpet recordings (cmpref.py)
 #ifndef TRUMPET_FIT
 static constexpr real FIT_HP_HZ = 450.0f, FIT_LO = 0.12f, FIT_PK_HZ = 1250.0f, FIT_PK_Q = 0.8f, FIT_PK_G = 1.6f;
@@ -381,6 +420,8 @@ struct Player {
 	int stop_blocks;   // re-tongue: blocks with the tongue against the lips
 	real seed;         // tongued start from silence: seed strength, applied in the next block
 	real bfloor;       // breath at a tongued start (from the strike), decaying into the key pressure
+	real atk;          // 1: an unseeded tongued start (the attack trajectory runs), 0: slurred or seeded
+	real wb0, wb1;     // warm start: the seed's breath and the breath meant (key pressure units)
 	int idle_blocks;   // released and silent for this many blocks
 	real b1, b2;       // breath smoother (SVF)
 	real by1, by2;     // tilt smoother
@@ -494,6 +535,11 @@ struct Engine {
 	v.i = (v.i & 0x007FFFFFu) | 0x3F800000u; // mantissa in [1, 2)
 	const real m = v.f;
 	return e + 1.44269504f * (-1.7417939f + (2.8212026f + (-1.4699568f + (0.44717955f - 0.056570851f * m) * m) * m) * m);
+}
+
+// 1 during the hold, then an exponential decay with time constant t
+[[nodiscard]] static inline real atk_env(real age, real hold, real t) {
+	return age < hold ? 1.0f : exp2s(-(age - hold) * 1.442695f / rmax(t, 0.0005f));
 }
 
 [[nodiscard]] static inline real midi_hz(real n) { return 8.1757989f * exp2s(n * (1.0f / 12)); }
@@ -722,21 +768,24 @@ static inline void start_note(Engine& e, int i, real hard, bool tongue, bool fro
 	s.warm = 0;
 	if (tongue) {
 		const real h = clampr(hard * P.attack, 0.0f, 1.5f);
-		s.wdyn = h;                           // the strike, until the warm start picks the breath
-		s.tau_on = 0.012f * exp2s(-3.3f * h); // 12 ms "d" .. 1.2 ms "t"
+		s.wdyn = h; // the strike, until the warm start picks the breath
+		const Attack& A = attack_shape();
+		s.tau_on = A.tau * exp2s(-3.3f * h); // 20 ms "d" .. 2 ms "t"
 		s.ov = P.overshoot * h;
+		s.atk = from_silence || s.gate < 0.3f ? 1.0f : 0.0f;
 		s.ovt = 0.0f;
-		s.bfloor = from_silence || s.gate < 0.3f ? clampr(SEED_BREATH * h, 0.0f, 0.9f) : 0.0f;
+		s.bfloor = from_silence || s.gate < 0.3f ? clampr(A.bf * h, 0.0f, 0.9f) : 0.0f;
 		s.tn = h;
 		if (!from_silence && s.gate > 0.05f) s.stop_blocks = 6 + (int)(10.0f * (1.0f - rmin(h, 1.0f))); // re-tongue
 		if (from_silence) {
 			// the tongue releases air already under pressure: the full breath hits the lips at once,
 			// which the tongue held tensed and ready to swing; the seed (applied in the first block,
 			// when the fingering is known) starts the lips swinging at their frequency
-			s.gate = clampr(0.7f + 0.25f * h, 0.0f, 0.97f);
+			s.gate = clampr(A.g0 + 0.25f * h, 0.0f, 0.97f);
 			s.seed = clampr(0.4f + 0.6f * h, 0.0f, 1.0f);
 		}
 	}
+	if (!tongue) s.atk = 0.0f; // a slur: no attack trajectory
 	s.t_on = e.blocks;
 	s.active = 1;
 	s.good_blocks = s.wrong_blocks = 0;
@@ -1188,7 +1237,9 @@ static inline void process_player(Engine& e, int i) {
 	bool wprefade = false;
 	if (s.seed > 0.0f && held && P.warm > 0.05f) {
 		const real h = s.wdyn;
-		real dyn = clampr(rmax(WARM_D0 + WARM_D1 * h, pres), 0.05f, 1.3f);
+		const WarmAtk& W = warm_shape();
+		const real dyn_m = clampr(rmax(WARM_D0 + WARM_D1 * h, pres), 0.05f, 1.3f);        // the breath meant
+		real dyn = clampr(dyn_m * clampr(W.ws + W.wsl * dyn_m, 0.2f, 1.0f), 0.05f, 1.3f); // the seed's
 #ifdef TRUMPET_DEBUG
 		if (dbg_force_dyn > 0.0f) dyn = dbg_force_dyn;
 #endif
@@ -1213,7 +1264,10 @@ static inline void process_player(Engine& e, int i) {
 			e.wseeds++;
 			wfill = true;
 			s.warm = 1;
+			s.atk = 0.0f;
 			s.wdyn = dyn;
+			s.wb0 = dyn;
+			s.wb1 = rmax(dyn_m, dyn);
 			s.trim = wseed.trim;
 			s.bfloor = WARM_BF_K * dyn;
 			s.b1 = 0.0f;
@@ -1236,7 +1290,10 @@ static inline void process_player(Engine& e, int i) {
 	// cylinder length: nominal + valves + extension + slide (the slide does the tuning offset)
 	const real ext_len = s.ext ? e.leff * (exp2s((real)s.ext * (1.0f / 12)) - 1.0f) * exp2s(0.0f) : 0.0f;
 	const real leff_c = e.leff * exp2s(((real)s.ext + e.combo_semis[s.combo]) * (1.0f / 12));
-	const real slide = -leff_c * (off_c + s.trim) * (0.693147f / 1200.0f);
+	const Attack& A = attack_shape();
+	const real age = (real)(e.blocks - s.t_on) * e.block_dt;
+	const real tp_atk = A.tp * s.atk * atk_env(age, 0.0f, A.tpt);
+	const real slide = -leff_c * (off_c + s.trim + tp_atk) * (0.693147f / 1200.0f);
 	const real d_target = clampr(b.dpure + e.valve_len[s.combo] + ext_len + clampr(slide, 4.0f - b.dpure, 80.0f), 2.0f, DMAXC - 2.0f);
 
 	// lips: tension follows the target; tilt changes the embouchure
@@ -1255,13 +1312,14 @@ static inline void process_player(Engine& e, int i) {
 	if (s.sh_ph >= 1.0f) s.sh_ph -= 1.0f;
 	const bool shaking = shk > 0.05f;
 	const real shake_c = (shaking && s.sh_ph < 0.5f) ? shk * 1200.0f * log2s((real)(s.k + 1) / (real)s.k) : 0.0f;
-	const real f_lip = f_t * exp2s((P.lip_tune + cp.lip + s.lipc + s.trim + shake_c) * (1.0f / 1200) - 0.116f); // the lips follow the horn
+	const real lip_atk = A.l0 * s.atk * atk_env(age, A.lh, A.lt);
+	const real f_lip = f_t * exp2s((P.lip_tune + cp.lip + s.lipc + s.trim + tp_atk + shake_c + lip_atk) * (1.0f / 1200) - 0.116f); // the lips follow the horn
 	const real wl = 2.0f * PI * rmin(f_lip, 6000.0f);
 	const real w2_t = wl * wl;
 	const real q = clampr(P.lip_q * exp2s(0.3f * tilt * P.tilt_lip), 0.3f, 500.0f);
 	const real reg = exp2s((target - 70.0f) * (1.0f / 12));               // register factor (1 at concert Bb4)
 	const real mu = clampr(1.5f * P.lip_mass / fsqrt(reg), 0.05f, 20.0f); // kg/m^2 (lighter lips up high)
-	const real h0 = clampr(P.lip_open * 0.001f * exp2s(-tilt * P.tilt_lip) / fsqrt(fsqrt(reg)), -0.001f, 0.002f);
+	real h0 = clampr(P.lip_open * 0.001f * exp2s(-tilt * P.tilt_lip) / fsqrt(fsqrt(reg)) + 0.001f * A.ha * s.atk * atk_env(age, A.hh, A.ht), -0.002f, 0.002f);
 	const real lw = clampr(P.lip_width * 0.001f, 0.002f, 0.02f);
 
 	// breath: pressure -> mouth pressure (threshold grows with register)
@@ -1271,15 +1329,25 @@ static inline void process_player(Engine& e, int i) {
 		// during the attack the breath runs ahead of the key: a key takes ~10-30 ms to be pressed
 		// fully, the player's air arrives at the tongue release (the pressure velocity tells how hard)
 		real pin = pres;
-		if (held && !s.warm && (real)(e.blocks - s.t_on) * e.block_dt < 0.06f) pin = rmin(pres + LEAD * rmax(cc.vpres, 0.0f), rmax(pres, 1.1f));
+		if (held && !s.warm && age < 0.06f) pin = rmin(pres + A.lead * rmax(cc.vpres, 0.0f), rmax(pres, 1.1f));
 		SVF_TICK(pin, b1, b2, e.bc, t, bl);
 		s.b1 = b1;
 		s.b2 = b2;
 		(void)t;
+		if (age < 0.06f) bl = rmax(bl, A.bs * s.atk * pin);
 		// a tongued note starts on the breath the player built up behind the tongue: the strike tells
 		// how hard (the key pressure itself takes ~10 ms to arrive); it hands over to the pressure
 		bl = clampr(rmax(bl, s.bfloor), 0.0f, 1.5f);
-		s.bfloor *= 1.0f - e.block_dt / (s.warm ? WARM_BF_T : BFLOOR_T);
+		if (s.warm && s.wb1 > 0.0f) {
+			// a warm start: the breath rises from the seed's to the one meant, held while the key goes down
+			const WarmAtk& W = warm_shape();
+			const real tr = rmax(W.tr - W.trl * s.wb1, 0.001f);
+			s.wb0 += (s.wb1 - s.wb0) * rmin(e.block_dt / tr, 1.0f);
+			bl = clampr(rmax(bl, s.wb0), 0.0f, 1.5f);
+			if (!(W.hold > 0.5f && cc.vpres > 0.0f && age < 0.08f)) s.wb1 *= 1.0f - rmin(e.block_dt / rmax(W.bft, 0.002f), 1.0f);
+			if (s.wb1 < 0.01f) s.wb1 = 0.0f;
+		}
+		s.bfloor *= 1.0f - e.block_dt / (s.warm ? WARM_BF_T : A.bft);
 	}
 	const real pthr = cp.pthr; // Pa
 	const real p_lo = pthr * P.p_soft;
@@ -1300,8 +1368,10 @@ static inline void process_player(Engine& e, int i) {
 	} else {
 		s.gate *= 1.0f - rmin(e.block_dt / rmax(P.release, 0.005f), 1.0f);
 	}
-	s.ov *= 1.0f - e.block_dt / 0.04f;
+	s.ov *= 1.0f - e.block_dt / (s.warm ? 0.04f : rmax(A.ovt, 0.002f));
 	s.ovt *= 1.0f - e.block_dt / 0.04f;
+	const real pov = A.pa * s.atk * atk_env(age, A.ph, A.pt);
+	h0 = clampr(h0 - A.hc * s.atk * pm_t * (s.ov + pov) / (mu * w2_t), -0.002f, 0.002f);
 	if (s.ovt > s.ov) s.ov += (s.ovt - s.ov) * rmin(e.block_dt * (1.0f / WARM_OV_T), 1.0f);
 	s.tn *= 1.0f - e.block_dt / 0.006f;
 	// growl: throat flutter, band-passed noise around 45 Hz on the mouth pressure
@@ -1309,7 +1379,7 @@ static inline void process_player(Engine& e, int i) {
 	s.gr1 += 0.06f * (noise(s.rng) - s.gr1);
 	s.gr2 += 0.06f * (s.gr1 - s.gr2);
 	s.n2 += 0.02f * (noise(s.rng) - s.n2); // slow wander
-	const real pm_end = rmax(pm_t * s.gate * (1.0f + s.ov) * (1.0f + 0.012f * s.n2 + 3.0f * growl * (s.gr1 - s.gr2)), 0.0f);
+	const real pm_end = rmax(pm_t * s.gate * (1.0f + s.ov + pov) * (1.0f + 0.012f * s.n2 + 3.0f * growl * (s.gr1 - s.gr2)), 0.0f);
 	if (s.gate < 1e-6f && !sounding) {
 		// silent: the bore rings out, then the player goes idle
 	}
@@ -1348,9 +1418,9 @@ static inline void process_player(Engine& e, int i) {
 #ifdef TRUMPET_DEBUG
 		const real SEED_LIP = dbg_seed;
 #endif
-		const real amp = SEED_LIP * s.seed * (0.12f + 0.25f * fsqrt(bl)) * 0.001f / fsqrt(fsqrt(reg));
+		const real amp = A.sd * SEED_LIP * s.seed * (0.12f + 0.25f * fsqrt(bl)) * 0.001f / fsqrt(fsqrt(reg));
 		s.x = h0;
-		s.v = amp * fsqrt(w2_t);
+		s.v = amp * (fsqrt(w2_t) + A.sf * (2.0f * PI * f_t - fsqrt(w2_t)));
 		s.w2 = w2_t;
 		s.seed = 0.0f;
 	}
@@ -1637,7 +1707,7 @@ static inline void process_player(Engine& e, int i) {
 			// move at once would knock the lips out of their regime)
 			const bool early = (e.blocks - s.t_on) * e.block_dt < 0.05f;
 			const real tc = early && fabsf(err) < 40.0f ? 0.015f : 0.05f;
-			const real step = clampr(err * rmin(per_sum * dt / tc, 0.6f), -4.0f, 4.0f);
+			const real step = clampr(err * rmin(per_sum * dt / tc, 0.6f), -(early ? A.pr : 4.0f), early ? A.pr : 4.0f);
 			s.trim = clampr(s.trim - step, -250.0f, 150.0f);
 			s.wrong_blocks = 0;
 			if (fabsf(err) < 8.0f) {
