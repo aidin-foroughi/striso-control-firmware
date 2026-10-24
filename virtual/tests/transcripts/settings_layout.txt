@@ -1,0 +1,44 @@
+> StcX
+X keys 41
+X 0 switch midi - - k MPE|MPE MIDI mode|number of MPE voices, 1 to 15
+X 2 switch midi - - k Poly|Normal MIDI mode (all notes on one channel)|MIDI channel, 1 to 16
+X 4 switch midi - - k Mono|Mono (glissando) MIDI mode|MIDI channel, 1 to 16
+X 6 dial sens - - - Bend|Pitch bend sensitivity (sideways tilt)|0 to 4, steps of 1/4
+X 8 dial sens - - - Tilt|Tilt (forward/back) sensitivity|0 to 3, steps of 1/8
+X 11 action layout - - - Flip|Flip the layout 180 degrees (with the glissando button also held: debug mode on/off)|
+X 13 switch voice brass 402800 k brass|Voice: brass|step through its presets (the up/down leds show which)
+X 15 switch voice trumpet 003030 k tpt|Voice: trumpet|step through its presets (the up/down leds show which)
+X 17 dial sens - - - Thres|Note-on threshold|how light a touch starts a note (led dial 0 to 15)
+X 18 switch voice strisy 282828 k strisy|Voice: strisy|step through its presets (the up/down leds show which)
+X 19 dial sens - - - Press|Pressure sensitivity|0 to 3, steps of 1/8
+X 20 switch voice va 401400 k va|Voice: va|step through its presets (the up/down leds show which)
+X 21 dial sens - - - Velo|Velocity sensitivity|0 to 2, steps of 1/8
+X 22 switch voice modal 001840 k modal|Voice: modal|step through its presets (the up/down leds show which)
+X 23 switch tuning - - k Pyth|Tuning 3: Pythagorean|fine tuning offset, 1/32 semitone per step
+X 24 switch voice bowed 400000 k bowed|Voice: bowed|step through its presets (the up/down leds show which)
+X 25 switch tuning - - k 5TET|Tuning 4: 5-TET|fine tuning offset, 1/32 semitone per step
+X 26 switch voice wind 004000 k wind|Voice: wind|step through its presets (the up/down leds show which)
+X 27 switch tuning - - k 7TET|Tuning 5: 7-TET|fine tuning offset, 1/32 semitone per step
+X 28 switch voice ep 280040 k ep|Voice: ep|step through its presets (the up/down leds show which)
+X 29 switch tuning - - k BP1|Tuning 6: Bohlen-Pierce 1|fine tuning offset, 1/32 semitone per step
+X 30 switch preset - - k P7|Load settings preset 7|
+X 31 switch tuning - - k BP2|Tuning 7: Bohlen-Pierce 2|fine tuning offset, 1/32 semitone per step
+X 32 switch preset - - k P8|Load settings preset 8|
+X 33 switch tuning - - k Just|Tuning 8: Just 7-limit|fine tuning offset, 1/32 semitone per step
+X 34 switch tuning - - k 12TET|Tuning 0: 12-TET|fine tuning offset, 1/32 semitone per step
+X 35 switch preset - - k P1|Load settings preset 1|
+X 36 switch tuning - - k 31TET|Tuning 1: 31-TET|fine tuning offset, 1/32 semitone per step
+X 37 switch preset - - k P2|Load settings preset 2|
+X 38 switch tuning - - k 19TET|Tuning 2: 19-TET|fine tuning offset, 1/32 semitone per step
+X 39 switch preset - - k P3|Load settings preset 3|
+X 41 switch preset - - k P4|Load settings preset 4|
+X 43 switch preset - - k P5|Load settings preset 5|
+X 45 switch preset - - k P6|Load settings preset 6|
+X 51 dial midi2 - - - Vol|Volume (MIDI CC7)|volume, 0 to 127
+X 53 dial midi2 - - - Sust|Sustain / decay (pedal)|release length, 0 to 1
+X 56 dial midi2 - - - MPEbd|MPE pitch bend range|12, 24, 48 or 96 semitones
+X 58 dial midi2 - - - Rate|MIDI message interval|1 to 15 ms
+X 63 switch system - - k Panic|Panic: all MIDI notes off|
+X 65 action system - - - Cfg|Send the MPE and pitch bend configuration over MIDI|
+X 67 action system - - d Reset|System reset: restarts the Striso|
+X end

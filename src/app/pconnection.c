@@ -314,6 +314,9 @@ void PExReceiveByte(unsigned char c) {
         payload_len = 0;
         payload_need = 1;
       }
+      else if (c == 'X') { // the settings-key layout (read only): "X keys <n>", a line per key, "X end"
+        synth_settings_keys_print(&BDU1);
+      }
 #ifdef USE_INTERNAL_SYNTH
       else if (c == 'P') { // synth engine profile per section since last read
         synth_profile_print(&BDU1);

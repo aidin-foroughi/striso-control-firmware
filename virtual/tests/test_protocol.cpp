@@ -3,9 +3,9 @@
 // virtual/tests/transcripts/<session>.txt: the virtual board's console sessions, sent and
 // received bytes, as the board's code answers them (the lists, Q writes and their errors, voice
 // selection, StcN in several tunings, StcK's whitelist and refusals, the settings presets, the
-// binary stream). The board is deterministic, so a transcript is exact; only the version string
-// (it follows git) and the thread list's addresses are masked. With SV_UPDATE_TRANSCRIPTS=1 the
-// test writes them instead (then read the diff before committing).
+// binary stream, the settings-key layout StcX). The board is deterministic, so a transcript is
+// exact; only the version string (it follows git) and the thread list's addresses are masked.
+// With SV_UPDATE_TRANSCRIPTS=1 the test writes them instead (then read the diff before committing).
 //
 // virtual/tests/transcripts/board/<cmd>.bin: the real board's replies to the read-only commands
 // (V L p f g k N U I), recorded with tools/striso.py from a Striso on USB. The virtual board's
@@ -173,6 +173,12 @@ TEST_CASE("protocol: StcK's whitelist: every settings key, ok or refused") {
 	s.cmd("v", 40);
 	s.cmd("N", 40);
 	check_transcript("settings_keys", s.text);
+}
+
+TEST_CASE("protocol: StcX, the settings-key layout") {
+	Session s;
+	s.cmd("X", 40);
+	check_transcript("settings_layout", s.text);
 }
 
 TEST_CASE("protocol: the settings presets (StcK 35 37 39 41 43 45 30 32): touch settings after each") {

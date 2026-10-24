@@ -6,7 +6,7 @@
 #   virtual.midi in: *   MIDI note input through sv_midi_write (sounds, falls silent, no echo)
 include("${PROJECT_SOURCE_DIR}/third_party/doctest/cmake/doctest.cmake")
 
-add_executable(striso_virtual_tests main.cpp test_api.cpp test_message_path.cpp test_protocol.cpp test_midi_in.cpp)
+add_executable(striso_virtual_tests main.cpp test_api.cpp test_message_path.cpp test_protocol.cpp test_midi_in.cpp test_state.cpp)
 target_include_directories(striso_virtual_tests PRIVATE
   "${PROJECT_SOURCE_DIR}/third_party/doctest"
   "${PROJECT_SOURCE_DIR}/tools/harness")

@@ -99,6 +99,9 @@ void synth_tuning_print(void *chp);
 // (StcK): queued for the key handling thread. Returns 0 if the id isn't allowed (the whitelist is
 // in synth_control.cpp) or the queue is full, 1 if queued.
 int synth_settings_key(int id);
+// The settings-key layout (console command StcX, read only): what every key does with Settings
+// held, one line per key, format in synth_control.cpp (settings_keys[]).
+void synth_settings_keys_print(void *chp);
 
 int synth_message(int size, int* msg);
 void synth_tick(void);

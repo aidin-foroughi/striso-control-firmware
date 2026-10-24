@@ -1599,32 +1599,13 @@ unsigned int aux_button_map = 0;
  * leds as releasing Settings leaves them (update_leds). The console only queues the request
  * (synth_settings_key, message ID_INTERNAL): it runs in the thread that handles the keys
  * (synth_message, ThreadSend), so it never races a real key press.
- * Allowed ids (config_but case numbers, current layout; every other id is refused):
- *    0  2  4                      MIDI mode MPE, Normal, Mono
- *   34                            tuning 12-TET
- *   36 38 23 25 27 29 31 33       tunings 1..8 (fT<n>... in the config)
- *   35 37 39 41 43 45 30 32       settings presets 1..8 (load_preset: MIDI mode, sensitivities...)
- *   18 20 22 24 26 28 13          voices strisy, va, modal, bowed, wind, ep, brass (internal synth)
- *   63                            panic: all notes off (MIDI)
- * Refused: 67 system reset, 65 send MPE/bend config, 11 debug/flip layout, the dials (17 threshold,
- * 19 pressure, 21 velocity, 6 bend, 8 tilt, 51 volume, 53 sustain, 56 MPE bend range, 58 message
- * interval: they need an amount, not a press) and anything else. None of the allowed keys writes
- * flash or reboots.
+ * Allowed: the keys flagged SKF_CONSOLE in the settings-key table (settings_keys[], next to
+ * config_but; StcX lists them with the flag 'k'): the MIDI modes, the tunings, the settings presets,
+ * the voices of the engines in this firmware and panic. Refused: system reset, send cfg, flip, the
+ * dials (they need an amount, not a press) and anything else. None of the allowed keys writes flash
+ * or reboots.
  */
-static bool settings_key_allowed(int id) {
-    switch (id) {
-    case 0: case 2: case 4:                                                  // MIDI modes
-    case 34: case 36: case 38: case 23: case 25: case 27: case 29: case 31: case 33:  // tunings
-    case 35: case 37: case 39: case 41: case 43: case 45: case 30: case 32:  // settings presets
-#ifdef USE_INTERNAL_SYNTH
-    case 18: case 20: case 22: case 24: case 26: case 28: case 13: case 15:  // voices
-#endif
-    case 63:                                                                 // panic
-        return true;
-    default:
-        return false;
-    }
-}
+static bool settings_key_allowed(int id);
 
 static void settings_key_press(int id) {
     if (!settings_key_allowed(id)) return;
@@ -1976,6 +1957,205 @@ void load_preset(int n) {
 }
 
 
+/*
+ * The settings-key layout: what every key does with Settings held, one entry per key that does
+ * something in config_but (ascending id). The console prints it (StcX, synth_settings_keys_print)
+ * so the PC shows the board's own layout instead of a copy of it; StcK accepts the keys flagged
+ * SKF_CONSOLE. The voice keys' engine and indicator colour here are what config_but passes to
+ * config_voice. A voice key whose engine isn't in this firmware is left out (StcX) and refused (StcK).
+ */
+enum : uint8_t { SK_SWITCH, SK_DIAL, SK_ACTION };  // a press selects / hold and tilt / does something
+enum : uint8_t { SG_MIDI, SG_LAYOUT, SG_SENS, SG_VOICE, SG_TUNING, SG_PRESET, SG_MIDI2, SG_SYSTEM };
+#define SKF_CONSOLE 1  // StcK may press it
+#define SKF_DANGER 2   // restarts the board
+typedef struct {
+    uint8_t id, kind, group, flags;
+    int8_t arg;          // tuning keys: the tuning, preset keys: the preset, else -1
+    const char* engine;  // voice keys: the engine (as synth_voice_name), else NULL
+    uint32_t led;        // voice keys: config_voice's indicator colour, r g b as 0xrrggbb
+    const char* label;   // at most 6 characters, no spaces
+    const char* title;
+    const char* knob;    // what tilting the held key sets ("" when nothing)
+} settings_key_info_t;
+
+#define SK_VOICE_KNOB "step through its presets (the up/down leds show which)"
+#define SK_TUNING_KNOB "fine tuning offset, 1/32 semitone per step"
+static const settings_key_info_t settings_keys[] = {
+    {0, SK_SWITCH, SG_MIDI, SKF_CONSOLE, -1, NULL, 0, "MPE", "MPE MIDI mode", "number of MPE voices, 1 to 15"},
+    {2, SK_SWITCH, SG_MIDI, SKF_CONSOLE, -1, NULL, 0, "Poly", "Normal MIDI mode (all notes on one channel)", "MIDI channel, 1 to 16"},
+    {4, SK_SWITCH, SG_MIDI, SKF_CONSOLE, -1, NULL, 0, "Mono", "Mono (glissando) MIDI mode", "MIDI channel, 1 to 16"},
+    {6, SK_DIAL, SG_SENS, 0, -1, NULL, 0, "Bend", "Pitch bend sensitivity (sideways tilt)", "0 to 4, steps of 1/4"},
+    {8, SK_DIAL, SG_SENS, 0, -1, NULL, 0, "Tilt", "Tilt (forward/back) sensitivity", "0 to 3, steps of 1/8"},
+    {11, SK_ACTION, SG_LAYOUT, 0, -1, NULL, 0, "Flip", "Flip the layout 180 degrees (with the glissando button also held: debug mode on/off)", ""},
+#ifdef USE_INTERNAL_SYNTH
+    {13, SK_SWITCH, SG_VOICE, SKF_CONSOLE, -1, "brass", 0x402800, "brass", "Voice: brass", SK_VOICE_KNOB},
+    {15, SK_SWITCH, SG_VOICE, SKF_CONSOLE, -1, "trumpet", 0x003030, "tpt", "Voice: trumpet", SK_VOICE_KNOB},
+#endif
+    {17, SK_DIAL, SG_SENS, 0, -1, NULL, 0, "Thres", "Note-on threshold", "how light a touch starts a note (led dial 0 to 15)"},
+#ifdef USE_INTERNAL_SYNTH
+    {18, SK_SWITCH, SG_VOICE, SKF_CONSOLE, -1, "strisy", 0x282828, "strisy", "Voice: strisy", SK_VOICE_KNOB},
+#endif
+    {19, SK_DIAL, SG_SENS, 0, -1, NULL, 0, "Press", "Pressure sensitivity", "0 to 3, steps of 1/8"},
+#ifdef USE_INTERNAL_SYNTH
+    {20, SK_SWITCH, SG_VOICE, SKF_CONSOLE, -1, "va", 0x401400, "va", "Voice: va", SK_VOICE_KNOB},
+#endif
+    {21, SK_DIAL, SG_SENS, 0, -1, NULL, 0, "Velo", "Velocity sensitivity", "0 to 2, steps of 1/8"},
+#ifdef USE_INTERNAL_SYNTH
+    {22, SK_SWITCH, SG_VOICE, SKF_CONSOLE, -1, "modal", 0x001840, "modal", "Voice: modal", SK_VOICE_KNOB},
+#endif
+    {23, SK_SWITCH, SG_TUNING, SKF_CONSOLE, 3, NULL, 0, "", "", SK_TUNING_KNOB},
+#ifdef USE_INTERNAL_SYNTH
+    {24, SK_SWITCH, SG_VOICE, SKF_CONSOLE, -1, "bowed", 0x400000, "bowed", "Voice: bowed", SK_VOICE_KNOB},
+#endif
+    {25, SK_SWITCH, SG_TUNING, SKF_CONSOLE, 4, NULL, 0, "", "", SK_TUNING_KNOB},
+#ifdef USE_INTERNAL_SYNTH
+    {26, SK_SWITCH, SG_VOICE, SKF_CONSOLE, -1, "wind", 0x004000, "wind", "Voice: wind", SK_VOICE_KNOB},
+#endif
+    {27, SK_SWITCH, SG_TUNING, SKF_CONSOLE, 5, NULL, 0, "", "", SK_TUNING_KNOB},
+#ifdef USE_INTERNAL_SYNTH
+    {28, SK_SWITCH, SG_VOICE, SKF_CONSOLE, -1, "ep", 0x280040, "ep", "Voice: ep", SK_VOICE_KNOB},
+#endif
+    {29, SK_SWITCH, SG_TUNING, SKF_CONSOLE, 6, NULL, 0, "", "", SK_TUNING_KNOB},
+    {30, SK_SWITCH, SG_PRESET, SKF_CONSOLE, 7, NULL, 0, "P7", "Load settings preset 7", ""},
+    {31, SK_SWITCH, SG_TUNING, SKF_CONSOLE, 7, NULL, 0, "", "", SK_TUNING_KNOB},
+    {32, SK_SWITCH, SG_PRESET, SKF_CONSOLE, 8, NULL, 0, "P8", "Load settings preset 8", ""},
+    {33, SK_SWITCH, SG_TUNING, SKF_CONSOLE, 8, NULL, 0, "", "", SK_TUNING_KNOB},
+    {34, SK_SWITCH, SG_TUNING, SKF_CONSOLE, 0, NULL, 0, "", "", SK_TUNING_KNOB},
+    {35, SK_SWITCH, SG_PRESET, SKF_CONSOLE, 1, NULL, 0, "P1", "Load settings preset 1", ""},
+    {36, SK_SWITCH, SG_TUNING, SKF_CONSOLE, 1, NULL, 0, "", "", SK_TUNING_KNOB},
+    {37, SK_SWITCH, SG_PRESET, SKF_CONSOLE, 2, NULL, 0, "P2", "Load settings preset 2", ""},
+    {38, SK_SWITCH, SG_TUNING, SKF_CONSOLE, 2, NULL, 0, "", "", SK_TUNING_KNOB},
+    {39, SK_SWITCH, SG_PRESET, SKF_CONSOLE, 3, NULL, 0, "P3", "Load settings preset 3", ""},
+    {41, SK_SWITCH, SG_PRESET, SKF_CONSOLE, 4, NULL, 0, "P4", "Load settings preset 4", ""},
+    {43, SK_SWITCH, SG_PRESET, SKF_CONSOLE, 5, NULL, 0, "P5", "Load settings preset 5", ""},
+    {45, SK_SWITCH, SG_PRESET, SKF_CONSOLE, 6, NULL, 0, "P6", "Load settings preset 6", ""},
+    {51, SK_DIAL, SG_MIDI2, 0, -1, NULL, 0, "Vol", "Volume (MIDI CC7)", "volume, 0 to 127"},
+    {53, SK_DIAL, SG_MIDI2, 0, -1, NULL, 0, "Sust", "Sustain / decay (pedal)", "release length, 0 to 1"},
+    {56, SK_DIAL, SG_MIDI2, 0, -1, NULL, 0, "MPEbd", "MPE pitch bend range", "12, 24, 48 or 96 semitones"},
+    {58, SK_DIAL, SG_MIDI2, 0, -1, NULL, 0, "Rate", "MIDI message interval", "1 to 15 ms"},
+    {63, SK_SWITCH, SG_SYSTEM, SKF_CONSOLE, -1, NULL, 0, "Panic", "Panic: all MIDI notes off", ""},
+    {65, SK_ACTION, SG_SYSTEM, 0, -1, NULL, 0, "Cfg", "Send the MPE and pitch bend configuration over MIDI", ""},
+    {67, SK_ACTION, SG_SYSTEM, SKF_DANGER, -1, NULL, 0, "Reset", "System reset: restarts the Striso", ""},
+};
+#define SETTINGS_KEY_COUNT ((int)(sizeof(settings_keys) / sizeof(settings_keys[0])))
+
+// the tunings of the settings card (config.h fT<n>..., tuning 0 is built in): their names while the
+// config has the factory values (sT<n>name, fT<n>fifth, fT<n>oct)
+static const char* const tuning_names[9][2] = {
+    {"12-TET", "12TET"}, {"31-TET", "31TET"}, {"19-TET", "19TET"}, {"Pythagorean", "Pyth"}, {"5-TET", "5TET"},
+    {"7-TET", "7TET"}, {"Bohlen-Pierce 1", "BP1"}, {"Bohlen-Pierce 2", "BP2"}, {"Just 7-limit", "Just"}};
+
+static const settings_key_info_t* settings_key_find(int id) {
+    for (int i = 0; i < SETTINGS_KEY_COUNT; i++)
+        if (settings_keys[i].id == id) return &settings_keys[i];
+    return NULL;
+}
+
+// in this firmware: every key but a voice key whose engine isn't built
+static bool settings_key_present(const settings_key_info_t* k) {
+#ifdef USE_INTERNAL_SYNTH
+    if (!k->engine) return true;
+    for (int n = 0; n < synth_num_voices(); n++)
+        if (strcmp(synth_voice_name(n, NULL), k->engine) == 0) return true;
+    return false;
+#else
+    return k->engine == NULL;
+#endif
+}
+
+static bool settings_key_allowed(int id) {
+    const settings_key_info_t* k = settings_key_find(id);
+    return k && (k->flags & SKF_CONSOLE) && settings_key_present(k);
+}
+
+// the factory value of a config key (config.h), NULL if it has none
+static const char* default_setting(const char* key) {
+    for (const ConfigParam* c = default_config; !cmp8(c->key, "MCfgEnd ") && c->key[0] >= 32 && c->key[0] < 127; c++)
+        if (cmp8(c->key, key)) return c->value;
+    return NULL;
+}
+
+static bool setting_is_factory(const char* key) {
+    const char* d = default_setting(key);
+    return d && cmp8(getConfigSetting(key), d);
+}
+
+// a config value (8 characters) as text: trailing spaces off, '|' and control characters as '?';
+// as a label (no_spaces) without spaces and at most 6 characters
+static void setting_text(const char* v, char* out, bool no_spaces) {
+    int n = 0, end = 0;
+    for (int i = 0; i < 8 && (!no_spaces || n < 6); i++) {
+        char c = v[i];
+        if (c == ' ' && no_spaces) continue;
+        if (c < 32 || c >= 127 || c == '|') c = '?';
+        out[n++] = c;
+        if (c != ' ') end = n;
+    }
+    out[end] = 0;
+}
+
+// StcX: the layout, "X keys <n>", one line per key present (ascending id), "X end"; line format:
+// X <id> <kind> <group> <engine|-> <led rrggbb|-> <flags|-> <label>|<title>|<knob>
+void synth_settings_keys_print(void* chp) {
+    BaseSequentialStream* out = (BaseSequentialStream*)chp;
+    static const char* const kinds[] = {"switch", "dial", "action"};
+    static const char* const groups[] = {"midi", "layout", "sens", "voice", "tuning", "preset", "midi2", "system"};
+    int count = 0;
+    for (int i = 0; i < SETTINGS_KEY_COUNT; i++) count += settings_key_present(&settings_keys[i]);
+    chprintf(out, "X keys %d\r\n", count);
+    for (int i = 0; i < SETTINGS_KEY_COUNT; i++) {
+        const settings_key_info_t* k = &settings_keys[i];
+        if (!settings_key_present(k)) continue;
+        char led[8] = "-", flags[4] = "-", label[8], name[12], title[112];
+        if (k->engine) chsnprintf(led, sizeof led, "%06lx", (unsigned long)k->led);
+        int f = 0;
+        if (settings_key_allowed(k->id)) flags[f++] = 'k';
+        if (k->flags & SKF_DANGER) flags[f++] = 'd';
+        if (f) flags[f] = 0;
+        const char* lab = k->label;
+        const char* tit = k->title;
+        if (k->group == SG_TUNING) {
+            const int n = k->arg;
+            CC_ALIGN(8) char key[] = "sT0name ";
+            key[2] = '0' + n;
+            bool factory = n == 0;  // tuning 0 is built in
+            if (!factory) {
+                factory = setting_is_factory(key);
+                key[0] = 'f';
+                strset(key, 3, "fifth");
+                factory = factory && setting_is_factory(key);
+                strset(key, 3, "oct  ");
+                factory = factory && setting_is_factory(key);
+            }
+            if (factory) {
+                lab = tuning_names[n][1];
+                chsnprintf(title, sizeof title, "Tuning %d: %s", n, tuning_names[n][0]);
+            } else {
+                key[0] = 's';
+                strset(key, 3, "name ");
+                setting_text(getConfigSetting(key), label, true);
+                setting_text(getConfigSetting(key), name, false);
+                if (!label[0]) strcpy(label, "T?");
+                lab = label;
+                chsnprintf(title, sizeof title, "Tuning %d: %s (from the config)", n, name);
+            }
+            tit = title;
+        } else if (k->group == SG_PRESET) {
+            // a preset named in the config (sP<n>name) other than its factory name
+            CC_ALIGN(8) char key[] = "sP0name ";
+            key[2] = '0' + k->arg;
+            if (!setting_is_factory(key)) {
+                setting_text(getConfigSetting(key), name, false);
+                chsnprintf(title, sizeof title, "%s: %s", k->title, name);
+                tit = title;
+            }
+        }
+        chprintf(out, "X %d %s %s %s %s %s %s|%s|%s\r\n", k->id, kinds[k->kind], groups[k->group],
+                 k->engine ? k->engine : "-", led, flags, lab, tit, k->knob);
+    }
+    chprintf(out, "X end\r\n");
+}
+
 #ifdef USE_INTERNAL_SYNTH
 /*
  * Synth voice selection with the settings row 4 ("future use" on the v2.2 settings card): each key
@@ -2147,14 +2327,12 @@ float config_but(int but, int type, float adjust) {
     // row 4: 18 20 22 24 26 28 13 15
 #ifdef USE_INTERNAL_SYNTH
     // row 4: 18 20 22 24 26 28 13 15 ("future use" on the v2.2 card): synth voice
-    case (18): return config_voice("strisy", 40, 40, 40, type, adjust);
-    case (20): return config_voice("va", 64, 20, 0, type, adjust);
-    case (22): return config_voice("modal", 0, 24, 64, type, adjust);
-    case (24): return config_voice("bowed", 64, 0, 0, type, adjust);
-    case (26): return config_voice("wind", 0, 64, 0, type, adjust);
-    case (28): return config_voice("ep", 40, 0, 64, type, adjust);
-    case (13): return config_voice("brass", 64, 40, 0, type, adjust);
-    case (15): return config_voice("trumpet", 0, 48, 48, type, adjust);  // cyan
+    // each key's engine and indicator colour: settings_keys[] (strisy grey, va orange, modal blue,
+    // bowed red, wind green, ep purple, brass amber, trumpet cyan)
+    case (18): case (20): case (22): case (24): case (26): case (28): case (13): case (15): {
+        const settings_key_info_t* k = settings_key_find(but);
+        return config_voice(k->engine, k->led >> 16, (k->led >> 8) & 0xff, k->led & 0xff, type, adjust);
+        }
 #endif
     // row 5: 34 36 38 23 25 27 29 31 33
     case (34): // set 12tet tuning, knob: tuning offset
