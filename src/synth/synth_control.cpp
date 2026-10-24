@@ -1359,7 +1359,6 @@ void load_preset(int n) {
     i = getConfigInt(key);
     if (i >= 0 && i <= 8) {
         dis.load_tuning(i);
-        config.message_interval = i;
     }
 
     key[0] = 'f';

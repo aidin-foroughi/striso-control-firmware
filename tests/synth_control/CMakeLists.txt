@@ -48,7 +48,7 @@ set(STRISO_SYNTH_CONTROL_SCENARIOS
 set(STRISO_SYNTH_CONTROL_FLAG_SCENARIOS sc08_bend_like_mpe sc21_motion_hyst)
 # scenarios of bugs not fixed yet: expected to fail (each fix removes its entry)
 set(STRISO_SYNTH_CONTROL_KNOWN_FAILING ${STRISO_SYNTH_CONTROL_SCENARIOS} ${STRISO_SYNTH_CONTROL_FLAG_SCENARIOS})
-list(REMOVE_ITEM STRISO_SYNTH_CONTROL_KNOWN_FAILING sc08_bend_default sc10_normal_midi_unchanged preset_keys)
+list(REMOVE_ITEM STRISO_SYNTH_CONTROL_KNOWN_FAILING sc08_bend_default sc10_normal_midi_unchanged preset_keys b1_message_interval)
 
 foreach(s IN LISTS STRISO_SYNTH_CONTROL_SCENARIOS)
   add_test(NAME synth_control.${s} COMMAND test_synth_control ${s})
