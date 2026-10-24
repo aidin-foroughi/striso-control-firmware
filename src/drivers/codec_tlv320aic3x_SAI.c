@@ -124,8 +124,10 @@ void codec_aic3x_init(uint16_t samplerate) {
   palSetLine(LINE_CODEC_EN);
   chThdSleepMilliseconds(1);
 
-  // Reset
-  aic3xWriteRegister(AIC3X_RESET, 0x01);
+  // Software reset: page 0 register 1 D7 (self-clearing; D6-D0 reserved, write zeros). The
+  // register is write only: no read-back.
+  (void)aic3x_write(AIC3X_RESET, SOFT_RESET);
+  chThdSleepMilliseconds(1);
   // Set Audio data word length = 32 bits
   aic3xWriteRegister(AIC3X_ASD_INTF_CTRLB, 0b00110000);
   // Route Line1LP to the Left ADC, Power up Left ADC
@@ -146,7 +148,7 @@ void codec_aic3x_init(uint16_t samplerate) {
   // aic3xWriteRegister(RADC_VOL, 0x00);
   // Route Left data to Left DAC, Route Right data to Right DAC
   aic3xWriteRegister(AIC3X_CODEC_DATAPATH_REG, 0x0A); // 0b00001010
-  // Power up Left and Right DACâ€™s
+  // Power up Left and Right DAC’s
   aic3xWriteRegister(DAC_PWR, 0xC0); // 0b11000000
   // Unmute Left digital volume control, set gain to 0 dB
   aic3xWriteRegister(LDAC_VOL, 0x00);
@@ -160,9 +162,9 @@ void codec_aic3x_init(uint16_t samplerate) {
   // aic3xWriteRegister(PGAR_2_RLOPM_VOL, 0x80);
   // Route Right DAC output to Right Line outs
   aic3xWriteRegister(DACR1_2_RLOPM_VOL, 0x80);
-  // Power up Left line out Â± (differential), set gain to 0dB
+  // Power up Left line out ± (differential), set gain to 0dB
   aic3xWriteRegister(LLOPM_CTRL, 0x09);
-  // Power up Right line out Â± (differential), set gain to 0 dB
+  // Power up Right line out ± (differential), set gain to 0 dB
   aic3xWriteRegister(RLOPM_CTRL, 0x09);
 
   // aic3xWriteRegister(46, 0b10000000);
