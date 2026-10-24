@@ -615,7 +615,8 @@ class Instrument {
             note_offset = tuning_note_offset = f / 100;
             for (int n = 0; n < 61; n++) {
                 put_button_name(n, &key[3]);
-                int but = button_number_map[n];
+                // the key that plays note n: on a flipped layout, the mirrored one (SC-12)
+                int but = button_number_map[flipdir == 1 ? n : 60 - n];
                 f = getConfigFloat(key);
                 if (f == CONFIG_UNDEFINED) f = 0.0f;
                 buttons[but].tuning_note_offset = f / 100;
@@ -635,6 +636,14 @@ class Instrument {
                 buttons[n].coord1 = -buttons[n].coord1;
                 // invert midi note number
                 buttons[n].midinote_base = -buttons[n].midinote_base;
+            }
+            // each key now plays the mirrored key's note: its tuning offset goes with the note (SC-12)
+            for (int n = 0; n < 30; n++) {
+                Button& a = buttons[button_number_map[n]];
+                Button& b = buttons[button_number_map[60 - n]];
+                float t = a.tuning_note_offset;
+                a.tuning_note_offset = b.tuning_note_offset;
+                b.tuning_note_offset = t;
             }
         }
 
