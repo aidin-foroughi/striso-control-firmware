@@ -1,4 +1,7 @@
 #include "ch.h"
+#if defined(__arm__) // the board (the host tests have no HAL)
+#include "hal.h"
+#endif
 #include "config.h"
 
 /* Button names */
@@ -27,9 +30,19 @@ void strset(char* key, unsigned int start, const char* str) {
   }
 }
 
+// The rest of an 8-character value field after a number: spaces (or NULs) only.
+static bool field_rest_blank(const char* str, int i) {
+  for (; i < 8; i++) {
+    if (str[i] != ' ' && str[i] != '\0') return false;
+  }
+  return true;
+}
+
+// A decimal number with an optional sign and fraction ("-1.25", ".5", "3."), then spaces;
+// anything else ("-", ".", "1e5", "1-2") is CONFIG_UNDEFINED, as an empty field is.
 float atof8(const char* str) {
   bool neg = false;
-  int i = 0;
+  int i = 0, digits = 0;
 
   if (str[i] == '-') {
     neg = true;
@@ -39,10 +52,11 @@ float atof8(const char* str) {
   }
 
   float value = 0;
-  while (i < 8 && str[i] >= '0' && str[i] <= '9' && str[i] != '.') {
+  while (i < 8 && str[i] >= '0' && str[i] <= '9') {
     value *= 10;
     value += str[i] - '0';
     ++i;
+    ++digits;
   }
 
   if (i < 8 && str[i] == '.') {
@@ -52,19 +66,20 @@ float atof8(const char* str) {
       value += weight * (str[i] - '0');
       weight *= 0.1;
       ++i;
+      ++digits;
     }
   }
 
-  if (i) {
-    return neg ? -value : value;
-  } else {
+  if (digits == 0 || !field_rest_blank(str, i)) {
     return CONFIG_UNDEFINED;
   }
+  return neg ? -value : value;
 }
 
+// A decimal integer with an optional sign, then spaces; anything else is CONFIG_UNDEFINED.
 int atoi8(const char* str) {
   bool neg = false;
-  int i = 0;
+  int i = 0, digits = 0;
 
   if (str[i] == '-') {
     neg = true;
@@ -78,19 +93,19 @@ int atoi8(const char* str) {
     value *= 10;
     value += str[i] - '0';
     ++i;
+    ++digits;
   }
 
-  if (i) {
-    return neg ? -value : value;
-  } else {
+  if (digits == 0 || !field_rest_blank(str, i)) {
     return CONFIG_UNDEFINED;
   }
+  return neg ? -value : value;
 }
 
 unsigned int atox8(const char* str) {
   int i = 0;
 
-  int value = 0;
+  uint32_t value = 0; // unsigned: 8 hex digits >= 0x80000000 overflowed an int
   if (str[i] == '#') {
     i++;
   } else if (str[i] == '0' && str[i+1] == 'x') {
@@ -125,12 +140,51 @@ bool cmp8(const char* a, const char* b) {
   return *((uint64_t *)a) == *((uint64_t *)b);
 }
 
+// The config sector (0x08020000, 128 KB, ld/STM32H743xI_uf2.ld): the scan never leaves it.
+#define CONFIG_SECTOR_RECORDS (128 * 1024 / sizeof (ConfigParam))
+
+#if defined(STM32H7XX)
+// A power loss while the bootloader programs the config sector can leave a flash word with an
+// uncorrectable ECC error; reading it is a bus fault. Read the sector once with data bus faults
+// ignored (FAULTMASK + BFHFNMIGN: a faulting load returns garbage instead of faulting) and check
+// bank 1's double error flag: if it is set, the flash config is not used (the defaults are).
+static bool config_flash_readable(void) {
+  static int readable = -1;
+  if (readable < 0) {
+    const volatile uint32_t* w = (const volatile uint32_t*)flash_config;
+    FLASH->CCR1 = FLASH_CCR_CLR_DBECCERR | FLASH_CCR_CLR_SNECCERR;
+    __set_FAULTMASK(1);
+    SCB->CCR |= SCB_CCR_BFHFNMIGN_Msk;
+    __DSB();
+    __ISB();
+    // one word of every 32-byte flash word (ECC is per 256-bit flash word)
+    for (unsigned i = 0; i < CONFIG_SECTOR_RECORDS * sizeof (ConfigParam) / 4; i += 8) {
+      (void)w[i];
+    }
+    __DSB();
+    SCB->CCR &= ~SCB_CCR_BFHFNMIGN_Msk;
+    __DSB();
+    __ISB();
+    __set_FAULTMASK(0);
+    readable = (FLASH->SR1 & FLASH_SR_DBECCERR) == 0;
+    FLASH->CCR1 = FLASH_CCR_CLR_DBECCERR | FLASH_CCR_CLR_SNECCERR;
+  }
+  return readable;
+}
+#else
+static bool config_flash_readable(void) { return true; }
+#endif
+
 const char* getConfigSetting(const char* name) {
+  // the user's settings: only a readable sector that starts with the header of this format, and
+  // never past the sector (a page without the end marker ran into the firmware's .fwinfo)
   const ConfigParam* cfg = flash_config;
-  while (!cmp8(cfg->key, "MCfgEnd ") && cfg->key[0] >= 32 && cfg->key[0] < 127) {
-    if (cmp8(cfg->key, name))
-      return cfg->value;
-    cfg++;
+  if (config_flash_readable() && cmp8(cfg[0].key, "MConfig ") && cmp8(cfg[0].value, "v1.0    ")) {
+    for (unsigned n = 0; n < CONFIG_SECTOR_RECORDS && !cmp8(cfg->key, "MCfgEnd ") &&
+                         cfg->key[0] >= 32 && cfg->key[0] < 127; n++, cfg++) {
+      if (cmp8(cfg->key, name))
+        return cfg->value;
+    }
   }
 
   cfg = default_config;
