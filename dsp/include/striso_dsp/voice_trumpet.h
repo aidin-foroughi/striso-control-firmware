@@ -53,8 +53,9 @@
  *   tilt sideways  pitch bend (the firmware moves the note; the horn follows)
  *   shake      flutter tongue
  *
- * Cost (QEMU Cortex-M7 instruction counts, 10 voices at ff, notes jumping, master effects on): about
- * 112k instructions per block on average, 136k at worst (all ten notes starting in the same block).
+ * Cost (QEMU Cortex-M7 instruction counts, 10 voices at ff, notes jumping every 0.25 s): the engine
+ * about 114k instructions per block on average; engine + master effects (every stage on) 140k in the
+ * worst block (all ten notes starting in the same block). The brass engine: 92k on the same test.
  * Per voice-sample: three divisions, one square root, ~110 FP operations; per block a few complex
  * impedance evaluations for the loop delay and threshold. Memory: bore delay lines 80 KB (AXI SRAM),
  * Engine ~7 KB.
