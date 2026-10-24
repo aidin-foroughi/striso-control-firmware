@@ -160,6 +160,16 @@ void PExReceiveByte(unsigned char c) {
   static unsigned char payload[6];
   static int payload_len = 0, payload_need = 0;
   static char payload_cmd = 0;
+  static systime_t last_byte;
+
+  // A command arrives in one host write: a payload or a "Stc" prefix that stopped arriving (a
+  // short command, a killed tool, a USB re-enumeration in between) is dropped after 100 ms, so it
+  // can't swallow the next command's bytes.
+  if ((payload_need > 0 || state > 0) && chVTTimeElapsedSinceX(last_byte) > TIME_MS2I(100)) {
+    payload_need = 0;
+    state = 0;
+  }
+  last_byte = chVTGetSystemTimeX();
 
   if (payload_need > 0) {
     payload[payload_len++] = c;
@@ -219,13 +229,13 @@ void PExReceiveByte(unsigned char c) {
       if (c == 't')
         state++;
       else
-        state = 0;
+        state = c == 'S'; // "SStc": an 'S' starts the prefix again
       break;
     case 2:
       if (c == 'c')
         state++;
       else
-        state = 0;
+        state = c == 'S';
       break;
     case 3:
       state = 0;
