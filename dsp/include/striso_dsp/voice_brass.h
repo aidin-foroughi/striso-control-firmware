@@ -64,6 +64,7 @@
 #define VOICE_BRASS_H_
 
 #include <stdint.h>
+#include <type_traits>
 #include <math.h>
 #include "strisy.h"
 #ifdef BRASS_TEST_HOOK
@@ -97,6 +98,7 @@ static constexpr real RU = BRASS_RU;
 #else
 static constexpr real RU = 0.95f;
 #endif
+static_assert(RU < 1.0f, "the read position never moves back (audio_bore's fast path relies on it)");
 // ... and both stages together at most P0 / BRASS_RLDIV times (host experiments: -DBRASS_RLDIV=...)
 #ifdef BRASS_RLDIV
 static constexpr real RLDIV = BRASS_RLDIV;
@@ -614,47 +616,65 @@ static inline void audio_bore(Engine& e, VoiceState& s, float* __restrict__ B1, 
 	float* __restrict__ SB = s.sb;
 	const real* __restrict__ src = e.src;
 	real* __restrict__ out = e.vout;
+	// The bore reads: (w - i2, w - i2 - 1), (w - in, w - in - 1) and the steepened (w - i1, w - i1 - 1)
+	// & BMASK, w rising by one per sample. d1 moves by at most RU (up) or rl (down) per sample, so
+	// over the block i1 stays within [d1 - 32 rl - 1, d1 + 32 RU + 1] of its start. When none of
+	// the reads wraps around the buffer's end in this block (most blocks), the loop addresses the
+	// same slots as plain indices from per-block offsets (identical results).
+	const int c = (int)w; // (w is kept masked)
+	const bool d1ok = d1 >= 0.0f && d1 <= DMAX; // (false for NaN)
+	const int i1lo = c - (d1ok ? (int)d1 : 0) - 4, span1 = 4 + 33 + (int)(32.0f * rmin(rl, RL)) + 2;
+	const int y2 = (int)((w - i2 - 1u) & BMASK), ya = (int)((w - in - 1u) & BMASK), y1 = (int)((uint32_t)i1lo & BMASK);
+	const bool fast = d1ok && c + BLOCK <= BLEN && y2 + BLOCK < BLEN && ya + BLOCK < BLEN && y1 + span1 < BLEN;
+	// fast: slot = w + offset (o2, oa: the fixed reads; o1 - i1: the steepened read)
+	const int o2 = y2 + 1 - c, oa = ya + 1 - c, o1 = y1 - i1lo;
+	auto run = [&](auto fast_tag) {
+		constexpr bool FAST = decltype(fast_tag)::value;
 #pragma GCC unroll 2
-	for (int n = 0; n < BLOCK; n++) {
-		// return wave (bell -> mouthpiece), read at d2 >= 1, plus the lips -> outgoing wave
-		const real r0 = B2[(w - i2) & BMASK], r1 = B2[(w - i2 - 1u) & BMASK];
-		B1[w] = src[n] + r0 + f2 * (r1 - r0);
-		// the outgoing wave arriving at the bell: the linear wave closes the loop ...
-		const real a0 = B1[(w - in) & BMASK], a1 = B1[(w - in - 1u) & BMASK];
-		const real bl = a0 + fn * (a1 - a0);
-		const real v = (bl - lps) * Gb; // bell: low frequencies reflect (one-pole TPT lowpass x g)
-		const real lp = v + lps;
-		lps = lp + v;
-		B2[w] = g * lp;
-		// ... and the steepened wave radiates: higher pressure arrives earlier. Stage 1 reads the bore
-		// line at d1 = d1n - ks * (pressure at the nominal position); the read speed stays within
-		// 1 - BRASS_RU .. 1 + rl samples per sample (fronts never fold back, never shorter than ~5 samples)
-		real dn = d1n - ks * bl;
-		dn = rmin(rmax(dn, d1 - rl), d1 + RU);
-		d1 = rmin(rmax(dn, 0.0f), DMAX);
-		const int i1 = (int)d1;
-		const real f1 = d1 - (real)i1;
-		const real b0 = B1[(w - (uint32_t)i1) & BMASK], b1 = B1[(w - (uint32_t)i1 - 1u) & BMASK];
-		const real b = b0 + f1 * (b1 - b0);
-		w = (w + 1u) & BMASK;
-		// stage 2: the same on stage 1's output (in series they sharpen a front far more than one stage)
-		SB[ws] = b;
-		const real ynom = SB[(ws - (uint32_t)SD) & SMASK];
-		real dsn = (real)SD - ks2 * ynom;
-		dsn = rmin(rmax(dsn, ds - rl), ds + RU);
-		ds = rmin(rmax(dsn, 1.0f), (real)(SLEN - 3));
-		const int is = (int)ds;
-		const real fs = ds - (real)is;
-		const real y0 = SB[(ws - (uint32_t)is) & SMASK], y1 = SB[(ws - (uint32_t)is - 1u) & SMASK];
-		const real yst = y0 + fs * (y1 - y0);
-		ws = (ws + 1u) & SMASK;
-		// the bell transmits what it doesn't reflect: (1 - g LP) of the steepened wave. (The loop
-		// reflects the linear wave, so it stays linear and can't turn chaotic.)
-		const real vt = (yst - lpt) * Gb;
-		const real lt = vt + lpt;
-		lpt = lt + vt;
-		out[n] = yst - g * lt;
-	}
+		for (int n = 0; n < BLOCK; n++) {
+			// return wave (bell -> mouthpiece), read at d2 >= 1, plus the lips -> outgoing wave
+			const real r0 = FAST ? B2[(int)w + o2] : B2[(w - i2) & BMASK], r1 = FAST ? B2[(int)w + o2 - 1] : B2[(w - i2 - 1u) & BMASK];
+			B1[w] = src[n] + r0 + f2 * (r1 - r0);
+			// the outgoing wave arriving at the bell: the linear wave closes the loop ...
+			const real a0 = FAST ? B1[(int)w + oa] : B1[(w - in) & BMASK], a1 = FAST ? B1[(int)w + oa - 1] : B1[(w - in - 1u) & BMASK];
+			const real bl = a0 + fn * (a1 - a0);
+			const real v = (bl - lps) * Gb; // bell: low frequencies reflect (one-pole TPT lowpass x g)
+			const real lp = v + lps;
+			lps = lp + v;
+			B2[w] = g * lp;
+			// ... and the steepened wave radiates: higher pressure arrives earlier. Stage 1 reads the bore
+			// line at d1 = d1n - ks * (pressure at the nominal position); the read speed stays within
+			// 1 - BRASS_RU .. 1 + rl samples per sample (fronts never fold back, never shorter than ~5 samples)
+			real dn = d1n - ks * bl;
+			dn = rmin(rmax(dn, d1 - rl), d1 + RU);
+			d1 = rmin(rmax(dn, 0.0f), DMAX);
+			const int i1 = (int)d1;
+			const real f1 = d1 - (real)i1;
+			const real b0 = FAST ? B1[(int)w - i1 + o1] : B1[(w - (uint32_t)i1) & BMASK];
+			const real b1 = FAST ? B1[(int)w - i1 + o1 - 1] : B1[(w - (uint32_t)i1 - 1u) & BMASK];
+			const real b = b0 + f1 * (b1 - b0);
+			w = (w + 1u) & BMASK;
+			// stage 2: the same on stage 1's output (in series they sharpen a front far more than one stage)
+			SB[ws] = b;
+			const real ynom = SB[(ws - (uint32_t)SD) & SMASK];
+			real dsn = (real)SD - ks2 * ynom;
+			dsn = rmin(rmax(dsn, ds - rl), ds + RU);
+			ds = rmin(rmax(dsn, 1.0f), (real)(SLEN - 3));
+			const int is = (int)ds;
+			const real fs = ds - (real)is;
+			const real y0 = SB[(ws - (uint32_t)is) & SMASK], y1 = SB[(ws - (uint32_t)is - 1u) & SMASK];
+			const real yst = y0 + fs * (y1 - y0);
+			ws = (ws + 1u) & SMASK;
+			// the bell transmits what it doesn't reflect: (1 - g LP) of the steepened wave. (The loop
+			// reflects the linear wave, so it stays linear and can't turn chaotic.)
+			const real vt = (yst - lpt) * Gb;
+			const real lt = vt + lpt;
+			lpt = lt + vt;
+			out[n] = yst - g * lt;
+		}
+	};
+	if (fast) run(std::true_type{});
+	else run(std::false_type{});
 	s.d1 = d1;
 	s.lps = lps;
 	s.lpt = lpt;

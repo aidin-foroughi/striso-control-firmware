@@ -52,6 +52,7 @@
 #define VOICE_BOWED_H_
 
 #include <stdint.h>
+#include <type_traits>
 #include <math.h>
 #include "strisy.h"
 
@@ -806,86 +807,110 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 	int pzn = s.pzn;
 	real pzc = s.pzc, pzs = s.pzs;
 	const real pza = s.pza, pzcw = s.pzcw, pzsw = s.pzsw;
-	for (int n = 0; n < BLOCK; n++) {
-		vbn += dvb;
-		dsn += dds;
-		cwn += dcw;
-		nzn += dnz;
-		dn += ddn;
-		// neck side: 3rd order Lagrange at delay dn (taps at i-1 .. i+2, d = fr + 1)
-		real nut_in;
-		if (lramp) {
-			lh[0] += ldh[0];
-			lh[1] += ldh[1];
-			lh[2] += ldh[2];
-			lh[3] += ldh[3];
-			BOWED_ASSERT(ilr >= 2 && ilr + 2 < NECK_LEN);
-			const uint32_t r0 = w - (uint32_t)(ilr - 1);
-			nut_in = lh[0] * nbuf[r0 & NECK_MASK] + lh[1] * nbuf[(r0 - 1) & NECK_MASK] + lh[2] * nbuf[(r0 - 2) & NECK_MASK] + lh[3] * nbuf[(r0 - 3) & NECK_MASK];
-		} else {
-			const int i = (int)dn;
-			real h[4];
-			lagrange(dn - (real)i, h);
-			BOWED_ASSERT(i >= 2 && i + 2 < NECK_LEN);
-			const uint32_t r0 = w - (uint32_t)(i - 1);
-			nut_in = h[0] * nbuf[r0 & NECK_MASK] + h[1] * nbuf[(r0 - 1) & NECK_MASK] + h[2] * nbuf[(r0 - 2) & NECK_MASK] + h[3] * nbuf[(r0 - 3) & NECK_MASK];
-		}
-		// bridge side: linear interpolation at the block-constant delay Db
-		BOWED_ASSERT(ib >= 1 && ib + 1 < BRIDGE_LEN);
-		const real b0 = bbuf[(w - (uint32_t)ib) & BRIDGE_MASK];
-		const real b1 = bbuf[(w - (uint32_t)ib - 1u) & BRIDGE_MASK];
-		const real br_in = b0 + fb * (b1 - b0);
-		y = gp * br_in + pole * y;         // loss filter
-		ydc += dck * (br_in - ydc);        // its DC gain is restored to 1 (rigid bridge at DC)
-		yn = polen * yn + polen1 * nut_in; // finger
-		const real bref = dcg * ydc - y, nref = -yn;
-		const real delta = vbn - (bref + nref);
-		// friction with bow noise (jitter of the static friction)
-		seed = seed * 1664525u + 1013904223u;
-		const real dse = dsn * (1.0f + nzn * (real)(int32_t)seed * 4.6566129e-10f);
-		// slip branch: relative speed u >= 0 with x = u + dse*(a + (1-a)*c/(c+u))
-		const real x = fabsf(delta);
-		const real A = x - fa * dse, B = A - cwn;
-		const real disc = B * B + 4.0f * cwn * (A - fa1 * dse);
-		const real u = 0.5f * (B + fsqrt(rmax(disc, 0.0f)));
-		const int slip_new = (x > dse) | (slip & (disc >= 0.0f) & (u > 0.0f));
-		cnt++;
-		real alpha = 1.0f;
-		if (slip_new & !slip) { // slip onset: one per period in Helmholtz motion
-			if (cnt > cmin) {
-				if (cnt >= clo && cnt <= chi) {
-					tsum += cnt;
-					tn++;
+	// The delay slots: the neck writes at w & NECK_MASK, its (block constant, lramp) Lagrange taps
+	// read at (w - ilr + 1 .. w - ilr - 2) & NECK_MASK; the bridge writes at w & BRIDGE_MASK and
+	// reads at (w - ib, w - ib - 1) & BRIDGE_MASK; w rises by one per sample. When none of them
+	// wraps around its buffer's end in this block (most blocks), the loop addresses the same slots
+	// as plain indices (the same reads and writes in the same order: identical results).
+	const int cn = (int)(w & NECK_MASK), cb = (int)(w & BRIDGE_MASK);
+	const int nlo = (int)((w - (uint32_t)(ilr + 2)) & NECK_MASK), blo = (int)((w - (uint32_t)(ib + 1)) & BRIDGE_MASK);
+	const bool fast = lramp && cn + BLOCK <= NECK_LEN && cb + BLOCK <= BRIDGE_LEN && nlo + (BLOCK - 1) + 3 < NECK_LEN && blo + (BLOCK - 1) + 1 < BRIDGE_LEN;
+	const int an = nlo - cn, ab = blo - cb; // fast: the reads' lowest slot relative to the write
+	auto run = [&](auto fast_tag) {
+		constexpr bool FAST = decltype(fast_tag)::value;
+		for (int n = 0; n < BLOCK; n++) {
+			vbn += dvb;
+			dsn += dds;
+			cwn += dcw;
+			nzn += dnz;
+			dn += ddn;
+			// neck side: 3rd order Lagrange at delay dn (taps at i-1 .. i+2, d = fr + 1)
+			real nut_in;
+			if (FAST || lramp) {
+				lh[0] += ldh[0];
+				lh[1] += ldh[1];
+				lh[2] += ldh[2];
+				lh[3] += ldh[3];
+				BOWED_ASSERT(ilr >= 2 && ilr + 2 < NECK_LEN);
+				if constexpr (FAST) {
+					const float* t = nbuf + (cn + n + an);
+					nut_in = lh[0] * t[3] + lh[1] * t[2] + lh[2] * t[1] + lh[3] * t[0];
+				} else {
+					const uint32_t r0 = w - (uint32_t)(ilr - 1);
+					nut_in = lh[0] * nbuf[r0 & NECK_MASK] + lh[1] * nbuf[(r0 - 1) & NECK_MASK] + lh[2] * nbuf[(r0 - 2) & NECK_MASK] + lh[3] * nbuf[(r0 - 3) & NECK_MASK];
 				}
-				cnt = 0;
+			} else {
+				const int i = (int)dn;
+				real h[4];
+				lagrange(dn - (real)i, h);
+				BOWED_ASSERT(i >= 2 && i + 2 < NECK_LEN);
+				const uint32_t r0 = w - (uint32_t)(i - 1);
+				nut_in = h[0] * nbuf[r0 & NECK_MASK] + h[1] * nbuf[(r0 - 1) & NECK_MASK] + h[2] * nbuf[(r0 - 2) & NECK_MASK] + h[3] * nbuf[(r0 - 3) & NECK_MASK];
 			}
-			// the slip starts somewhere between two samples: at the onset sample the force is
-			// blended between stick and slip by the fraction of the interval spent beyond the
-			// threshold (first order anti-aliasing of the jump: onsets don't snap to the grid)
-			alpha = rmin((x - dse) / rmax(x - xprev, 1e-12f), 1.0f);
+			// bridge side: linear interpolation at the block-constant delay Db
+			BOWED_ASSERT(ib >= 1 && ib + 1 < BRIDGE_LEN);
+			const real b0 = FAST ? bbuf[cb + n + ab + 1] : bbuf[(w - (uint32_t)ib) & BRIDGE_MASK];
+			const real b1 = FAST ? bbuf[cb + n + ab] : bbuf[(w - (uint32_t)ib - 1u) & BRIDGE_MASK];
+			const real br_in = b0 + fb * (b1 - b0);
+			y = gp * br_in + pole * y;         // loss filter
+			ydc += dck * (br_in - ydc);        // its DC gain is restored to 1 (rigid bridge at DC)
+			yn = polen * yn + polen1 * nut_in; // finger
+			const real bref = dcg * ydc - y, nref = -yn;
+			const real delta = vbn - (bref + nref);
+			// friction with bow noise (jitter of the static friction)
+			seed = seed * 1664525u + 1013904223u;
+			const real dse = dsn * (1.0f + nzn * (real)(int32_t)seed * 4.6566129e-10f);
+			// slip branch: relative speed u >= 0 with x = u + dse*(a + (1-a)*c/(c+u))
+			const real x = fabsf(delta);
+			const real A = x - fa * dse, B = A - cwn;
+			const real disc = B * B + 4.0f * cwn * (A - fa1 * dse);
+			const real u = 0.5f * (B + fsqrt(rmax(disc, 0.0f)));
+			const int slip_new = (x > dse) | (slip & (disc >= 0.0f) & (u > 0.0f));
+			cnt++;
+			real alpha = 1.0f;
+			if (slip_new & !slip) { // slip onset: one per period in Helmholtz motion
+				if (cnt > cmin) {
+					if (cnt >= clo && cnt <= chi) {
+						tsum += cnt;
+						tn++;
+					}
+					cnt = 0;
+				}
+				// the slip starts somewhere between two samples: at the onset sample the force is
+				// blended between stick and slip by the fraction of the interval spent beyond the
+				// threshold (first order anti-aliasing of the jump: onsets don't snap to the grid)
+				alpha = rmin((x - dse) / rmax(x - xprev, 1e-12f), 1.0f);
+			}
+			const real fslip = delta > 0.0f ? x - u : u - x;
+			// (and at the capture, where the slip branch ends, half of the remaining slip on average)
+			const real ucap = (slip & !slip_new) ? 0.25f * rmax(B, 0.0f) : 0.0f;
+			slip = slip_new;
+			xprev = x;
+			real f = slip ? delta + alpha * (fslip - delta) : (delta > 0.0f ? delta - ucap : delta + ucap);
+			if (pizz) f = 0.0f; // no bow on the string
+			if (pzn > 0) {      // pluck pulse
+				pzn--;
+				const real ns = pzs * pzcw + pzc * pzsw;
+				pzc = pzc * pzcw - pzs * pzsw;
+				pzs = ns;
+				f += pza * pzs;
+			}
+			BOWED_TRACE(v, vbn, bref + nref + f, slip ? 0.0f : 1.0f);
+			if constexpr (FAST) {
+				nbuf[cn + n] = bref + f;
+				bbuf[cb + n] = nref + f;
+			} else {
+				nbuf[w & NECK_MASK] = bref + f;
+				bbuf[w & BRIDGE_MASK] = nref + f;
+			}
+			w++;
+			gn += dgn;
+			sb[n] = br_in * gn;
+			peak = rmax(peak, fabsf(br_in - ydc)); // (the DC is not heard)
 		}
-		const real fslip = delta > 0.0f ? x - u : u - x;
-		// (and at the capture, where the slip branch ends, half of the remaining slip on average)
-		const real ucap = (slip & !slip_new) ? 0.25f * rmax(B, 0.0f) : 0.0f;
-		slip = slip_new;
-		xprev = x;
-		real f = slip ? delta + alpha * (fslip - delta) : (delta > 0.0f ? delta - ucap : delta + ucap);
-		if (pizz) f = 0.0f; // no bow on the string
-		if (pzn > 0) {      // pluck pulse
-			pzn--;
-			const real ns = pzs * pzcw + pzc * pzsw;
-			pzc = pzc * pzcw - pzs * pzsw;
-			pzs = ns;
-			f += pza * pzs;
-		}
-		BOWED_TRACE(v, vbn, bref + nref + f, slip ? 0.0f : 1.0f);
-		nbuf[w & NECK_MASK] = bref + f;
-		bbuf[w & BRIDGE_MASK] = nref + f;
-		w++;
-		gn += dgn;
-		sb[n] = br_in * gn;
-		peak = rmax(peak, fabsf(br_in - ydc)); // (the DC is not heard)
-	}
+	};
+	if (fast) run(std::true_type{});
+	else run(std::false_type{});
 	s.w = w;
 	s.seed = seed;
 	s.y = y;
@@ -1091,7 +1116,8 @@ static inline void process(Engine& e, real* __restrict__ output) {
 		real x = output[n];
 		if (!(x == x)) x = 0.0f;
 		const real a = rmax(fabsf(x) - 4.0f, 0.0f) * 0.25f;
-		output[n] = x * (1.0f + 2.0f * a) / ((1.0f + a) * (1.0f + a));
+		// (below the knee, a = 0, the expression is exactly x * 1 / 1 = x: the division is skipped)
+		output[n] = a > 0.0f ? x * (1.0f + 2.0f * a) / ((1.0f + a) * (1.0f + a)) : x;
 	}
 	if (bad(e.e_d[0] + e.e_d[1] + e.e_lvl, 1e5f)) { // (cannot happen) reset the section
 		e.e_d[0] = e.e_d[1] = 600.0f;
