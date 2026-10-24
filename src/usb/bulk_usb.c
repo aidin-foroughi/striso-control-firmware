@@ -71,9 +71,11 @@ static bool bdu_start_receive(BulkUSBDriver *bdup) {
     return true;
   }
 
-  /* Buffer found, starting a new transaction.*/
-  usbStartReceiveI(bdup->config->usbp, bdup->config->bulk_out,
-                   buf, BULK_USB_BUFFERS_SIZE);
+  /* Buffer found, starting a new transaction. One packet per transfer: the OTG core completes
+     an OUT transfer on a short packet or when it is full, so a host write of exactly 64*k bytes
+     (no zero-length packet, e.g. libusb) would wait in a 256-byte transfer for the next write.*/
+  usbStartReceiveI(bdup->config->usbp, bdup->config->bulk_out, buf,
+                   bdup->config->usbp->epc[bdup->config->bulk_out]->out_maxsize);
 
   return false;
 }
