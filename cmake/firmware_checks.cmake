@@ -69,11 +69,12 @@ set(_threads
   "main|main|-|1024|256"
   "idle|_idle_thread|-|16|0")
 if(EXISTS "${SRC_DIR}/drivers/key_scanner.cpp")
-  list(APPEND _threads "scan_dump|ThreadScanDump|${SRC_DIR}/drivers/key_scanner.cpp|waScanDump|0")
+  list(APPEND _threads "scan_dump|_ZN12_GLOBAL__N_114ThreadScanDumpEPv|${SRC_DIR}/drivers/key_scanner.cpp|waScanDump|0")
 endif()
 # indirect calls (stream vmt methods, buffer queue callbacks) and the functions they can reach
 set(_indirect
   --indirect chprintf=_put,_write          # chprintf(stream): the stream's put/write
+  --indirect chvprintf=_put,_write         # (when not inlined: chsnprintf, a memory stream)
   --indirect main=_readt,_write            # PExReceive (inlined): chnReadTimeout, streamWrite
   --indirect obqPostFullBufferS=obnotify   # USB bulk/MIDI output queues
   --indirect ibqReleaseEmptyBufferS=ibnotify

@@ -70,6 +70,38 @@ add_library(striso_dsp_headers OBJECT ${_hdr_srcs})
 target_link_libraries(striso_dsp_headers PRIVATE striso::dsp striso_host_options)
 target_compile_options(striso_dsp_headers PRIVATE -Wno-unused-function -Wno-unused-variable)
 
+# --- the key scanner (src/drivers/key_scanner*.hpp) ----------------------------------------------
+# scanner.*: the KeyScanner against the original key processing (tests/ref, compiled with -fwrapv:
+# the board's int32 products wrap), the raw recording format and its replay
+add_executable(test_key_scanner main.cpp test_key_scanner.cpp ref/button_read_ref.c)
+target_include_directories(test_key_scanner PRIVATE
+  "${PROJECT_SOURCE_DIR}/third_party/doctest"
+  "${PROJECT_SOURCE_DIR}/src/drivers"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ref")
+target_link_libraries(test_key_scanner PRIVATE striso_host_options)
+target_compile_options(test_key_scanner PRIVATE -O2 -ffp-contract=off)
+set_source_files_properties(ref/button_read_ref.c PROPERTIES COMPILE_OPTIONS "-fwrapv")
+doctest_discover_tests(test_key_scanner TEST_PREFIX "scanner." PROPERTIES LABELS unit)
+
+# scan_replay: the board's raw recordings (tests/scan/<name>.ksr, with the StcS stream recorded in
+# the same session, <name>.csv: tools/record_raw.py) replay to exactly the board's messages
+add_executable(scan_replay scan_replay.cpp)
+target_include_directories(scan_replay PRIVATE "${PROJECT_SOURCE_DIR}/src/drivers")
+target_link_libraries(scan_replay PRIVATE striso_host_options)
+target_compile_options(scan_replay PRIVATE -O2 -ffp-contract=off)
+file(GLOB _scan_recordings "${CMAKE_CURRENT_SOURCE_DIR}/scan/*.ksr")
+list(SORT _scan_recordings)
+foreach(r IN LISTS _scan_recordings)
+  get_filename_component(rn "${r}" NAME_WE)
+  get_filename_component(rd "${r}" DIRECTORY)
+  set(_stream "")
+  if(EXISTS "${rd}/${rn}.csv")
+    set(_stream "${rd}/${rn}.csv")
+  endif()
+  add_test(NAME scan_replay.${rn} COMMAND scan_replay "${r}" ${_stream})
+  set_tests_properties(scan_replay.${rn} PROPERTIES LABELS unit)
+endforeach()
+
 # --- USB audio core (C) -------------------------------------------------------------------------------
 add_executable(test_usb_audio_core "${PROJECT_SOURCE_DIR}/tools/usbaudio/test_core.c")
 target_include_directories(test_usb_audio_core PRIVATE "${PROJECT_SOURCE_DIR}/src/usb")

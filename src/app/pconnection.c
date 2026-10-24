@@ -35,6 +35,7 @@
 #include "version.h"
 #include "ws2812.h"
 #include "button_read.h"
+#include "key_scanner.h"
 
 //#define DEBUG_SERIAL 1
 
@@ -177,6 +178,14 @@ void PExReceiveByte(unsigned char c) {
       if (ok && n > 0) usb_audio_set_target(n);
       chprintf((BaseSequentialStream *)&BDU1, "usb audio target %d frames (%d us)%s\r\n",
                usb_audio_target(), usb_audio_target() * 1000 / 48, ok ? "" : ": not 3 digits, unchanged");
+    }
+    else if (payload_len == payload_need && payload_cmd == 'R') {
+      payload_need = 0;
+      if (payload[0] >= '0' && payload[0] <= '9' && payload[1] >= '0' && payload[1] <= '9') {
+        ks_capture((payload[0] - '0') * 10 + (payload[1] - '0'));
+      } else {
+        chprintf((BaseSequentialStream *)&BDU1, "R err not 2 digits\r\n");
+      }
     }
     else if (payload_len == payload_need) {
       payload_need = 0;
@@ -359,6 +368,12 @@ void PExReceiveByte(unsigned char c) {
       }
       else if (c == 'Z') { // every button's zero_offset, c_force and factor (read only)
         buttonPrintKeys((BaseSequentialStream *)&BDU1);
+      }
+      else if (c == 'R') { // raw key scan recording: 2 ASCII digits follow, seconds to record
+        // (StcR05), or 00: send the last recording (tools/record_raw.py; key_scanner.h)
+        payload_cmd = 'R';
+        payload_len = 0;
+        payload_need = 2;
       }
       break;
     }

@@ -9,10 +9,11 @@ source "$HERE/docker_env.sh"
 MODE="${1:-}"
 FILES='dsp/include/striso_dsp/strisy.h dsp/include/striso_dsp/fx.h dsp/include/striso_dsp/voice_*.h
   src/synth/synth_strisy.cpp src/synth/tuning.h
+  src/drivers/key_scanner.h src/drivers/key_scanner.hpp src/drivers/key_scanner_capture.hpp src/drivers/key_scanner.cpp
   src/usb/usb_audio.c src/usb/usb_audio.h src/usb/usb_audio_core.h
   tools/harness/render_strisy.cpp tools/harness/harness_util.h tools/harness/fx_test.cpp
   tools/target_render/render_target.cpp tools/target_render/startup.c
-  tests/*.cpp tests/*.c'
+  tests/*.cpp tests/*.hpp tests/*.c'
 FILES="$(echo $FILES)"  # one line: the list goes into a bash -c command
 if [ "$MODE" = --check ]; then
   in_docker bash -c "clang-format --dry-run -Werror $FILES"

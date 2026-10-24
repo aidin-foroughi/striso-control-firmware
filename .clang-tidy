@@ -38,5 +38,5 @@ Checks: >
   cppcoreguidelines-slicing,
   cppcoreguidelines-virtual-class-destructor
 WarningsAsErrors: '*'
-HeaderFilterRegex: '(dsp/include|tools/harness|tools/target_render|src/synth/tuning)'
+HeaderFilterRegex: '(dsp/include|tools/harness|tools/target_render|src/synth/tuning|src/drivers/key_scanner|tests/scan_)'
 FormatStyle: none

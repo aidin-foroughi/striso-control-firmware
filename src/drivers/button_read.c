@@ -207,12 +207,12 @@ typedef struct struct_slider {
 static slider_t sld;
 #endif
 
-static button_t buttons[N_BUTTONS];
 #ifdef USE_BAS
 static button_t buttons_bas[N_BUTTONS_BAS];
 #endif
-static int buttons_pressed[2] = {0};
-static int col_pressed[2][17] = {0};
+// the samples of the scan the interrupt is taking (key_scanner.h); the key processing, which
+// update_button and the cross talk correction did here, is the KeyScanner's (key_scanner.hpp)
+static ScanFrame scan_live;
 
 #ifdef USE_AUX_BUTTONS
 // #define LINE_BUTTON_PORT   PAL_LINE(GPIOI,  2U)
@@ -277,6 +277,8 @@ static void scan_isr_start(void) {
   isr_callbacks = 0;
   isr_seq = scan_stats.scans;
   scan_stats.scans++;
+  scan_live.seq = isr_seq;
+  scan_live.t_start = now;
 }
 
 // about to overwrite column col: has the thread processed it in the previous scan?
@@ -321,6 +323,10 @@ static void adccallback(ADCDriver *adcp) {
       measure_get = measure;
       next_note_id = *measure_get;
       cur_channel = next_note_id * 3;
+      // the measured columns (one, stale, when no key was detected)
+      int nm = measure_put - measure;
+      scan_live.n = nm ? nm : 1;
+      for (int n = 0; n < scan_live.n; n++) scan_live.cols[n] = measure[n];
     } else {
       cur_channel = next_conversion * 3;
     }
@@ -330,10 +336,10 @@ static void adccallback(ADCDriver *adcp) {
     palClearPort(out_channels_port[cur_channel+2], out_channels_portmask[cur_channel+2]);
 
     // store values
-    buttons[cur_conversion   ].on = 4095 - adc_samples[0];
-    buttons[cur_conversion+17].on = 4095 - adc_samples[1];
-    buttons[cur_conversion+34].on = 4095 - adc_samples[2];
-    buttons[cur_conversion+51].on = 4095 - adc_samples[3];
+    scan_live.on[cur_conversion   ] = 4095 - adc_samples[0];
+    scan_live.on[cur_conversion+17] = 4095 - adc_samples[1];
+    scan_live.on[cur_conversion+34] = 4095 - adc_samples[2];
+    scan_live.on[cur_conversion+51] = 4095 - adc_samples[3];
     if (adc_samples[0] < (4095-KEY_DETECT) ||
         adc_samples[1] < (4095-KEY_DETECT) ||
         adc_samples[2] < (4095-KEY_DETECT) ||
@@ -345,19 +351,19 @@ static void adccallback(ADCDriver *adcp) {
   } else if (cur_conversion == 17) { // key measurement phase
     switch (cur_phase) {
     case 0: { // read whole button, 4x multisampled (MULTISAMPLE hardcoded)
-      buttons[next_note_id   ].p = 4095 - adc_samples[0];
-      buttons[next_note_id+17].p = 4095 - adc_samples[1];
-      buttons[next_note_id+34].p = 4095 - adc_samples[2];
-      buttons[next_note_id+51].p = 4095 - adc_samples[3];
+      scan_live.m[next_note_id   ].p = 4095 - adc_samples[0];
+      scan_live.m[next_note_id+17].p = 4095 - adc_samples[1];
+      scan_live.m[next_note_id+34].p = 4095 - adc_samples[2];
+      scan_live.m[next_note_id+51].p = 4095 - adc_samples[3];
 
       cur_phase++;
     } break;
     case 1:
     case 2: {
-      buttons[next_note_id   ].p += 4095 - adc_samples[0];
-      buttons[next_note_id+17].p += 4095 - adc_samples[1];
-      buttons[next_note_id+34].p += 4095 - adc_samples[2];
-      buttons[next_note_id+51].p += 4095 - adc_samples[3];
+      scan_live.m[next_note_id   ].p += 4095 - adc_samples[0];
+      scan_live.m[next_note_id+17].p += 4095 - adc_samples[1];
+      scan_live.m[next_note_id+34].p += 4095 - adc_samples[2];
+      scan_live.m[next_note_id+51].p += 4095 - adc_samples[3];
 
       cur_phase++;
     } break;
@@ -366,10 +372,10 @@ static void adccallback(ADCDriver *adcp) {
       palSetPort(out_channels_port[cur_channel+1], out_channels_portmask[cur_channel+1]);
       palSetPort(out_channels_port[cur_channel+2], out_channels_portmask[cur_channel+2]);
 
-      buttons[next_note_id   ].p = buttons[next_note_id   ].p + 4095 - adc_samples[0];
-      buttons[next_note_id+17].p = buttons[next_note_id+17].p + 4095 - adc_samples[1];
-      buttons[next_note_id+34].p = buttons[next_note_id+34].p + 4095 - adc_samples[2];
-      buttons[next_note_id+51].p = buttons[next_note_id+51].p + 4095 - adc_samples[3];
+      scan_live.m[next_note_id   ].p = scan_live.m[next_note_id   ].p + 4095 - adc_samples[0];
+      scan_live.m[next_note_id+17].p = scan_live.m[next_note_id+17].p + 4095 - adc_samples[1];
+      scan_live.m[next_note_id+34].p = scan_live.m[next_note_id+34].p + 4095 - adc_samples[2];
+      scan_live.m[next_note_id+51].p = scan_live.m[next_note_id+51].p + 4095 - adc_samples[3];
 
       cur_phase = 100;
     } break;
@@ -379,10 +385,10 @@ static void adccallback(ADCDriver *adcp) {
       /* Drain new channels */
       palClearPort(out_channels_port[cur_channel+1], out_channels_portmask[cur_channel+1]);
 
-      buttons[next_note_id   ].s0 = (4095 - adc_samples[0]) * MULTISAMPLE;
-      buttons[next_note_id+17].s0 = (4095 - adc_samples[1]) * MULTISAMPLE;
-      buttons[next_note_id+34].s0 = (4095 - adc_samples[2]) * MULTISAMPLE;
-      buttons[next_note_id+51].s0 = (4095 - adc_samples[3]) * MULTISAMPLE;
+      scan_live.m[next_note_id   ].s0 = (4095 - adc_samples[0]) * MULTISAMPLE;
+      scan_live.m[next_note_id+17].s0 = (4095 - adc_samples[1]) * MULTISAMPLE;
+      scan_live.m[next_note_id+34].s0 = (4095 - adc_samples[2]) * MULTISAMPLE;
+      scan_live.m[next_note_id+51].s0 = (4095 - adc_samples[3]) * MULTISAMPLE;
 
       cur_phase = 101;
     } break;
@@ -392,10 +398,10 @@ static void adccallback(ADCDriver *adcp) {
       /* Drain new channels */
       palClearPort(out_channels_port[cur_channel+2], out_channels_portmask[cur_channel+2]);
 
-      buttons[next_note_id   ].s1 = (4095 - adc_samples[0]) * MULTISAMPLE;
-      buttons[next_note_id+17].s1 = (4095 - adc_samples[1]) * MULTISAMPLE;
-      buttons[next_note_id+34].s1 = (4095 - adc_samples[2]) * MULTISAMPLE;
-      buttons[next_note_id+51].s1 = (4095 - adc_samples[3]) * MULTISAMPLE;
+      scan_live.m[next_note_id   ].s1 = (4095 - adc_samples[0]) * MULTISAMPLE;
+      scan_live.m[next_note_id+17].s1 = (4095 - adc_samples[1]) * MULTISAMPLE;
+      scan_live.m[next_note_id+34].s1 = (4095 - adc_samples[2]) * MULTISAMPLE;
+      scan_live.m[next_note_id+51].s1 = (4095 - adc_samples[3]) * MULTISAMPLE;
 
       cur_phase = 102;
     } break;
@@ -403,10 +409,10 @@ static void adccallback(ADCDriver *adcp) {
       /* Open old channels */
       palSetPort(out_channels_port[cur_channel+2], out_channels_portmask[cur_channel+2]);
 
-      buttons[next_note_id   ].s2 = (4095 - adc_samples[0]) * MULTISAMPLE;
-      buttons[next_note_id+17].s2 = (4095 - adc_samples[1]) * MULTISAMPLE;
-      buttons[next_note_id+34].s2 = (4095 - adc_samples[2]) * MULTISAMPLE;
-      buttons[next_note_id+51].s2 = (4095 - adc_samples[3]) * MULTISAMPLE;
+      scan_live.m[next_note_id   ].s2 = (4095 - adc_samples[0]) * MULTISAMPLE;
+      scan_live.m[next_note_id+17].s2 = (4095 - adc_samples[1]) * MULTISAMPLE;
+      scan_live.m[next_note_id+34].s2 = (4095 - adc_samples[2]) * MULTISAMPLE;
+      scan_live.m[next_note_id+51].s2 = (4095 - adc_samples[3]) * MULTISAMPLE;
 
       // Next channel
       measure_get++;
@@ -630,207 +636,6 @@ const ADCConversionGroup adcgrpcfg1 = {
 #endif // STM32_ADC_DUAL_MODE
 #endif // STM32H7XX
 
-// Schlick power function, approximation of power function
-float powf_schlick(const float a, const float b) {
-  return (a / (b - a * b + a));
-}
-
-/*
- * Second order Kalman like filter with fast signal end conditions
- */
-void update_and_filter(int32_t* s, int32_t* v, int32_t s_new) {
-  int32_t old_s = *s;
-  *s = ((FILT-1) * (old_s + *v) + s_new) / FILT;
-  if (*s >= INTERNAL_ONE) {
-    *s = INTERNAL_ONE - 1;
-    *v = 0;
-  } else {
-    *v = ((FILTV-1) * (*v) + (*s - old_s)) / FILTV;
-    if (*v >= (INTERNAL_ONE/VELOFACT)) {
-      *v = (INTERNAL_ONE/VELOFACT) - 1;
-    } else if (*v <= -(INTERNAL_ONE/VELOFACT)) {
-      *v = -(INTERNAL_ONE/VELOFACT) + 1;
-    }
-    if (*s < 0) {
-      *s = 0;
-    }
-  }
-}
-
-int32_t linearize(int32_t s) {
-#ifdef CALIBRATION_MODE
-  /* keep linear voltage for calibration */
-  return ADCFACT / MULTISAMPLE * s;
-#else
-  /* convert adc value to force */
-  return (ADCFACT>>6) * s/((MULTISAMPLE*4095)-s+1);
-#endif // CALIBRATION_MODE
-}
-
-int32_t calibrate(int32_t s, button_t* but) {
-#ifdef CALIBRATION_MODE
-  return s;
-#endif
-  // c is the normalisation value for the force
-  //    2^18   * 2^12 / 2^12 * ADCFACT/2^6 / c
-  // s = (but->c_force * (4095-s)/(s+1)) * (ADCFACT>>6);
-  s = (but->c_force * s) * but->fact;
-  #ifdef BREAKPOINT_CALIBRATION
-  // breakpoint calibration
-  if (s > but->c_breakpoint) {
-    s += but->c_force2 * ((s - but->c_breakpoint)>>8);
-  }
-  #endif // BREAKPOINT_CALIBRATION
-  return s;
-}
-
-#define max(x,y) ((x)>(y)?(x):(y))
-#define min(x,y) ((x)<(y)?(x):(y))
-
-void update_button(button_t* but) {
-  int but_id = but->but_id;
-  int32_t s_new;
-  int msg[8];
-  msg[0] = but->src_id;
-
-  int key_detect2 = KEY_DETECT2 * (col_pressed[but->src_id][but_id % 17] - (but->status != OFF) >= 1);
-
-  if (but->on > KEY_DETECT + key_detect2 + but->key_detect3) {
-
-    s_new = calibrate(linearize(but->p), but);
-    // four corner correction algoritm
-    if (but->key_detect3) {
-      for (button_t* but2 = &buttons[but_id % 17]; but2 < &buttons[N_BUTTONS]; but2 = &but2[17]) {
-        if (but != but2 && but2->key_detect3 && but2->status) {
-          int32_t s_new2 = calibrate(linearize(but2->p), but2);
-          if (s_new2 > s_new) {
-            s_new -= (s_new2 - s_new) / 2;
-          } else {
-            s_new -= (s_new2 - s_new);
-          }
-          break;
-        }
-      }
-    }
-    update_and_filter(&but->pres, &but->velo, s_new);
-
-#ifdef DETECT_STUCK_NOTES
-    // adjust zero pressure level dynamically
-    if (but->pres < ZERO_LEVEL_MAX_PRES
-        && but->velo < ZERO_LEVEL_MAX_VELO
-        && but->velo > -ZERO_LEVEL_MAX_VELO) {
-      if (but->pres > but->zero_max) but->zero_max = but->pres;
-      but->zero_time++;
-      if (but->zero_time > ZERO_LEVEL_TIME) {
-        but->zero_time = 0;
-#ifdef DETECT_STUCK_NOTES_DECREASE
-        but->zero_offset = but->zero_max * ZERO_LEVEL_FACT;
-#else
-        but->zero_offset = max(but->zero_offset, but->zero_max * ZERO_LEVEL_FACT);
-#endif
-      }
-    } else {
-      but->zero_time = 0;
-      but->zero_max = 0;
-    }
-#endif
-
-    // if button is off start integration timer
-    if (but->status == OFF) {
-      but->status = STARTING;
-      but->timer = INTEGRATED_PRES_TRESHOLD;
-      col_pressed[but->src_id][but_id % 17]++;
-    }
-    // if button is in start integration reduce timer
-    if (but->status == STARTING && but->pres > (config.zero_offset + but->zero_offset + MSGFACT)) {
-      but->timer -= (but->pres - but->zero_offset - MSGFACT);
-    }
-    // note off if .pres is too low even though .on is high enough
-    else if (but->status == ON && but->pres < (config.zero_offset / 2 + but->zero_offset + MSGFACT)) {
-      but->status = STARTING;
-      buttons_pressed[but->src_id]--;
-      but->timer = INTEGRATED_PRES_TRESHOLD;
-
-      msg[1] = but_id;
-      msg[2] = 0;
-      msg[3] = min(but->velo, 0) / MSGFACT_VELO;
-      msg[4] = 0;
-      msg[5] = 0;
-      while (msgSend(6, msg)) { // note off messages are more important so keep trying
-        scan_stats.queue_full++;
-        scan_stats.off_waits++;
-        chThdSleep(1);
-      }
-    }
-    // if integration is succesful and interval is ready send note message
-    if (--but->timer <= 0) {
-      if (but->status != ON) {
-        but->status = ON;
-        buttons_pressed[but->src_id]++;
-      }
-
-      // calculate values from signals
-      #define CENTERTEND 0.02f
-      int32_t but_x, but_y;
-      int32_t s0 = calibrate(linearize(but->s0), but);
-      int32_t s1 = calibrate(linearize(but->s1), but);
-      int32_t s2 = calibrate(linearize(but->s2), but);
-      // m = max(s0, s1, s2)
-      int32_t m = s0;
-      if (s1 > m) m = s1;
-      if (s2 > m) m = s2;
-      if (m > 0) {
-          float mf = ((float)m)/INTERNAL_ONE;
-          float fact = 1.0f/(mf + CENTERTEND/mf - CENTERTEND);
-          but_x = (s2 - s0) * fact;
-          but_y = ((s0 + s2) / 2 - s1) * fact;
-      } else {
-          but_x = 0;
-          but_y = 0;
-      }
-
-      msg[1] = but_id;
-      msg[2] = but->pres / MSGFACT;
-      msg[3] = but->velo / MSGFACT_VELO; // but->on;// s_new / MSGFACT; //
-      msg[4] = but_x / MSGFACT;
-      msg[5] = but_y / MSGFACT;
-      if (msgSend(6, msg)) scan_stats.queue_full++;
-      but->timer = (buttons_pressed[0] + buttons_pressed[1]) * SENDFACT;
-    }
-  }
-  else if (but->status) {
-    if (but->status == ON) {
-      msg[1] = but_id;
-      msg[2] = 0;
-      msg[3] = min(but->velo, 0) / MSGFACT_VELO;
-      msg[4] = 0;
-      msg[5] = 0;
-      while (msgSend(6, msg)) { // note off messages are more important so keep trying
-        scan_stats.queue_full++;
-        scan_stats.off_waits++;
-        chThdSleep(1);
-      }
-      buttons_pressed[but->src_id]--;
-    }
-    but->status = OFF;
-    but->p = 0;
-    col_pressed[but->src_id][but_id % 17]--;
-    // reset filter
-    but->pres = 0;
-    but->velo = 0;
-    but->zero_time = 0;
-  } else {
-    but->p = 0;
-#ifdef DETECT_STUCK_NOTES_DECREASE
-    but->zero_time++;
-    if (but->zero_time == ZERO_LEVEL_TIME) {
-      but->zero_offset = 0;
-    }
-#endif
-  }
-  but->fact = 1.0f;
-  but->key_detect3 = 0;
-}
 
 #ifdef USE_BAS
 /*
@@ -1037,17 +842,8 @@ static void ThreadReadButtons(void *arg) {
   int count = 0;
   while (count < 100) {
     while ((wakes = isr_wakes), count < 100 && note_id != next_note_id) {
-      for (int n = 0; n < 4; n++) {
-        button_t* but = &buttons[note_id + n * 17];
-        if (but->on > KEY_DETECT) {
-          int32_t s_new = calibrate(linearize(but->p), but);
-          update_and_filter(&but->pres, &but->velo, s_new);
-          s_new = but->pres * ZERO_LEVEL_FACT;
-          if (s_new > but->zero_offset) {
-            but->zero_offset = s_new;
-          }
-        }
-      }
+      // the zero level pass: keys touched at boot get a zero_offset of their pressure
+      ks_boot_column(&scan_live, note_id);
       // Once per cycle, after the last buttons
       if (note_id == 16) {
         count++;
@@ -1067,60 +863,9 @@ static void ThreadReadButtons(void *arg) {
 
   while (TRUE) {
     while ((wakes = isr_wakes), note_id != next_note_id) {
-        // Update button in each octave/adc-channel
-        for (int n = 0; n < 4; n++) {
-          update_button(&buttons[note_id + n * 17]);
-        }
+        // the keys of this column, then the cross talk correction they give the other columns
+        ks_column(&scan_live, note_id);
 
-        // calculate cross talk correction factors
-        /* correction factor for 1k adc pull up resistors:
-           1: 600/570 = 1.05
-           2: 600/320 = 1.9
-           3: 600/230 = 2.6
-           4: 600/180 = 3.3
-        */
-        float oct_fact[4] = {1.0f};
-        for (int n = 0; n < 4; n++) {
-          float fact = 1.0f + buttons[note_id + n * 17].p * (0.05f / 0.9f / (MULTISAMPLE*4095.0f));
-          oct_fact[n] = max(oct_fact[n], fact);
-          for (int k = n+1; k < 4; k++) {
-            fact = 1.0f + (min(buttons[note_id + n * 17].p, buttons[note_id + k * 17].p) - (KEY_DETECT+KEY_DETECT2))
-                   * (0.9f / 0.95f / (MULTISAMPLE*4095.0f));
-            oct_fact[n] = max(oct_fact[n], fact);
-            oct_fact[k] = max(oct_fact[k], fact);
-          }
-        }
-        bool set_oct[4];
-        for (int b = 0; b < 17; b++) {
-          if (b != note_id) {
-            for (int n = 0; n < 4; n++) {
-              set_oct[n] = true;
-            }
-            for (int n = 0; n < 4; n++) {
-              for (int k = n+1; k < 4; k++) {
-                if (buttons[note_id + n * 17].status != OFF && buttons[note_id + k * 17].status != OFF &&
-                    (buttons[b + k * 17].status != OFF || buttons[b + n * 17].status != OFF)) {
-                  if (buttons[b + n * 17].status != OFF && buttons[b + k * 17].status != OFF) {
-                    // four corners pressed, do not set correction and reduce sensitivity
-                    set_oct[n] = false;
-                    set_oct[k] = false;
-                    buttons[b + n * 17].key_detect3 = KEY_DETECT3 | 1;
-                    buttons[b + k * 17].key_detect3 = KEY_DETECT3 | 1;
-                  } else {
-                    // three corners pressed, only reduce sensitivity for not pressed corner.
-                    // | 1 as signal to the four corner correction algoritm
-                    buttons[b + n * 17].key_detect3 = KEY_DETECT3 * (buttons[b + k * 17].status != OFF) | 1;
-                    buttons[b + k * 17].key_detect3 = KEY_DETECT3 * (buttons[b + n * 17].status != OFF) | 1;
-                  }
-                }
-              }
-              // set correction if larger than current correction
-              if (set_oct[n] && oct_fact[n] > buttons[b + n * 17].fact) {
-                buttons[b + n * 17].fact = oct_fact[n];
-              }
-            }
-          }
-        }
         // Once per cycle, after the last buttons
         if (note_id == 16) {
 #ifdef USE_AUX_BUTTONS
@@ -1207,7 +952,8 @@ int buttonSetKeyFactor(int n, float f) {
   if (n < 0 || n >= 61 || !(f >= 0.1f && f <= 10.0f)) return 0;
   int but = button_number_map[n];
   key_factor[n] = f;
-  buttons[but].c_force = (int32_t)(c_force_factory[but] * f + 0.5f);
+  ks_cal[but].c_force = (int32_t)(c_force_factory[but] * f + 0.5f);
+  ks_calibration_changed();
   return 1;
 }
 
@@ -1219,10 +965,14 @@ void buttonSetCalibration(void) {
   if (base_calib_force == 0x0000) base_calib_force = ((1<<18)/64);
 
   for (int n=0; n<N_BUTTONS; n++) {
-    chprintf((BaseSequentialStream *)&BDU1, "but[%d] c_force: %d zero_offset: %d\r\n", n, buttons[n].c_force, buttons[n].zero_offset);
-    buttons[n].c_force = base_calib_force;
-    buttons[n].c_breakpoint = INT32_MAX;
+    int status;
+    int32_t c_force, zero_offset, pres;
+    ks_key_state(n, &status, &c_force, &zero_offset, &pres);
+    chprintf((BaseSequentialStream *)&BDU1, "but[%d] c_force: %d zero_offset: %d\r\n", n, c_force, zero_offset);
+    ks_cal[n].c_force = base_calib_force;
+    ks_cal[n].c_breakpoint = INT32_MAX;
   }
+  ks_calibration_changed();
   chprintf((BaseSequentialStream *)&BDU1, "c_force: %d\r\n", base_calib_force);
 }
 
@@ -1254,6 +1004,7 @@ void buttonPrintStats(BaseSequentialStream *out) {
     if (st->callbacks_hist[i]) chprintf(out, " %d:%lu", SCAN_CB_BASE + i, st->callbacks_hist[i]);
   }
   chprintf(out, "\r\n");
+  ks_capture_print(out);
 }
 
 /*
@@ -1274,8 +1025,11 @@ void buttonPrintKeys(BaseSequentialStream *out) {
         factor = (int)(key_factor[n] * 1000.0f + 0.5f);
       }
     }
-    chprintf(out, "%d %s %d %ld %ld %d %ld %ld\r\n", b, name, (int)buttons[b].status, buttons[b].c_force,
-             c_force_factory[b], factor, buttons[b].zero_offset, buttons[b].pres);
+    int status;
+    int32_t c_force, zero_offset, pres;
+    ks_key_state(b, &status, &c_force, &zero_offset, &pres);
+    chprintf(out, "%d %s %d %ld %ld %d %ld %ld\r\n", b, name, status, c_force, c_force_factory[b], factor,
+             zero_offset, pres);
   }
 }
 
@@ -1302,27 +1056,9 @@ void ButtonReadStart(void) {
   adcStart(&ADCD1, &adccfg1);
 #endif
 
-  // Initialize buttons
-  for (int n=0; n<N_BUTTONS; n++) {
-    buttons[n].but_id = n;
-    buttons[n].src_id = ID_DIS;
-    buttons[n].c_force = CALIB_FORCE;
-    buttons[n].key_detect3 = 0;
-    buttons[n].pres = 0;
-    buttons[n].velo = 0;
-    buttons[n].zero_offset = 0;
-    buttons[n].zero_time = 0;
-    buttons[n].zero_max = 0;
-    buttons[n].fact = 1.0f;
-  }
-  // disable not existing buttons
-  buttons[52].c_force = 0;
-  buttons[54].c_force = 0;
-  buttons[57].c_force = 0;
-  buttons[59].c_force = 0;
-  buttons[61].c_force = 0;
-  buttons[64].c_force = 0;
-  buttons[66].c_force = 0;
+  // Initialize buttons: c_force CALIB_FORCE, 0 for the positions without a key (52 54 57 59 61
+  // 64 66), the filters and zero levels 0 (KeyScanner::init)
+  ks_init();
 #ifdef USE_BAS
   for (int n=0; n<N_BUTTONS_BAS; n++) {
     buttons_bas[n].but_id = n;
@@ -1343,20 +1079,20 @@ void ButtonReadStart(void) {
       calib_dis_force->UID[2] == UID[2]) {
     for (int n=0; n<N_BUTTONS; n++) {
 #ifdef BREAKPOINT_CALIBRATION
-      buttons[n].c_force = calib_dis_force->calib[n];
+      ks_cal[n].c_force = calib_dis_force->calib[n];
 #else
       if (calib_dis_force->type == 0x02) { /* devspec_id->hardware_revision == 1 */
-        buttons[n].c_force = 2 * calib_dis_force->calib[n]; // * 2 to make up for non-linearity
+        ks_cal[n].c_force = 2 * calib_dis_force->calib[n]; // * 2 to make up for non-linearity
       } else if (calib_dis_force->type == 0x00) { /* devspec_id->hardware_revision == 0 */
         // calibrated per sensor, so should be / 3 to get the same sensitivity.
         // However with 10k pullup the higher force measurement is not stable, so make it 1.5 times more sensitive
-        buttons[n].c_force = 2 * calib_dis_force->calib[n] / 2;
+        ks_cal[n].c_force = 2 * calib_dis_force->calib[n] / 2;
       }
 #endif
     }
 
     for (int n = 0; n < N_BUTTONS; n++) {
-      c_force_factory[n] = buttons[n].c_force;
+      c_force_factory[n] = ks_cal[n].c_force;
     }
 
     CC_ALIGN(8) char key[8] = "fCoffC_";
@@ -1369,7 +1105,7 @@ void ButtonReadStart(void) {
       int but = button_number_map[n];
       f = getConfigFloat(key);
       if (f != 1.0f && f >= 0.0f && f <= 10.0f) {
-        buttons[but].c_force = (int32_t)(buttons[but].c_force * f + 0.5f);
+        ks_cal[but].c_force = (int32_t)(ks_cal[but].c_force * f + 0.5f);
         key_factor[n] = f;
       }
       key[2] = 'o';
@@ -1377,12 +1113,12 @@ void ButtonReadStart(void) {
       key[4] = 'f';
       f = getConfigFloat(key);
       if (f > 0.0f && f <= 1.0f) {
-        buttons[but].zero_offset = f * INTERNAL_ONE;
+        ks_set_zero_offset(but, f * INTERNAL_ONE);
       }
     }
   } else {
     for (int n = 0; n < N_BUTTONS; n++) {
-      c_force_factory[n] = buttons[n].c_force;
+      c_force_factory[n] = ks_cal[n].c_force;
     }
     led_rgb(0xff0000);
     chThdSleepMilliseconds(200);
@@ -1393,11 +1129,11 @@ void ButtonReadStart(void) {
       calib_dis_breakpoint->UID[2] == UID[2] &&
       calib_dis_breakpoint->type == 0xb1) {
     for (int n=0; n<N_BUTTONS; n++) {
-      buttons[n].c_breakpoint = calib_dis_breakpoint->calib[n] << 16;
+      ks_cal[n].c_breakpoint = calib_dis_breakpoint->calib[n] << 16;
     }
   } else {
     for (int n=0; n<N_BUTTONS; n++) {
-      buttons[n].c_breakpoint = INT32_MAX;
+      ks_cal[n].c_breakpoint = INT32_MAX;
     }
   }
   if (calib_dis_force2->UID[0] == UID[0] &&
@@ -1405,9 +1141,12 @@ void ButtonReadStart(void) {
       calib_dis_force2->UID[2] == UID[2] &&
       calib_dis_force2->type == 0x01) {
     for (int n=0; n<N_BUTTONS; n++) {
-      buttons[n].c_force2 = calib_dis_force2->calib[n];
+      ks_cal[n].c_force2 = calib_dis_force2->calib[n];
     }
   }
+
+  ks_calibration_changed();  // the scanner thread takes it over at its first scan
+  ks_capture_start_dump_thread();
 
   /*
    * Start first ADC conversion. Next conversions are triggered from the adc callback.
