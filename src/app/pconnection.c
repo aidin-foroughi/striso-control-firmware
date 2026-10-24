@@ -167,6 +167,14 @@ void PExReceiveByte(unsigned char c) {
       const int ok = synth_settings_key(payload[0]);
       chprintf((BaseSequentialStream *)&BDU1, "K %s %d\r\n", ok ? "ok" : "err", payload[0]);
     }
+    else if (payload_len == payload_need && payload_cmd == 'l') {
+      payload_need = 0;
+      if (payload[0] == '1') {
+        if (!usb_audio_marker_request()) chprintf((BaseSequentialStream *)&BDU1, "usb audio marker: busy\r\n");
+      } else {
+        usb_audio_echo(&BDU1);
+      }
+    }
     else if (payload_len == payload_need && payload_cmd == 't') {
       payload_need = 0;
       int n = 0, ok = 1;
@@ -345,6 +353,13 @@ void PExReceiveByte(unsigned char c) {
         payload_len = 0;
         payload_need = 3;
       }
+      else if (c == 'l') { // USB audio latency: 1 payload byte follows. '1': a marker in the next
+        // packet (usb_audio.h, usb_audio_marker_request; the reply comes once it was sent), '0':
+        // an echo ("usb audio echo: held <us> us") for the console's round trip
+        payload_cmd = 'l';
+        payload_len = 0;
+        payload_need = 1;
+      }
       else if (c == 'u') { // USB audio source: toggle the test tone (the jack keeps the synth)
         usb_audio_set_tone(!usb_audio_tone());
         chprintf((BaseSequentialStream *)&BDU1, "usb audio source: %s\r\n",
@@ -364,6 +379,7 @@ void PExReceive(void) {
   while (chnReadTimeout(&BDU1, &received, 1, TIME_IMMEDIATE)) {
     PExReceiveByte(received);
   }
+  usb_audio_marker_poll(&BDU1); // the reply to a latency marker, once it went out
 
   // get USB MIDI bytes from host
   // TODO: check if midi buffer is alligned with 4 bytes

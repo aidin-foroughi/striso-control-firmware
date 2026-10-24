@@ -77,6 +77,20 @@ static struct {
   uint32_t commit_n, commit_sum, commit_max, off_cadence;
 } st;
 
+// The latency marker (console Stcl1, usb_audio_marker_request): asked by the console thread,
+// written into the next packet the ISR builds (usb_audio_core.h, ua_mark_packet), reported by the
+// console thread (usb_audio_marker_poll) once the host fetched that packet: its frame, the ring
+// level before it, and the time from the command's OUT packet to the marker's IN transfer.
+enum { UA_MK_IDLE, UA_MK_WANTED, UA_MK_ARMED, UA_MK_SENT, UA_MK_LOST };
+static volatile uint8_t ua_mk_state;
+static uint32_t ua_mk_seq, ua_mk_rx_cyc, ua_mk_done_cyc;
+static uint16_t ua_mk_rx_fn, ua_mk_fn;
+static int32_t ua_mk_level, ua_mk_target;
+static uint8_t ua_mk_bps;
+static systime_t ua_mk_asked;
+extern volatile uint32_t bdu_rx_cycles; // bulk_usb.c: when the last console OUT packet arrived
+extern volatile uint16_t bdu_rx_frame;
+
 static void ua_stats_clear(void) {
   st = (__typeof__(st)){0};
   st.phase_min = 0xFFFFFFFFU;
@@ -168,7 +182,16 @@ int usb_audio_target(void) {
 static void ua_transmitI(USBDriver *usbp, int why, bool resend) {
   if (!resend || ua_pkt_len == 0) {
     const uint32_t t0 = DWT->CYCCNT;
-    ua_pkt_len = ua_fill(&ua, ua_pkt, ua_alt == UA_ALT_16BIT ? 2 : 3);
+    const int bps = ua_alt == UA_ALT_16BIT ? 2 : 3;
+    const uint32_t level = ua.w - ua.r;
+    ua_pkt_len = ua_fill(&ua, ua_pkt, bps);
+    if (ua_mk_state == UA_MK_WANTED) {
+      ua_mark_packet(ua_pkt, (int)(ua_pkt_len / (size_t)(UA_CHANNELS * bps)), bps);
+      ua_mk_level = (int32_t)level;
+      ua_mk_target = ua.target;
+      ua_mk_bps = (uint8_t)bps;
+      ua_mk_state = UA_MK_ARMED;
+    }
     const uint32_t dt = DWT->CYCCNT - t0;
     st.build_sum += dt;
     st.build_n++;
@@ -204,6 +227,15 @@ static void ua_in_cb(USBDriver *usbp, usbep_t ep) {
   } else {
     st.sent++;
     ua_flowing = true;
+  }
+  if (ua_mk_state == UA_MK_ARMED) { // the packet that just completed (or failed) carried it
+    if (!missed) {
+      ua_mk_state = UA_MK_SENT;
+      ua_mk_done_cyc = t0;
+      ua_mk_fn = ua_frame(usbp);
+    } else if (!early) {
+      ua_mk_state = UA_MK_LOST; // dropped (an early flush is sent again, marker and all)
+    }
   }
   if (ua_alt != 0U && usbp->state == USB_ACTIVE && !usbGetTransmitStatusI(usbp, ep)) {
     ua_transmitI(usbp, missed ? UA_BUILD_MISS : UA_BUILD_XFRC, early);
@@ -359,6 +391,52 @@ bool usb_audio_requests_hook(USBDriver *usbp) {
 
 static uint32_t ua_us(uint32_t cycles) {
   return (cycles + UA_CYC_US / 2) / UA_CYC_US;
+}
+
+bool usb_audio_marker_request(void) {
+  chSysLock();
+  const bool idle = ua_mk_state == UA_MK_IDLE;
+  if (idle) {
+    ua_mk_seq++;
+    ua_mk_rx_cyc = bdu_rx_cycles;
+    ua_mk_rx_fn = bdu_rx_frame;
+    ua_mk_asked = chVTGetSystemTimeX();
+    ua_mk_state = UA_MK_WANTED;
+  }
+  chSysUnlock();
+  return idle;
+}
+
+void usb_audio_marker_poll(void *chp) {
+  BaseSequentialStream *out = (BaseSequentialStream *)chp;
+  if (ua_mk_state == UA_MK_IDLE) return;
+  chSysLock();
+  const uint8_t s = ua_mk_state;
+  const uint32_t seq = ua_mk_seq, rx = ua_mk_rx_cyc, done = ua_mk_done_cyc;
+  const uint16_t rx_fn = ua_mk_rx_fn, fn = ua_mk_fn;
+  const int32_t level = ua_mk_level, target = ua_mk_target;
+  const int bits = ua_mk_bps * 8;
+  const bool stale = chVTTimeElapsedSinceX(ua_mk_asked) > TIME_MS2I(100);
+  if (s == UA_MK_SENT || s == UA_MK_LOST || stale) ua_mk_state = UA_MK_IDLE;
+  chSysUnlock();
+  if (s == UA_MK_SENT) {
+    chprintf(out, "usb audio marker %lu: frame %u index 0 level %ld target %ld, bus %lu us after rx (rx frame %u), right %d frames -20 dBFS %d bit\r\n",
+        seq, fn, level, target, ua_us(done - rx), rx_fn, UA_MARK_FRAMES, bits);
+  } else if (s == UA_MK_LOST) {
+    chprintf(out, "usb audio marker %lu: lost (the host did not fetch its packet)\r\n", seq);
+  } else if (stale) {
+    chprintf(out, "usb audio marker %lu: not streaming\r\n", seq);
+  }
+}
+
+void usb_audio_echo(void *chp) {
+  chSysLock();
+  const uint32_t now = DWT->CYCCNT, rx = bdu_rx_cycles, sof = ua_sof_t;
+  chSysUnlock();
+  // the reply is queued now and goes out when the bulk driver flushes at the next SOF
+  const uint32_t in_frame = now - sof;
+  const uint32_t to_sof = in_frame < UA_CYC_MS ? UA_CYC_MS - in_frame : 0;
+  chprintf((BaseSequentialStream *)chp, "usb audio echo: held %lu us\r\n", ua_us(now - rx + to_sof));
 }
 
 // not inlined (LTO would merge its frame into main(), whose stack is 1 KB, for every path); the

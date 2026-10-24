@@ -461,9 +461,15 @@ void bduDataTransmitted(USBDriver *usbp, usbep_t ep) {
  * @param[in] usbp      pointer to the @p USBDriver object
  * @param[in] ep        OUT endpoint number
  */
+volatile uint32_t bdu_rx_cycles;
+volatile uint16_t bdu_rx_frame;
+
 void bduDataReceived(USBDriver *usbp, usbep_t ep) {
   size_t size;
   BulkUSBDriver *bdup = usbp->out_params[ep - 1U];
+
+  bdu_rx_cycles = DWT->CYCCNT;
+  bdu_rx_frame = (uint16_t)((usbp->otg->DSTS >> 8) & 0x7FFU);
 
   if (bdup == NULL) {
     return;

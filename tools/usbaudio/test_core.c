@@ -328,6 +328,65 @@ static void test_pack(void) {
 	printf("packing: 24 bit and 16 bit little endian checked\n");
 }
 
+// the latency marker: only the right channel of the first 32 frames of the packet changes, to
+// exactly +-0.1 of full scale in the PN's order; the ring (the jack's samples) is untouched; a
+// second request marks the same way (idempotent); the PN's sidelobes stay small (unambiguous)
+static void test_marker(void) {
+	for (int bps = 3; bps >= 2; bps--) {
+		memset(&c, 0, sizeof c);
+		ua_init(&c);
+		for (int b = 0; b < 8; b++) {
+			int32_t *p = ua_write_ptr(&c);
+			for (int i = 0; i < UA_BLOCK; i++) {
+				p[2 * i] = sample_l(c.w + i);
+				p[2 * i + 1] = sample_r(c.w + i);
+			}
+			ua_write_commit(&c, 0);
+		}
+		ua_start(&c);
+		static int32_t ring_before[UA_RING_FRAMES * UA_CHANNELS];
+		memcpy(ring_before, c.ring, sizeof ring_before);
+		uint8_t pkt[UA_PACKET_MAX], orig[UA_PACKET_MAX];
+		const size_t len = ua_fill(&c, pkt, bps);
+		const int frames = (int)(len / (size_t)(UA_CHANNELS * bps));
+		memcpy(orig, pkt, len);
+		CHECK(ua_mark_packet(pkt, frames, bps) == UA_MARK_FRAMES, "marks 32 frames");
+		int left_same = 1, right_ok = 1, tail_same = 1;
+		for (int i = 0; i < frames; i++) {
+			const uint8_t *l = pkt + (size_t)(2 * i) * bps, *lo = orig + (size_t)(2 * i) * bps;
+			const uint8_t *r = pkt + (size_t)(2 * i + 1) * bps, *ro = orig + (size_t)(2 * i + 1) * bps;
+			if (memcmp(l, lo, (size_t)bps) != 0) left_same = 0;
+			if (i < UA_MARK_FRAMES) {
+				int32_t v = bps == 3 ? (int32_t)((uint32_t)r[0] << 8 | (uint32_t)r[1] << 16 | (uint32_t)r[2] << 24) >> 8
+				                     : (int32_t)(int16_t)(r[0] | r[1] << 8);
+				const double x = v / (bps == 3 ? 8388608.0 : 32768.0);
+				if (fabs(x - 0.1 * ua_mark_pn[i]) > 1e-4) right_ok = 0;
+			} else if (memcmp(r, ro, (size_t)bps) != 0) {
+				tail_same = 0;
+			}
+		}
+		CHECK(left_same, "%d-byte: left channel unchanged", bps);
+		CHECK(right_ok, "%d-byte: right channel carries the marker at -20 dBFS", bps);
+		CHECK(tail_same, "%d-byte: frames after the marker unchanged", bps);
+		CHECK(memcmp(ring_before, c.ring, sizeof ring_before) == 0, "the ring (the jack's samples) untouched");
+		uint8_t again[UA_PACKET_MAX];
+		memcpy(again, pkt, len);
+		ua_mark_packet(again, frames, bps);
+		CHECK(memcmp(again, pkt, len) == 0, "marking twice gives the same packet");
+		CHECK(ua_mark_packet(pkt, 20, bps) == 20, "a short packet is marked only as far as it goes");
+	}
+	int side = 0, sum = 0;
+	for (int k = 1; k < UA_MARK_FRAMES; k++) {
+		int s = 0;
+		for (int i = 0; i + k < UA_MARK_FRAMES; i++) s += ua_mark_pn[i] * ua_mark_pn[i + k];
+		if (abs(s) > side) side = abs(s);
+	}
+	for (int i = 0; i < UA_MARK_FRAMES; i++) sum += ua_mark_pn[i];
+	CHECK(side <= 5, "PN sidelobe %d of 32", side);
+	CHECK(abs(sum) <= 2, "PN balance %d", sum);
+	printf("latency marker: right channel only, -20 dBFS, 24 and 16 bit; ring untouched; idempotent; PN sidelobes %d/32\n", side);
+}
+
 // target and setting bounds; start right after boot (ring not yet filled) primes once
 static void test_target_bounds(void) {
 	memset(&c, 0, sizeof c);
@@ -387,6 +446,7 @@ int main(void) {
 	test_accumulator();
 	test_tone();
 	test_pack();
+	test_marker();
 	test_target_bounds();
 	target_sweep();
 	const double ppms[] = {0, 20, -20, 100, -100, 500, -500, 2000, -2000};

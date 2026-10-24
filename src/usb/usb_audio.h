@@ -61,6 +61,19 @@ int usb_audio_target(void);
 // console 'StcU': stream state and statistics since the last call
 void usb_audio_print_status(void *chp);
 
+// Latency marker, console 'Stcl1': the next packet carries a 32-frame pseudo-random burst at
+// -20 dBFS on the right channel (USB only; the jack never has it). False (nothing done) while
+// one is still on its way. usb_audio_marker_poll (the console thread, every pass) prints the
+// reply once the host fetched it:
+//   "usb audio marker <seq>: frame <fn> index 0 level <ring> target <t>, bus <us> us after rx
+//    (rx frame <fn>), right 32 frames -20 dBFS <bits> bit"
+// ("lost" when the host skipped that packet, "not streaming" after 100 ms without a stream).
+bool usb_audio_marker_request(void);
+void usb_audio_marker_poll(void *chp);
+// console 'Stcl0': "usb audio echo: held <us> us", the time from the command's OUT packet to the
+// SOF that flushes this reply (a host subtracts it from the round trip: what is left is transit)
+void usb_audio_echo(void *chp);
+
 #ifdef HAL_USE_USB
 // hooks for usbcfg.c (ISR context, called with the system locked except the requests hook)
 void usb_audio_configured_hookI(USBDriver *usbp);
