@@ -31,7 +31,7 @@ function(_synth_control_test target)
 endfunction()
 
 _synth_control_test(test_synth_control)
-_synth_control_test(test_synth_control_flags SYNTHCTL_NORMAL_BEND_LIKE_MPE=1 SYNTHCTL_MOTION_CC_FIX=1)
+_synth_control_test(test_synth_control_flags SYNTHCTL_MOTION_CC_FIX=1)
 
 # the scenarios (test_synth_control list); the flags binary runs only those of the flags
 set(STRISO_SYNTH_CONTROL_SCENARIOS
@@ -39,13 +39,13 @@ set(STRISO_SYNTH_CONTROL_SCENARIOS
   b15_time_wrap
   sc01_dummy_voices sc02_poly_to_mpe sc02_mpe_to_poly sc02_switch_held sc03_mono_delay
   sc04_toff_stale sc05_pres_hyst sc05_pres_hyst_normal sc06_pingpong sc07_stale_cc74
-  sc08_bend_default sc09_alt_light sc10_normal_internal sc10_normal_midi_unchanged
+  sc08_bend_like_mpe sc09_alt_light sc10_normal_internal sc10_normal_midi_unchanged
   sc11_midinote_knob sc11_midinote_preset sc12_flip_offsets sc13_ranges sc14_mcm_zero sc15_pb_in
   sc16_echo sc17_rpn_boot sc18_pedal_channel sc19_poly_pgm sc20_bend_range_key
   sc22_free_transpose_range sc22_octave_release sc23_panic sc24_knob_y0 sc25_midiparam_first
   sc27_dials sc28_cc1_lsb sc29_cc65 sc30_mode_messages sc31_steal_dup sc35_tuning_overflow
   sc37_blink sc38_no_synth preset_keys)
-set(STRISO_SYNTH_CONTROL_FLAG_SCENARIOS sc08_bend_like_mpe sc21_motion_hyst)
+set(STRISO_SYNTH_CONTROL_FLAG_SCENARIOS sc21_motion_hyst)
 # scenarios of bugs not fixed yet, expected to fail (WILL_FAIL): each fix removed its entry, none
 # is left (the review's open findings have no scenario here)
 set(STRISO_SYNTH_CONTROL_KNOWN_FAILING "")

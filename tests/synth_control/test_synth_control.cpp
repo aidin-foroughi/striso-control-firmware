@@ -550,8 +550,7 @@ static void t_sc07_stale_cc74() {
 	if (failures) dump_midi(m0);
 }
 
-// SC-08: Normal mode bends by the same setting as MPE (only with SYNTHCTL_NORMAL_BEND_LIKE_MPE;
-// the default keeps the old bend of Normal mode, twice MPE's)
+// SC-08: Normal mode bends by the same setting as MPE (it bent twice as far)
 static void bend_units(double& mpe, double& normal) {
 	const int b = K(30);
 	const float x = 0.5f;
@@ -567,19 +566,12 @@ static void bend_units(double& mpe, double& normal) {
 	key(b, 0.5f, 0.0f, x);
 	normal = (last_pb(m0) - 8192) / 8192.0 * 2; // Normal mode's range: 2 (midi_config)
 }
-static void t_sc08_bend_default() {
-	double mpe, normal;
-	bend_units(mpe, normal);
-	EXPECT(std::fabs(normal - 2 * 0.5 * 0.125) < 0.001, "Normal mode: %.4f semitones (the old 0.125)", normal);
-}
-#if defined(SYNTHCTL_NORMAL_BEND_LIKE_MPE) && SYNTHCTL_NORMAL_BEND_LIKE_MPE
 static void t_sc08_bend_like_mpe() {
 	double mpe, normal;
 	bend_units(mpe, normal);
 	EXPECT(std::fabs(normal - mpe) < 2.0 / 8192 + 48.0 / 8192, "MPE %.4f, Normal %.4f semitones", mpe, normal);
 	EXPECT(std::fabs(normal - 0.0625) < 0.001, "Normal mode: %.4f semitones (expected 0.0625)", normal);
 }
-#endif
 
 // SC-09: in settings mode a light first touch (pres <= 0.05) must not change the setting
 static void t_sc09_alt_light() {
@@ -620,7 +612,8 @@ static void t_sc10_normal_internal() {
 }
 
 // SC-10: the internal synth playing in Normal mode leaves Normal mode's MIDI output as it was.
-// The expected messages are those of the firmware before the change (3d6f498).
+// The expected messages are those of the firmware before the change (3d6f498), with Normal mode's
+// pitch bend halved since (SC-08).
 static const uint8_t normal_midi_expected[][3] = {
 #include "normal_midi_expected.inc"
 };
@@ -1227,10 +1220,7 @@ static const Scenario scenarios[] = {
     {"sc05_pres_hyst_normal", t_sc05_pres_hyst_normal},
     {"sc06_pingpong", t_sc06_pingpong},
     {"sc07_stale_cc74", t_sc07_stale_cc74},
-    {"sc08_bend_default", t_sc08_bend_default},
-#if defined(SYNTHCTL_NORMAL_BEND_LIKE_MPE) && SYNTHCTL_NORMAL_BEND_LIKE_MPE
     {"sc08_bend_like_mpe", t_sc08_bend_like_mpe},
-#endif
     {"sc09_alt_light", t_sc09_alt_light},
     {"sc10_normal_internal", t_sc10_normal_internal},
     {"sc10_normal_midi_unchanged", t_sc10_normal_midi_unchanged},
