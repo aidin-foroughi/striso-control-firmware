@@ -94,7 +94,7 @@ void led_tick(void) {
   }
 }
 
-inline int led_updown_state(ioline_t line, uint32_t state) {
+static inline int led_updown_state(ioline_t line, uint32_t state) {
   if (state == 0xf) {
     palSetLine(line);
   } else if (state == 0x0) {
@@ -147,8 +147,8 @@ void led_updown(uint32_t state) {
 void led_updown_dial(int angle) {
   angle = ((angle + 1024) % 16) - 8; // +1024 to make % work as modulo for negative numbers
   if (angle >= 0) {
-    led_updown(0xffff >> 2*angle);
+    led_updown(0xffffu >> 2*angle);
   } else {
-    led_updown(0xffff << 2*-angle);
+    led_updown(0xffffu << 2*-angle); // unsigned: 0xffff << 16 overflowed an int
   }
 }
