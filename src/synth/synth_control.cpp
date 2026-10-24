@@ -823,7 +823,7 @@ class Instrument {
                     update_voice(but);
                     buttons[but].pres = temp_pres;
                 }
-                else if (but == transpose_button && transpose_button2) {
+                else if (but == transpose_button && transpose_button2 >= 0) {
                     // calculate combined transpose buttons
                     float temp_pres = buttons[but].pres; // save pres for note off detection
 
