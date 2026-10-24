@@ -307,4 +307,40 @@ static inline size_t ua_fill(ua_core_t *c, uint8_t *pkt, int bps) {
   return (size_t)n * UA_CHANNELS * bps;
 }
 
+// --- latency marker (console 'Stcl1') ----------------------------------------------------------
+//
+// A host measures the latency of the USB audio path electronically: the console asks for a
+// marker, the USB ISR writes it over the first UA_MARK_FRAMES frames of the next packet it
+// builds (the right channel only; the left keeps the synth), and the board reports which frame
+// the packet went out in and how long after the command arrived. The marker is a 32-chip
+// pseudo-random sequence (a 5-bit maximal-length LFSR, x^5 + x^3 + 1, plus one chip) at
+// -20 dBFS: its aperiodic autocorrelation sidelobes are at most 5/32, so a host finds it by
+// correlation in any audio, or by its exact values in a bit-exact capture. It goes into the
+// packed packet only: the ring, and so the jack, never see it.
+#define UA_MARK_FRAMES 32
+#define UA_MARK_AMP24 838861 // 0.1 * 2^23: -20 dBFS
+#define UA_MARK_AMP16 3277   // 0.1 * 2^15
+static const int8_t ua_mark_pn[UA_MARK_FRAMES] = {1, -1, -1, -1, -1, 1, -1, -1, 1, -1, 1, 1, -1, -1, 1, 1,
+    1, 1, 1, -1, -1, -1, 1, 1, -1, 1, 1, 1, -1, 1, -1, 1};
+
+// Overwrite the right channel of the first frames of a packed packet (frames: frames in it; bps:
+// 3 or 2 bytes per sample) with the marker. Returns the frames marked.
+static inline int ua_mark_packet(uint8_t *pkt, int frames, int bps) {
+  const int n = frames < UA_MARK_FRAMES ? frames : UA_MARK_FRAMES;
+  for (int i = 0; i < n; i++) {
+    uint8_t *s = pkt + (size_t)(2 * i + 1) * (size_t)bps; // right channel of frame i
+    if (bps == 3) {
+      const uint32_t v = (uint32_t)(ua_mark_pn[i] * UA_MARK_AMP24);
+      s[0] = (uint8_t)v;
+      s[1] = (uint8_t)(v >> 8);
+      s[2] = (uint8_t)(v >> 16);
+    } else {
+      const uint32_t v = (uint32_t)(ua_mark_pn[i] * UA_MARK_AMP16);
+      s[0] = (uint8_t)v;
+      s[1] = (uint8_t)(v >> 8);
+    }
+  }
+  return n;
+}
+
 #endif /* USB_AUDIO_CORE_H */

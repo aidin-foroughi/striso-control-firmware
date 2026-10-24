@@ -198,6 +198,10 @@ extern "C" {
   void bduSOFHookI(BulkUSBDriver *bdup);
   void bduDataTransmitted(USBDriver *usbp, usbep_t ep);
   void bduDataReceived(USBDriver *usbp, usbep_t ep);
+  // when the last OUT packet arrived (DWT cycles) and in which USB frame: the USB audio latency
+  // marker (console Stcl) measures from it
+  extern volatile uint32_t bdu_rx_cycles;
+  extern volatile uint16_t bdu_rx_frame;
   void bduInterruptTransmitted(USBDriver *usbp, usbep_t ep);
   msg_t bduControl(USBDriver *usbp, unsigned int operation, void *arg);
 #ifdef __cplusplus

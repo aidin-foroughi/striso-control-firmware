@@ -158,6 +158,35 @@ Other commands: `Stcu` toggles the test tone on USB (left 1 kHz, right 500 Hz, -
 a recording with `tools/usbaudio/analyze_tone.py rec.wav`). `Stct<nnn>` sets the ring target in
 frames, and `Stct000` prints it.
 
+## Latency marker: `Stcl1`, `Stcl0`
+
+For measuring the USB audio latency electronically (Striso Live's `packages/striso_bench`):
+
+- `Stcl1` writes a marker over the first 32 frames of the next packet the USB ISR builds, on the
+  right channel only (the left keeps the synth). The marker is a 32-chip pseudo-random sequence
+  (`ua_mark_pn` in `usb_audio_core.h`: a 5-bit maximal-length LFSR, x^5 + x^3 + 1, plus one chip)
+  at -20 dBFS (±0.1 of full scale, exact in 24 and 16 bit). Its aperiodic autocorrelation
+  sidelobes are at most 5/32, so a host finds it by correlation in any audio. It goes into the
+  packed packet only: the ring, and so the jack, never have it. Once the host fetched that packet,
+  the console thread replies:
+  `usb audio marker <seq>: frame <fn> index 0 level <ring> target <t>, bus <us> us after rx (rx frame <fn>), right 32 frames -20 dBFS <bits> bit`.
+  Here `bus` is the time (DWT) from the command's OUT packet arriving to the marker's IN transfer
+  completing, and `level` is the ring before that packet. One marker at a time: `busy` while one
+  is on its way, `lost` when the host skipped its packet, `not streaming` after 100 ms without a
+  stream.
+- `Stcl0` replies `usb audio echo: held <us> us`: from the command's OUT packet to the SOF that
+  flushes this reply. A host subtracts it from the round trip; what is left is the console's
+  transit (both ways).
+
+The bulk driver notes when every OUT packet arrives (`bdu_rx_cycles`, `bdu_rx_frame`).
+`test_core.c` checks the marker: only the right channel of 32 frames changes, to exactly ±0.1,
+in 24 and 16 bit; the ring is untouched; it is idempotent; the sidelobes are small.
+
+Measured with it on the development PC (Windows 11, usbaudio2, exclusive capture at its 3 ms
+minimum period): 2.5 ms median from the bus to the app's capture callback (3.5 p95); the board's
+ring before the packet about 2.4 to 2.9 ms (reported). The UAC1 build measured the same in
+exclusive mode, and worse in shared mode (480-frame buffers: 6.5 ms against UAC2's 3.5 ms).
+
 ## Tests
 
 `tools/test.sh` runs `usb_audio_core`, the simulation of the exact firmware core:
