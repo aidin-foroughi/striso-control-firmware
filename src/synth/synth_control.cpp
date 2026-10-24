@@ -48,6 +48,14 @@ extern "C" {
 #define ws2812_write_led(n,r,g,b) led_rgb3(14*r,14*g,14*b)
 #endif
 
+// Behaviour changes a player would notice, off by default (the fix of a review finding that also
+// changes how the instrument plays; research/review_synth_control.md). Build with -D<flag>=1.
+// Normal mode's pitch bend in the same units as MPE's: bend_sensitivity semitones at full x. Off:
+// twice that (Normal mode's bend range is 2 semitones and the bend went 0..1 of it) (SC-08).
+#ifndef SYNTHCTL_NORMAL_BEND_LIKE_MPE
+#define SYNTHCTL_NORMAL_BEND_LIKE_MPE 0
+#endif
+
 #define BUTTONCOUNT 68
 #define MAX_PORTAMENTO_BUTTONS 8
 static constexpr uint8_t MIDI_C_ALL_SOUND_OFF = 0x78;  // (midi.h has All Notes Off, 0x7b)
@@ -779,6 +787,9 @@ class Instrument {
                         }
                         if (config.midi_x == CFG_PITCH_BEND) {
                             x = pow3(x) * bend_sensitivity;
+#if SYNTHCTL_NORMAL_BEND_LIKE_MPE
+                            x *= 0.5f;  // semitones, of Normal mode's bend range of 2 (midi_config)
+#endif
                             d = (buttons[0].last_bend > (0x2000 + x * 0x2000)) * 0.5 - 0.25;
                             int bend = 0x2000 + x * 0x2000 + 0.5 + d;
                             bend = clamp(bend, 0, 0x3fff);
