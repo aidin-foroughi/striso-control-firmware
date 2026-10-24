@@ -648,6 +648,11 @@ class Instrument {
                     nudged = false;
                     if (!altmode) update_leds();
                 }
+                if (buttons[but].state != STATE_ALT) {
+                    // a touch too light to count as a press (its x/y are noise) or a release:
+                    // no knob or nudge on a key whose setting isn't shown (SC-09)
+                    return;
+                }
                 // handle knob mode
                 float a = pow2(buttons[but].but_x) + pow2(buttons[but].but_y);
                 if (a > pow2(0.5f)) {
