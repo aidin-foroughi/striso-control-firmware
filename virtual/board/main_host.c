@@ -79,9 +79,10 @@ static void pack(int *in, uint8_t *out, int n) {
 /*
  * Message send thread
  */
-// 768: config_but -> load_preset -> midi_config -> MidiSend3 -> a USB write runs on this thread
-// (~400 B by the static count plus the queue's notify callbacks, which it doesn't follow)
-static THD_WORKING_AREA(waThreadSend, 768);
+// the key thread: synth_message, the settings keys (load_preset), MIDI in, MIDI out over USB.
+// Its deepest direct path (tools/stackcheck.py, the USB driver's indirect calls left out) is
+// 564 bytes (500 at 3d6f498: 12 bytes to spare), so 1024 leaves a margin.
+static THD_WORKING_AREA(waThreadSend, 1024);
 static void ThreadSend(void *arg) {
 
   (void)arg;

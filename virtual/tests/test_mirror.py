@@ -46,8 +46,10 @@ def main():
     main_c = (ROOT / "src/app/main.c").read_text()
     host = (ROOT / "virtual/board/main_host.c").read_text()
     copy = between(host, "/* main.c: --- copied from here (Thread1, pack, ThreadSend) --- */", "/* main.c: --- copied up to here --- */")
-    for sig in ["static THD_WORKING_AREA(waThread1, 128);", "static void Thread1(void *arg) {",
-                "static void pack(int *in, uint8_t *out, int n) {", "static THD_WORKING_AREA(waThreadSend, 768);",
+    # the working areas as main.c declares them (their sizes included)
+    wa = [re.search(r"static THD_WORKING_AREA\(%s, \w+\);" % n, main_c).group(0) for n in ("waThread1", "waThreadSend")]
+    for sig in [wa[0], "static void Thread1(void *arg) {",
+                "static void pack(int *in, uint8_t *out, int n) {", wa[1],
                 "static void ThreadSend(void *arg) {"]:
         want = function(main_c, sig) if sig.endswith("{") else sig
         got = function(copy, sig) if sig.endswith("{") else (sig if sig in copy else "")

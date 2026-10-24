@@ -13,10 +13,9 @@ src = Path(sys.argv[1] if len(sys.argv) > 1 else
 allowed_body = re.search(r"static bool settings_key_allowed\(int id\) \{(.*?)\n\}", src, re.S).group(1)
 allowed = {int(x) for x in re.findall(r"case (\d+):", allowed_body)}
 
-# config_but of the current layout (after #else // !OLD_CONFIG_LAYOUT)
-current = src[src.index("#else // !OLD_CONFIG_LAYOUT"):]
-cb = current[current.index("float config_but(int but, int type, float adjust) {"):]
-cb = cb[:cb.index("#endif // !OLD_CONFIG_LAYOUT")]
+# config_but(): from its definition to the closing brace at the start of a line
+cb = src[src.index("float config_but(int but, int type, float adjust) {"):]
+cb = cb[:cb.index("\n}\n")]
 cases = {int(x) for x in re.findall(r"case \((\d+)\)", cb)}
 
 expected = {0, 2, 4, 34, 36, 38, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 30, 32,

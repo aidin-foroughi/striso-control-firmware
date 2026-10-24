@@ -105,7 +105,6 @@ void synth_tick(void);
 void midi_config(void);
 void synth_control_init(void);
 
-void clear_dead_notes(void);
 
 extern float volume;
 

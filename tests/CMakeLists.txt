@@ -296,3 +296,6 @@ _render_test(render.va.p5.fx render_va --preset 5 --fx)
 # vpres stayed positive, at a constant level (0.25 for vpres 0.25), as synth.dsp does. The voice
 # engines ignore positive vpres while pres == 0; strisy is kept bit-identical to synth.dsp.
 set_tests_properties(render.strisy.stale PROPERTIES DISABLED TRUE)
+
+# synth_control.cpp on the PC: review scenarios and recorded key streams through the message path
+add_subdirectory(synth_control)

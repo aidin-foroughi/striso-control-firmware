@@ -302,7 +302,7 @@ cpu: usb audio ISR hooks 0 cycles; longest lock: thread 0 us, ISR 0 us
 stklimit    stack     addr   unused refs prio     state         name
 XXXXXXXX XXXXXXXX XXXXXXXX      960    0  128   CURRENT         main
 XXXXXXXX XXXXXXXX XXXXXXXX      192    0    1     READY         idle
-XXXXXXXX XXXXXXXX XXXXXXXX      704    0  128 SUSPENDED send messages
+XXXXXXXX XXXXXXXX XXXXXXXX      960    0  128 SUSPENDED send messages
 XXXXXXXX XXXXXXXX XXXXXXXX       64    0  128  SLEEPING      blinker
 XXXXXXXX XXXXXXXX XXXXXXXX     4032    0  130   WTOREVT        SYNTH
 XXXXXXXX XXXXXXXX XXXXXXXX      192    0  128 SUSPENDED      auxjack
