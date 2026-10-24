@@ -307,6 +307,12 @@ class Button {
         Button() {
         }
 
+        // the last values sent are per key; a note on a channel (its own, or one handed over)
+        // sends its own pitch bend, pressure, x and y, not the channel's previous note's (SC-07)
+        void new_channel_state(void) {
+            last_pres = last_tilt = last_bend = last_pitchbend = INT32_MAX;
+        }
+
         void message(float* msg) {
             pres = msg[0];
             vpres = msg[1];
@@ -960,6 +966,7 @@ class Instrument {
                                 buttons[portamento_buttons[n]].midinote = buttons[but].midinote;
                                 buttons[portamento_buttons[n]].voice = buttons[but].voice;
                                 buttons[portamento_buttons[n]].midi_channel = buttons[but].midi_channel;
+                                buttons[portamento_buttons[n]].new_channel_state();
                                 master_button = portamento_buttons[n];
                                 voices[buttons[master_button].voice] = master_button;
                                 hand_over_synth_voice(but, master_button);
@@ -982,6 +989,7 @@ class Instrument {
                             buttons[transpose_button2].midinote = buttons[transpose_button].midinote;
                             buttons[transpose_button2].voice = buttons[transpose_button].voice;
                             buttons[transpose_button2].midi_channel = buttons[transpose_button].midi_channel;
+                            buttons[transpose_button2].new_channel_state();
                             buttons[transpose_button2].start_note_offset = start_note_offset;
                             voices[buttons[transpose_button2].voice] = transpose_button2;
                             hand_over_synth_voice(transpose_button, transpose_button2);
@@ -1177,7 +1185,7 @@ class Instrument {
 
                 buttons[but].state = STATE_ON;
                 buttons[but].voice = voice;
-                buttons[but].last_pitchbend = INT32_MAX;
+                buttons[but].new_channel_state();
                 voices[voice] = but;
                 last_button = but;
                 get_synth_voice(but);
