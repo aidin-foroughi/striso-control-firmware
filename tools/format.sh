@@ -7,7 +7,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/docker_env.sh"
 MODE="${1:-}"
-FILES='dsp/include/striso_dsp/strisy.h dsp/include/striso_dsp/fx.h dsp/include/striso_dsp/voice_*.h
+FILES='dsp/include/striso_dsp/strisy.h dsp/include/striso_dsp/fx.h dsp/include/striso_dsp/voice_*.h dsp/include/striso_dsp/brass_core.h
   src/synth/synth_strisy.cpp src/synth/tuning.h
   src/drivers/key_scanner.h src/drivers/key_scanner.hpp src/drivers/key_scanner_capture.hpp src/drivers/key_scanner.cpp
   src/usb/usb_audio.c src/usb/usb_audio.h src/usb/usb_audio_core.h

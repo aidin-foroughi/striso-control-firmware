@@ -99,7 +99,7 @@ struct VoiceEntry {
 	const char* engine_name;
 	const char* preset_name;
 };
-static constexpr int MAX_ENTRIES = 64;
+static constexpr int MAX_ENTRIES = 96; // the console selects entries with one byte, 0x80 + n (n < 128)
 static std::array<VoiceEntry, MAX_ENTRIES> entries;
 static int num_entries;
 
