@@ -210,9 +210,10 @@ static slider_t sld;
 #ifdef USE_BAS
 static button_t buttons_bas[N_BUTTONS_BAS];
 #endif
-// the samples of the scan the interrupt is taking (key_scanner.h); the key processing, which
-// update_button and the cross talk correction did here, is the KeyScanner's (key_scanner.hpp)
-static ScanFrame scan_live;
+// the samples of the scan the interrupt is taking (key_scanner.h), handed to the scanner thread
+// through link (key_scanner_link.h); the key processing, which update_button and the cross talk
+// correction did here, is the KeyScanner's (key_scanner.hpp)
+static ScanFrame *scan_cur;
 
 #ifdef USE_AUX_BUTTONS
 // #define LINE_BUTTON_PORT   PAL_LINE(GPIOI,  2U)
@@ -246,19 +247,37 @@ static int *measure_get = measure;
 
 static thread_t *tpReadButtons = NULL;
 
+// the scheduler for the hand-over (key_scanner_link.h)
+#define SCAN_OS_LOCK() chSysLock()
+#define SCAN_OS_UNLOCK() chSysUnlock()
+#define SCAN_OS_SLEEP_S()                  \
+  do {                                     \
+    tpReadButtons = chThdGetSelfX();       \
+    chSchGoSleepS(CH_STATE_SUSPENDED);     \
+  } while (0)
+#define SCAN_OS_WINDOW() do {} while (0)
+#include "key_scanner_link.h"
+static scan_link_t link;
+
+// the interrupt published columns: wake the thread
+static void scan_isr_publish(uint32_t ready) {
+  scan_link_publish(&link, ready);
+  chSysLockFromISR();
+  if (tpReadButtons != NULL) {
+    chSchReadyI(tpReadButtons);
+    tpReadButtons = NULL;
+  }
+  chSysUnlockFromISR();
+}
+
 /*
- * Diagnostics (key_scanner.h, console StcE). The interrupt numbers the scans (isr_seq: the scan it
- * is writing) and counts its wakeups of the thread (isr_wakes); the thread publishes how far it
- * got (thread_pos = frame * 17 + the next column it processes), so the interrupt can tell when it
- * overwrites a column the thread has not processed yet.
+ * Diagnostics (key_scanner.h, console StcE). The interrupt numbers and times the scans; the
+ * thread counts what it couldn't take (key_scanner_link.h).
  */
 volatile scan_stats_t scan_stats;
 static uint32_t isr_scan_t0;
 static uint32_t isr_callbacks;
-static uint32_t isr_overrun_seq;
-static volatile uint32_t isr_seq;
-static volatile uint32_t isr_wakes;
-static volatile uint32_t thread_pos;
+static uint32_t isr_seq;
 
 static void scan_isr_start(void) {
   const uint32_t now = DWT->CYCCNT;
@@ -277,29 +296,9 @@ static void scan_isr_start(void) {
   isr_callbacks = 0;
   isr_seq = scan_stats.scans;
   scan_stats.scans++;
-  scan_live.seq = isr_seq;
-  scan_live.t_start = now;
-}
-
-// about to overwrite column col: has the thread processed it in the previous scan?
-static void scan_isr_check_overrun(int col) {
-  if (isr_seq != 0 && isr_overrun_seq != isr_seq &&
-      (int32_t)(thread_pos - ((isr_seq - 1) * 17 + col)) <= 0) {
-    scan_stats.overruns++;
-    isr_overrun_seq = isr_seq;
-  }
-}
-
-// the thread finished a frame (column 16): count the scans it fell behind, if any
-static void scan_frame_done(uint32_t *frame) {
-  const uint32_t seq = isr_seq;
-  uint32_t next = *frame + 1;
-  if ((int32_t)(seq - next) > 0) {
-    scan_stats.seq_gaps += seq - next;
-    next = seq;
-  }
-  *frame = next;
-  scan_stats.frames++;
+  scan_cur = scan_link_begin(&link, isr_seq);
+  scan_cur->seq = isr_seq;
+  scan_cur->t_start = now;
 }
 
 static void adccallback(ADCDriver *adcp) {
@@ -309,7 +308,6 @@ static void adccallback(ADCDriver *adcp) {
   isr_callbacks++;
   if (cur_conversion < 17) { // key press detection phase
     if (cur_conversion == 0) scan_isr_start();
-    scan_isr_check_overrun(cur_conversion);
     int next_conversion = cur_conversion + 1;
     /* Open old channels */
     palSetPort(out_channels_port[cur_channel+0], out_channels_portmask[cur_channel+0]);
@@ -325,8 +323,10 @@ static void adccallback(ADCDriver *adcp) {
       cur_channel = next_note_id * 3;
       // the measured columns (one, stale, when no key was detected)
       int nm = measure_put - measure;
-      scan_live.n = nm ? nm : 1;
-      for (int n = 0; n < scan_live.n; n++) scan_live.cols[n] = measure[n];
+      scan_cur->n = nm ? nm : 1;
+      for (int n = 0; n < scan_cur->n; n++) scan_cur->cols[n] = measure[n];
+      // the columns before the first measured one are complete (no wakeup: as before)
+      scan_link_publish(&link, next_note_id);
     } else {
       cur_channel = next_conversion * 3;
     }
@@ -336,10 +336,10 @@ static void adccallback(ADCDriver *adcp) {
     palClearPort(out_channels_port[cur_channel+2], out_channels_portmask[cur_channel+2]);
 
     // store values
-    scan_live.on[cur_conversion   ] = 4095 - adc_samples[0];
-    scan_live.on[cur_conversion+17] = 4095 - adc_samples[1];
-    scan_live.on[cur_conversion+34] = 4095 - adc_samples[2];
-    scan_live.on[cur_conversion+51] = 4095 - adc_samples[3];
+    scan_cur->on[cur_conversion   ] = 4095 - adc_samples[0];
+    scan_cur->on[cur_conversion+17] = 4095 - adc_samples[1];
+    scan_cur->on[cur_conversion+34] = 4095 - adc_samples[2];
+    scan_cur->on[cur_conversion+51] = 4095 - adc_samples[3];
     if (adc_samples[0] < (4095-KEY_DETECT) ||
         adc_samples[1] < (4095-KEY_DETECT) ||
         adc_samples[2] < (4095-KEY_DETECT) ||
@@ -351,19 +351,19 @@ static void adccallback(ADCDriver *adcp) {
   } else if (cur_conversion == 17) { // key measurement phase
     switch (cur_phase) {
     case 0: { // read whole button, 4x multisampled (MULTISAMPLE hardcoded)
-      scan_live.m[next_note_id   ].p = 4095 - adc_samples[0];
-      scan_live.m[next_note_id+17].p = 4095 - adc_samples[1];
-      scan_live.m[next_note_id+34].p = 4095 - adc_samples[2];
-      scan_live.m[next_note_id+51].p = 4095 - adc_samples[3];
+      scan_cur->m[next_note_id   ].p = 4095 - adc_samples[0];
+      scan_cur->m[next_note_id+17].p = 4095 - adc_samples[1];
+      scan_cur->m[next_note_id+34].p = 4095 - adc_samples[2];
+      scan_cur->m[next_note_id+51].p = 4095 - adc_samples[3];
 
       cur_phase++;
     } break;
     case 1:
     case 2: {
-      scan_live.m[next_note_id   ].p += 4095 - adc_samples[0];
-      scan_live.m[next_note_id+17].p += 4095 - adc_samples[1];
-      scan_live.m[next_note_id+34].p += 4095 - adc_samples[2];
-      scan_live.m[next_note_id+51].p += 4095 - adc_samples[3];
+      scan_cur->m[next_note_id   ].p += 4095 - adc_samples[0];
+      scan_cur->m[next_note_id+17].p += 4095 - adc_samples[1];
+      scan_cur->m[next_note_id+34].p += 4095 - adc_samples[2];
+      scan_cur->m[next_note_id+51].p += 4095 - adc_samples[3];
 
       cur_phase++;
     } break;
@@ -372,10 +372,10 @@ static void adccallback(ADCDriver *adcp) {
       palSetPort(out_channels_port[cur_channel+1], out_channels_portmask[cur_channel+1]);
       palSetPort(out_channels_port[cur_channel+2], out_channels_portmask[cur_channel+2]);
 
-      scan_live.m[next_note_id   ].p = scan_live.m[next_note_id   ].p + 4095 - adc_samples[0];
-      scan_live.m[next_note_id+17].p = scan_live.m[next_note_id+17].p + 4095 - adc_samples[1];
-      scan_live.m[next_note_id+34].p = scan_live.m[next_note_id+34].p + 4095 - adc_samples[2];
-      scan_live.m[next_note_id+51].p = scan_live.m[next_note_id+51].p + 4095 - adc_samples[3];
+      scan_cur->m[next_note_id   ].p = scan_cur->m[next_note_id   ].p + 4095 - adc_samples[0];
+      scan_cur->m[next_note_id+17].p = scan_cur->m[next_note_id+17].p + 4095 - adc_samples[1];
+      scan_cur->m[next_note_id+34].p = scan_cur->m[next_note_id+34].p + 4095 - adc_samples[2];
+      scan_cur->m[next_note_id+51].p = scan_cur->m[next_note_id+51].p + 4095 - adc_samples[3];
 
       cur_phase = 100;
     } break;
@@ -385,10 +385,10 @@ static void adccallback(ADCDriver *adcp) {
       /* Drain new channels */
       palClearPort(out_channels_port[cur_channel+1], out_channels_portmask[cur_channel+1]);
 
-      scan_live.m[next_note_id   ].s0 = (4095 - adc_samples[0]) * MULTISAMPLE;
-      scan_live.m[next_note_id+17].s0 = (4095 - adc_samples[1]) * MULTISAMPLE;
-      scan_live.m[next_note_id+34].s0 = (4095 - adc_samples[2]) * MULTISAMPLE;
-      scan_live.m[next_note_id+51].s0 = (4095 - adc_samples[3]) * MULTISAMPLE;
+      scan_cur->m[next_note_id   ].s0 = (4095 - adc_samples[0]) * MULTISAMPLE;
+      scan_cur->m[next_note_id+17].s0 = (4095 - adc_samples[1]) * MULTISAMPLE;
+      scan_cur->m[next_note_id+34].s0 = (4095 - adc_samples[2]) * MULTISAMPLE;
+      scan_cur->m[next_note_id+51].s0 = (4095 - adc_samples[3]) * MULTISAMPLE;
 
       cur_phase = 101;
     } break;
@@ -398,10 +398,10 @@ static void adccallback(ADCDriver *adcp) {
       /* Drain new channels */
       palClearPort(out_channels_port[cur_channel+2], out_channels_portmask[cur_channel+2]);
 
-      scan_live.m[next_note_id   ].s1 = (4095 - adc_samples[0]) * MULTISAMPLE;
-      scan_live.m[next_note_id+17].s1 = (4095 - adc_samples[1]) * MULTISAMPLE;
-      scan_live.m[next_note_id+34].s1 = (4095 - adc_samples[2]) * MULTISAMPLE;
-      scan_live.m[next_note_id+51].s1 = (4095 - adc_samples[3]) * MULTISAMPLE;
+      scan_cur->m[next_note_id   ].s1 = (4095 - adc_samples[0]) * MULTISAMPLE;
+      scan_cur->m[next_note_id+17].s1 = (4095 - adc_samples[1]) * MULTISAMPLE;
+      scan_cur->m[next_note_id+34].s1 = (4095 - adc_samples[2]) * MULTISAMPLE;
+      scan_cur->m[next_note_id+51].s1 = (4095 - adc_samples[3]) * MULTISAMPLE;
 
       cur_phase = 102;
     } break;
@@ -409,10 +409,10 @@ static void adccallback(ADCDriver *adcp) {
       /* Open old channels */
       palSetPort(out_channels_port[cur_channel+2], out_channels_portmask[cur_channel+2]);
 
-      scan_live.m[next_note_id   ].s2 = (4095 - adc_samples[0]) * MULTISAMPLE;
-      scan_live.m[next_note_id+17].s2 = (4095 - adc_samples[1]) * MULTISAMPLE;
-      scan_live.m[next_note_id+34].s2 = (4095 - adc_samples[2]) * MULTISAMPLE;
-      scan_live.m[next_note_id+51].s2 = (4095 - adc_samples[3]) * MULTISAMPLE;
+      scan_cur->m[next_note_id   ].s2 = (4095 - adc_samples[0]) * MULTISAMPLE;
+      scan_cur->m[next_note_id+17].s2 = (4095 - adc_samples[1]) * MULTISAMPLE;
+      scan_cur->m[next_note_id+34].s2 = (4095 - adc_samples[2]) * MULTISAMPLE;
+      scan_cur->m[next_note_id+51].s2 = (4095 - adc_samples[3]) * MULTISAMPLE;
 
       // Next channel
       measure_get++;
@@ -443,14 +443,8 @@ static void adccallback(ADCDriver *adcp) {
 
       cur_phase = 0;
 
-      // Wake up processing thread
-      isr_wakes++;
-      chSysLockFromISR();
-      if (tpReadButtons != NULL) {
-        chSchReadyI(tpReadButtons);
-        tpReadButtons = NULL;
-      }
-      chSysUnlockFromISR();
+      // Wake up processing thread: the columns before next_note_id are complete (0: all of them)
+      scan_isr_publish(next_note_id ? next_note_id : SCAN_COLUMNS);
     } break;
     }
   } else { // delay phase
@@ -464,14 +458,8 @@ static void adccallback(ADCDriver *adcp) {
       cur_conversion = 0;
       next_note_id = 0;
 
-      // Wake up processing thread
-      isr_wakes++;
-      chSysLockFromISR();
-      if (tpReadButtons != NULL) {
-        chSchReadyI(tpReadButtons);
-        tpReadButtons = NULL;
-      }
-      chSysUnlockFromISR();
+      // Wake up processing thread: the scan is complete
+      scan_isr_publish(SCAN_COLUMNS);
     }
   }
 
@@ -833,72 +821,66 @@ static void ThreadReadButtons(void *arg) {
   (void)arg;
 
   chRegSetThreadName("read_buttons");
-  int note_id = 0;
-  uint32_t frame = isr_seq;
-  uint32_t wakes;
-  thread_pos = frame * 17;
-
+  scan_pos_t pos = {0};
+  pos.k = link.seq;
+  ScanFrame *work = ks_work();
+  uint32_t caught = 0;
 #ifdef DETECT_STUCK_NOTES
   int count = 0;
-  while (count < 100) {
-    while ((wakes = isr_wakes), count < 100 && note_id != next_note_id) {
+#else
+  const int count = 100;
+#endif
+
+  while (TRUE) {
+    // the next complete column of the scan, sleeping until there is one
+    const int note_id = scan_link_wait(&link, &pos, work, &caught);
+    scan_stats.overruns = pos.lost;
+    scan_stats.seq_gaps = pos.skipped;
+    scan_stats.lost_wakeups = caught;
+    if (note_id < 0) {  // the interrupt overwrote it first: on with the scan it is writing
+      ks_lost();
+      continue;
+    }
+#ifdef DETECT_STUCK_NOTES
+    if (count < 100) {
       // the zero level pass: keys touched at boot get a zero_offset of their pressure
-      ks_boot_column(&scan_live, note_id);
+      ks_boot_column(note_id);
       // Once per cycle, after the last buttons
       if (note_id == 16) {
         count++;
+        scan_stats.frames++;
       }
-      note_id = (note_id + 1) % 17;
-      if (note_id == 0) scan_frame_done(&frame);
-      thread_pos = frame * 17 + note_id;
+      continue;
     }
-
-    chSysLock();
-    if (isr_wakes != wakes) scan_stats.lost_wakeups++;
-    tpReadButtons = chThdGetSelfX();
-    chSchGoSleepS(CH_STATE_SUSPENDED);
-    chSysUnlock();
-  }
 #endif // DETECT_STUCK_NOTES
+    (void)count;
 
-  while (TRUE) {
-    while ((wakes = isr_wakes), note_id != next_note_id) {
-        // the keys of this column, then the cross talk correction they give the other columns
-        ks_column(&scan_live, note_id);
+    // the keys of this column, then the cross talk correction they give the other columns
+    ks_column(note_id);
 
-        // Once per cycle, after the last buttons
-        if (note_id == 16) {
+    // Once per cycle, after the last buttons
+    if (note_id == 16) {
+      scan_stats.frames++;
 #ifdef USE_AUX_BUTTONS
-          int msg[8];
-          for (int n = 0; n < 4; n++) {
-            if (aux_buttons_state[n] & 0xff) {
-              aux_buttons_state[n]--;
-            } else if (palReadLine(aux_buttons_line[n]) == !aux_buttons_state[n]) {
-              msg[0] = ID_CONTROL;
-              msg[1] = aux_buttons_msg[n];
-              if (aux_buttons_state[n]) {
-                msg[2] = !aux_buttons_on[n];
-                aux_buttons_state[n] = AUX_BUTTON_DEBOUNCE_TIME;
-              } else {
-                msg[2] = aux_buttons_on[n];
-                aux_buttons_state[n] = AUX_BUTTON_DEBOUNCE_TIME | 0x100;
-              }
-              msgSend(3, msg);
-            }
+      int msg[8];
+      for (int n = 0; n < 4; n++) {
+        if (aux_buttons_state[n] & 0xff) {
+          aux_buttons_state[n]--;
+        } else if (palReadLine(aux_buttons_line[n]) == !aux_buttons_state[n]) {
+          msg[0] = ID_CONTROL;
+          msg[1] = aux_buttons_msg[n];
+          if (aux_buttons_state[n]) {
+            msg[2] = !aux_buttons_on[n];
+            aux_buttons_state[n] = AUX_BUTTON_DEBOUNCE_TIME;
+          } else {
+            msg[2] = aux_buttons_on[n];
+            aux_buttons_state[n] = AUX_BUTTON_DEBOUNCE_TIME | 0x100;
           }
-#endif // USE_AUX_BUTTONS
+          msgSend(3, msg);
         }
-
-      note_id = (note_id + 1) % 17;
-      if (note_id == 0) scan_frame_done(&frame);
-      thread_pos = frame * 17 + note_id;
+      }
+#endif // USE_AUX_BUTTONS
     }
-
-    chSysLock();
-    if (isr_wakes != wakes) scan_stats.lost_wakeups++;
-    tpReadButtons = chThdGetSelfX();
-    chSchGoSleepS(CH_STATE_SUSPENDED);
-    chSysUnlock();
   }
 }
 
@@ -989,8 +971,8 @@ void buttonPrintStats(BaseSequentialStream *out) {
   const scan_stats_t *st = &stats_copy;
   chprintf(out, "scan scans %lu frames %lu seq_gaps %lu overruns %lu lost_wakeups %lu\r\n",
            st->scans, st->frames, st->seq_gaps, st->overruns, st->lost_wakeups);
-  chprintf(out, "scan queue_full %lu off_waits %lu msg_underruns %d\r\n",
-           st->queue_full, st->off_waits, msg_underruns);
+  chprintf(out, "scan queue_full %lu off_retries %lu msg_underruns %d\r\n",
+           st->queue_full, st->off_retries, msg_underruns);
   chprintf(out, "scan cycles n %lu min %lu max %lu mean %lu (%lu cycles/us)\r\n", st->cycles_n,
            st->cycles_min, st->cycles_max,
            st->cycles_n ? (uint32_t)(st->cycles_sum / st->cycles_n) : 0, STM32_SYS_CK / 1000000U);
@@ -1105,6 +1087,7 @@ void ButtonReadStart(void) {
   }
 
   ks_calibration_changed();  // the scanner thread takes it over at its first scan
+  scan_cur = scan_link_begin(&link, 0);
   ks_capture_start_dump_thread();
 
   /*

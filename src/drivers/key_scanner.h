@@ -13,7 +13,7 @@
  *   lost_wakeups the interrupt published new columns between the thread's last check and its
  *                sleep: the thread slept with work waiting, until the next wakeup
  *   queue_full   key messages the message queue refused (msgSend failed)
- *   off_waits    of those, retries of a note-off: each one stalls the scanner thread for a tick
+ *   off_retries  retries of refused note-offs, at the key's next scans (the scanner never waits)
  *   cycles       DWT cycles from one scan's start to the next: min, max, sum and a histogram
  *   callbacks    ADC callbacks per scan: a histogram (17 detection + 7 per measured column +
  *                the delay phase)
@@ -68,7 +68,7 @@ typedef struct {
 	uint32_t overruns;
 	uint32_t lost_wakeups;
 	uint32_t queue_full;
-	uint32_t off_waits;
+	uint32_t off_retries;
 	uint32_t cycles_min;
 	uint32_t cycles_max;
 	uint64_t cycles_sum;
@@ -103,10 +103,13 @@ void ks_reset_calibration(scan_cal_t cal[SCAN_BUTTONS], int32_t base_calib_force
 void ks_init(void);                                  // the KeyScanner's initial state; ks_cal from it
 void ks_calibration_changed(void);                   // after writing ks_cal
 void ks_set_zero_offset(int b, int32_t zero_offset); // before the scanner thread starts
-// the scanner thread: the zero level pass of the first scans, then the normal processing. The
-// thread passes the interrupt's frame; column col of it must be complete.
-void ks_boot_column(const ScanFrame* f, int col);
-void ks_column(const ScanFrame* f, int col);
+// the scanner thread: it copies the interrupt's columns into ks_work() (key_scanner_link.h), then
+// the zero level pass of the first scans, then the normal processing, column by column; ks_lost:
+// the interrupt overwrote a column before the thread took it
+ScanFrame* ks_work(void);
+void ks_boot_column(int col);
+void ks_column(int col);
+void ks_lost(void);
 // a button's state for the console (StcZ)
 void ks_key_state(int b, int* status, int32_t* c_force, int32_t* zero_offset, int32_t* pres);
 
