@@ -3,7 +3,9 @@
  * block commits is what the board would stream (the synth, or the tone with Stcu). The virtual
  * board takes each committed block from the ring (the "USB" tap of sv_render), with the engine's
  * output, the effects' output and the controls the engine got (the other taps). There is no
- * isochronous stream, so StcU prints the board's lines with the stream counters at 0. */
+ * isochronous stream, so StcU prints the board's lines with the stream counters at 0, and a latency
+ * marker (Stcl1) is never sent: after 100 ms it reports "not streaming", as the board without a
+ * stream. usbcfg.c's hooks: the SOF time (for Stcl0's echo), nothing else. */
 #include "usb_audio.h"
 
 #include "ch.h"
@@ -54,7 +56,7 @@ int usb_audio_target(void) { return (int)ua.target; }
 void usb_audio_print_status(void* chp) {
 	BaseSequentialStream* out = (BaseSequentialStream*)chp;
 	const int32_t target = ua.target;
-	chprintf(out, "usb audio (UAC%d): %s, source %s\r\n", USB_AUDIO_UAC2 ? 2 : 1, "virtual, no stream (alt 0)",
+	chprintf(out, "usb audio (UAC2): %s, source %s\r\n", "virtual, no stream (alt 0)",
 	    ua_tone_on ? "test tone (L 1 kHz, R 500 Hz, -6 dBFS)" : "synth");
 	chprintf(out, "since last U: packets sent %lu missed %lu (host skipped %lu, flushed early %lu); "
 	              "built %lu (47:%lu 48:%lu 49:%lu)\r\n",
@@ -73,4 +75,56 @@ void usb_audio_print_status(void* chp) {
 	chprintf(out, "cpu: usb audio ISR hooks %lu cycles", 0u);
 	chprintf(out, "; longest lock: thread %lu us, ISR %lu us\r\n", 0u, 0u);
 	ua_stats_reset(&ua);
+}
+
+/* --- usbcfg.c's hooks: no isochronous endpoint; the SOF's time for usb_audio_echo ------------------ */
+static uint32_t ua_sof_t;
+void usb_audio_configured_hookI(USBDriver* usbp) { (void)usbp; }
+void usb_audio_reset_hookI(void) {}
+void usb_audio_suspend_hookI(void) {}
+void usb_audio_wakeup_hookI(USBDriver* usbp) { (void)usbp; }
+void usb_audio_sof_hookI(USBDriver* usbp) {
+	(void)usbp;
+	ua_sof_t = DWT->CYCCNT;
+}
+bool usb_audio_requests_hook(USBDriver* usbp) {
+	(void)usbp;
+	return false;
+}
+
+/* --- the latency marker (Stcl1) and echo (Stcl0), as usb_audio.c's without a stream ------------------ */
+#define UA_CYC_US (STM32_SYS_CK / 1000000U)
+#define UA_CYC_MS (STM32_SYS_CK / 1000U)
+extern volatile uint32_t bdu_rx_cycles; /* bulk_usb.c: when the last console OUT packet arrived */
+static bool ua_mk_wanted;
+static uint32_t ua_mk_seq;
+static systime_t ua_mk_asked;
+
+static uint32_t ua_us(uint32_t cycles) { return (cycles + UA_CYC_US / 2) / UA_CYC_US; }
+
+bool usb_audio_marker_request(void) {
+	chSysLock();
+	const bool idle = !ua_mk_wanted;
+	if (idle) {
+		ua_mk_seq++;
+		ua_mk_asked = chVTGetSystemTimeX();
+		ua_mk_wanted = true;
+	}
+	chSysUnlock();
+	return idle;
+}
+
+void usb_audio_marker_poll(void* chp) {
+	if (!ua_mk_wanted || chVTTimeElapsedSinceX(ua_mk_asked) <= TIME_MS2I(100)) return;
+	ua_mk_wanted = false;
+	chprintf((BaseSequentialStream*)chp, "usb audio marker %lu: not streaming\r\n", ua_mk_seq);
+}
+
+void usb_audio_echo(void* chp) {
+	chSysLock();
+	const uint32_t now = DWT->CYCCNT, rx = bdu_rx_cycles, sof = ua_sof_t;
+	chSysUnlock();
+	const uint32_t in_frame = now - sof;
+	const uint32_t to_sof = in_frame < UA_CYC_MS ? UA_CYC_MS - in_frame : 0;
+	chprintf((BaseSequentialStream*)chp, "usb audio echo: held %lu us\r\n", ua_us(now - rx + to_sof));
 }

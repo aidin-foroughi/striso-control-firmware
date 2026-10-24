@@ -10,6 +10,12 @@
 
 set(_fw "${PROJECT_SOURCE_DIR}/src")
 set(_gen "${CMAKE_CURRENT_BINARY_DIR}/generated")
+# ChibiOS' HAL code the board's USB stack runs on (buffer queues, the USB driver, memory streams)
+set(_hal "${STRISO_CHIBIOS_DIR}/os/hal")
+if(NOT EXISTS "${_hal}/src/hal_buffers.c")
+  message(FATAL_ERROR "virtual board: ChibiOS not found at ${STRISO_CHIBIOS_DIR} "
+    "(git submodule update --init third_party/ChibiOS, or -DSTRISO_CHIBIOS_DIR=<a checkout's>)")
+endif()
 
 # the version string the board reports: the VOICE=all firmware's (cmake/StrisoVersion.cmake)
 include(StrisoVersion)
@@ -23,11 +29,15 @@ add_library(striso_virtual SHARED
   # the library's front and the firmware instance
   src/api.cpp
   src/instance.cpp
-  # ChibiOS / HAL stand-in
+  # ChibiOS / HAL stand-in: the kernel, the board's peripherals, the USB OTG core with the bus
   hal/sched.cpp
   hal/hal.c
   hal/usb_host.c
   hal/chprintf.c
+  # ChibiOS' own HAL code
+  "${_hal}/src/hal_buffers.c"
+  "${_hal}/src/hal_usb.c"
+  "${_hal}/lib/streams/memstreams.c"
   # the board without its hardware: main.c's threads, keys, motion, USB audio, stubs
   board/main_host.c
   board/buttons_host.c
@@ -37,18 +47,24 @@ add_library(striso_virtual SHARED
   # the firmware's own files (fw_*: the file itself, compiled with the virtual board's flash)
   board/fw_config_store.c
   board/fw_pconnection.c
+  board/fw_usbcfg.c
   board/fw_synth_strisy.cpp
+  "${_fw}/usb/bulk_usb.c"
+  "${_fw}/usb/midi_usb.c"
   "${_fw}/synth/synth_control.cpp"
   "${_fw}/app/messaging.c"
+  "${_fw}/drivers/key_calibration.c"
   "${_fw}/drivers/led.c")
 add_dependencies(striso_virtual striso_virtual_fwversion)
 target_include_directories(striso_virtual
   PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
   PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    # the stand-in headers come first: they replace ChibiOS and the USB drivers' headers
+    # the stand-in headers come first: they replace ChibiOS' kernel, hal.h and the OTG LLD's header
     "${CMAKE_CURRENT_SOURCE_DIR}/hal/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/hal"
+    "${_hal}/include"
+    "${_hal}/lib/streams"
     "${CMAKE_CURRENT_SOURCE_DIR}/board"
     "${_fw}/app" "${_fw}/drivers" "${_fw}/usb" "${_fw}/synth"
     "${PROJECT_SOURCE_DIR}/board"

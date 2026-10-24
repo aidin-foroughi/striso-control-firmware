@@ -79,7 +79,9 @@ static void pack(int *in, uint8_t *out, int n) {
 /*
  * Message send thread
  */
-static THD_WORKING_AREA(waThreadSend, 512);
+// 768: config_but -> load_preset -> midi_config -> MidiSend3 -> a USB write runs on this thread
+// (~400 B by the static count plus the queue's notify callbacks, which it doesn't follow)
+static THD_WORKING_AREA(waThreadSend, 768);
 static void ThreadSend(void *arg) {
 
   (void)arg;
@@ -111,8 +113,8 @@ static void ThreadSend(void *arg) {
 #endif
 #ifdef USE_USB
       if (config.send_usb_bulk) {
-        //chSequentialStreamWrite((BaseSequentialStream *)&BDU1,cmsg, 2+(size-2)*2);
-        obqWriteTimeout(&BDU1.obqueue, cmsg, 2+(size-2)*2, TIME_IMMEDIATE);
+        // whole frames only, never mixed into a console write (bulk_usb.c bduWriteFrame)
+        (void)bduWriteFrame(&BDU1, cmsg, 2+(size-2)*2);
       }
 #endif
     }

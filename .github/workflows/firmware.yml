@@ -93,6 +93,8 @@ jobs:
         preset: [host, host-asan]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          submodules: recursive # ChibiOS: the virtual board and the USB tests build its HAL code
       - uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: ${{ env.IMAGE_TAR }}
@@ -126,6 +128,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          submodules: recursive # ChibiOS: the virtual board builds its HAL code
           fetch-depth: 0 # the version string is git describe --tags
       - name: ninja (macOS)
         if: runner.os == 'macOS'

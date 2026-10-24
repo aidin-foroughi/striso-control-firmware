@@ -101,7 +101,7 @@ TEST_CASE("api: boots, attaches USB, answers StcV with the firmware version") {
 	CHECK(v.rfind(std::string(sv_firmware_version()) + " ", 0) == 0);
 	CHECK(v.find("virtual         Striso board\r\nCalibration date: virtual\r\n") != std::string::npos);
 	const sv_state st = state(bd);
-	CHECK(st.voices == 56);
+	CHECK(st.voices == STRISO_VOICE_ENTRIES); // every entry of the firmware's voice list (CMake counts them)
 	CHECK(st.voice == 1); // va:classic at power on
 	CHECK(st.blocks > 0);
 }

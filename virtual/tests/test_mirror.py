@@ -47,7 +47,7 @@ def main():
     host = (ROOT / "virtual/board/main_host.c").read_text()
     copy = between(host, "/* main.c: --- copied from here (Thread1, pack, ThreadSend) --- */", "/* main.c: --- copied up to here --- */")
     for sig in ["static THD_WORKING_AREA(waThread1, 128);", "static void Thread1(void *arg) {",
-                "static void pack(int *in, uint8_t *out, int n) {", "static THD_WORKING_AREA(waThreadSend, 512);",
+                "static void pack(int *in, uint8_t *out, int n) {", "static THD_WORKING_AREA(waThreadSend, 768);",
                 "static void ThreadSend(void *arg) {"]:
         want = function(main_c, sig) if sig.endswith("{") else sig
         got = function(copy, sig) if sig.endswith("{") else (sig if sig in copy else "")

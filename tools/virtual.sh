@@ -39,10 +39,23 @@ MINGW* | MSYS* | CYGWIN*)
   ;;
 esac
 
+# ChibiOS (its HAL code is built in): the submodule, or in a git worktree without it the main
+# checkout's (as tools/docker_env.sh)
+chibios=""
+if [ ! -f "$FW/third_party/ChibiOS/os/hal/src/hal_buffers.c" ]; then
+  common="$(git -C "$FW" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  for c in "$common/../third_party/ChibiOS" "$common/../ChibiOS"; do
+    if [ -n "$common" ] && [ -f "$c/os/hal/src/hal_buffers.c" ]; then
+      chibios="-DSTRISO_CHIBIOS_DIR=$(cd "$c" && pwd -W 2>/dev/null || pwd)"
+      break
+    fi
+  done
+fi
+
 q() { [ $# -eq 0 ] || printf '"%s" ' "$@"; }
 if [ "$what" = build ] || [ "$what" = all ]; then
   log="$(mktemp)"
-  in_env "cmake --preset host-virtual" > "$log" 2>&1 || { cat "$log"; exit 1; }
+  in_env "cmake --preset host-virtual $chibios" > "$log" 2>&1 || { cat "$log"; exit 1; }
   in_env "cmake --build --preset host-virtual"
 fi
 if [ "$what" = test ] || [ "$what" = all ]; then

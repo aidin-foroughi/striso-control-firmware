@@ -7,7 +7,8 @@ list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 # --- layout (see README "Building") ---------------------------------------------------------------
-set(STRISO_CHIBIOS_DIR "${PROJECT_SOURCE_DIR}/third_party/ChibiOS")
+# ChibiOS: the submodule (a git worktree may use its main checkout's: -DSTRISO_CHIBIOS_DIR=...)
+set(STRISO_CHIBIOS_DIR "${PROJECT_SOURCE_DIR}/third_party/ChibiOS" CACHE PATH "ChibiOS checkout")
 set(STRISO_UF2CONV "${PROJECT_SOURCE_DIR}/third_party/uf2/utils/uf2conv.py")
 set(STRISO_CONF_DIR "${PROJECT_SOURCE_DIR}/cfg")
 set(STRISO_BOARD_MK "${PROJECT_SOURCE_DIR}/board/board.mk")

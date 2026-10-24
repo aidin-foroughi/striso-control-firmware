@@ -240,6 +240,8 @@ extern "C" void chSysInit(void) {}
 extern "C" void chSysHalt(const char* reason) {
 	(void)reason;
 	S->halted = true;
+	// in an interrupt (no thread runs): the interrupt ends, and no thread runs after it
+	if (!S->current) return;
 	for (;;) block_self(CH_STATE_FINAL);
 }
 
@@ -351,6 +353,29 @@ extern "C" void chThdResumeI(thread_reference_t* trp, msg_t msg) {
 extern "C" void chThdResume(thread_reference_t* trp, msg_t msg) {
 	chThdResumeI(trp, msg);
 	reschedule();
+}
+
+// thread queues (chthreads.h): FIFO; a wait with a timeout leaves the queue when it times out
+extern "C" void chThdQueueObjectInit(threads_queue_t* tqp) { tqp->waiters = nullptr; }
+
+extern "C" msg_t chThdEnqueueTimeoutS(threads_queue_t* tqp, sysinterval_t timeout) {
+	if (timeout == TIME_IMMEDIATE) return MSG_TIMEOUT;
+	HThread* t = S->current;
+	WaitQueue* q = wq(&tqp->waiters);
+	q->q.push_back(t);
+	t->waiting_on = q;
+	return chSchGoSleepTimeoutS(CH_STATE_QUEUED, timeout);
+}
+
+extern "C" void chThdDequeueNextI(threads_queue_t* tqp, msg_t msg) {
+	HThread* t = tqp->waiters ? wq_pop(static_cast<WaitQueue*>(tqp->waiters)) : nullptr;
+	if (!t) return;
+	t->wake_msg = msg;
+	ready_insert(t);
+}
+
+extern "C" void chThdDequeueAllI(threads_queue_t* tqp, msg_t msg) {
+	while (tqp->waiters && !static_cast<WaitQueue*>(tqp->waiters)->q.empty()) chThdDequeueNextI(tqp, msg);
 }
 
 extern "C" systime_t chVTGetSystemTimeX(void) { return S->ticks; }

@@ -26,6 +26,7 @@
 #include <stdint.h>
 
 #include "chprintf.h"
+#include "memstreams.h"
 
 #define MAX_FILLER 11
 
@@ -257,39 +258,20 @@ int chprintf(BaseSequentialStream* chp, const char* fmt, ...) {
 	return formatted_bytes;
 }
 
-/* chsnprintf: on a small memory stream, as ChibiOS' memstreams */
-typedef struct {
-	const struct BaseSequentialStreamVMT* vmt;
-	char* buf;
-	size_t size, eos;
-} memstream_t;
-
-static size_t ms_write(void* ip, const uint8_t* bp, size_t n) {
-	memstream_t* m = (memstream_t*)ip;
-	size_t k = 0;
-	for (; k < n && m->eos < m->size; k++) m->buf[m->eos++] = (char)bp[k];
-	return k;
+/* chsnprintf and chvsnprintf as chprintf.c's, on ChibiOS' memory stream (memstreams.c) */
+int chvsnprintf(char* str, size_t size, const char* fmt, va_list ap) {
+	MemoryStream ms;
+	const size_t size_wo_nul = size > 0 ? size - 1 : 0;
+	msObjectInit(&ms, (uint8_t*)str, size_wo_nul, 0);
+	const int retval = chvprintf((BaseSequentialStream*)(void*)&ms, fmt, ap);
+	if (ms.eos < size) str[ms.eos] = 0;
+	return retval;
 }
-static size_t ms_read(void* ip, uint8_t* bp, size_t n) {
-	(void)ip;
-	(void)bp;
-	(void)n;
-	return 0;
-}
-static msg_t ms_put(void* ip, uint8_t b) { return ms_write(ip, &b, 1) == 1 ? MSG_OK : MSG_RESET; }
-static msg_t ms_get(void* ip) {
-	(void)ip;
-	return MSG_RESET;
-}
-static const struct BaseSequentialStreamVMT ms_vmt = {ms_write, ms_read, ms_put, ms_get};
 
 int chsnprintf(char* str, size_t size, const char* fmt, ...) {
 	va_list ap;
-	memstream_t ms = {&ms_vmt, str, size ? size - 1 : 0, 0};
-	int retval;
 	va_start(ap, fmt);
-	retval = chvprintf((BaseSequentialStream*)&ms, fmt, ap);
+	const int retval = chvsnprintf(str, size, fmt, ap);
 	va_end(ap);
-	if (size > 0) str[ms.eos] = 0;
 	return retval;
 }

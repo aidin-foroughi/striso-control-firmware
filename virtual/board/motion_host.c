@@ -39,8 +39,9 @@ void svh_inject_motion(const int16_t raw[6]) {
 	for (int i = 0; i < 6; i++) motion_raw[i] = raw[i];
 }
 
-static void lsm6dslReadMotion(int16_t* motion) {
+static uint8_t lsm6dslReadMotion(int16_t* motion) {
 	for (int i = 0; i < 6; i++) motion[i] = motion_raw[i];
+	return MSG_OK; /* the injected reading: the bus never fails */
 }
 
 static THD_WORKING_AREA(waThreadAccel, 256);
@@ -59,7 +60,11 @@ static void ThreadAccel(void* arg) {
   int16_t motion[6];
   int stream_count = 0;
   while (TRUE) {
-    lsm6dslReadMotion(motion);
+    if (lsm6dslReadMotion(motion) != MSG_OK) {
+      // the bus was restarted (motion_transfer); no new reading this time
+      chThdSleepMilliseconds(3);
+      continue;
+    }
 
     ax = -motion[3]; gx = -motion[0];
     ay = -motion[4]; gy = -motion[1];
@@ -79,10 +84,9 @@ static void ThreadAccel(void* arg) {
       if (config.send_motion_interval != 127) {
         // 127 means only internal synth
         // acceleration in message has maximum range 8g (16g for acc_abs)
-        // TODO: make /4 dependent on ACC_FS
-        msg[2] = (ax/4)>>2;
-        msg[3] = (ay/4)>>2;
-        msg[4] = (az/4)>>2;
+        msg[2] = (ax*ACC_FS/8)>>2;
+        msg[3] = (ay*ACC_FS/8)>>2;
+        msg[4] = (az*ACC_FS/8)>>2;
         msg[5] = ((int16_t)(acc_abs * 32768.0f/8.0f))>>2;
         msg[6] = gx>>2;
         msg[7] = gy>>2;
@@ -94,9 +98,9 @@ static void ThreadAccel(void* arg) {
         // 4th reading (~60 per second) as stream-only motion data, no MIDI side effects
         stream_count = 0;
         msg[0] = ID_ACCEL_STREAM;
-        msg[2] = (ax/4)>>2;
-        msg[3] = (ay/4)>>2;
-        msg[4] = (az/4)>>2;
+        msg[2] = (ax*ACC_FS/8)>>2;
+        msg[3] = (ay*ACC_FS/8)>>2;
+        msg[4] = (az*ACC_FS/8)>>2;
         msg[5] = ((int16_t)(acc_abs * 32768.0f/8.0f))>>2;
         msg[6] = gx>>2;
         msg[7] = gy>>2;

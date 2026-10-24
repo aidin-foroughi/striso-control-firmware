@@ -127,6 +127,17 @@ typedef struct ch_semaphore {
 
 typedef thread_t* thread_reference_t;
 
+/* a queue of waiting threads (chthreads.h threads_queue_t): FIFO, as ChibiOS' */
+typedef struct ch_threads_queue {
+	void* waiters; /* the scheduler's queue */
+} threads_queue_t;
+
+/* an event source (chevents.h): the firmware registers no listener on one (the USB drivers'
+ * channels broadcast their flags to nobody), so it has none */
+typedef struct event_source {
+	void* next;
+} event_source_t;
+
 /* working areas: plain arrays (the virtual board's threads run on host stacks; cmd_threads
  * reads the fill pattern of the area to show what it never used) */
 #define THD_WORKING_AREA_SIZE(n) (n)
@@ -171,12 +182,17 @@ msg_t chThdSuspendS(thread_reference_t* trp);
 msg_t chThdSuspendTimeoutS(thread_reference_t* trp, sysinterval_t timeout);
 void chThdResumeI(thread_reference_t* trp, msg_t msg);
 void chThdResume(thread_reference_t* trp, msg_t msg);
+void chThdQueueObjectInit(threads_queue_t* tqp);
+msg_t chThdEnqueueTimeoutS(threads_queue_t* tqp, sysinterval_t timeout);
+void chThdDequeueNextI(threads_queue_t* tqp, msg_t msg);
+void chThdDequeueAllI(threads_queue_t* tqp, msg_t msg);
 
 /* --- time -------------------------------------------------------------------------------------- */
 systime_t chVTGetSystemTimeX(void);
 #define chVTGetSystemTime() chVTGetSystemTimeX()
 #define chTimeAddX(systime, interval) ((systime_t)((systime) + (interval)))
 #define chTimeDiffX(start, end) ((sysinterval_t)((systime_t)((end) - (start))))
+#define chVTTimeElapsedSinceX(start) chTimeDiffX((start), chVTGetSystemTimeX())
 
 /* --- mutexes, semaphores, events --------------------------------------------------------------- */
 void chMtxObjectInit(mutex_t* mp);
@@ -195,6 +211,12 @@ void chEvtSignalI(thread_t* tp, eventmask_t events);
 void chEvtSignal(thread_t* tp, eventmask_t events);
 eventmask_t chEvtAddEvents(eventmask_t events);
 eventmask_t chEvtGetAndClearEvents(eventmask_t events);
+static inline void chEvtObjectInit(event_source_t* esp) { esp->next = esp; }
+/* no listener: the flags go nowhere, as with ChibiOS' broadcast to an empty source */
+static inline void chEvtBroadcastFlagsI(event_source_t* esp, eventflags_t flags) {
+	(void)esp;
+	(void)flags;
+}
 
 /* debug */
 #define chDbgCheck(c) ((void)0)
