@@ -1,0 +1,9 @@
+usb audio (UAC2): idle (alt 0), source synth
+since last U: packets sent 1775 missed 2 (host skipped 2, flushed early 0); built 1776 (47:11 48:1762 49:3)
+rate: 85240 frames in 1776 ms of host clock = 47995.495 Hz
+ring: level 532584 now, 78 filtered, 48..120 before packets (target 72 = 1500 us, of 512)
+faults: underruns 0 overruns 0 primes 0 (silent packets 0), fast starts 0
+frames: not ready at SOF 0; SOF late (>1.1 ms) 0 lost 0, max interval 1031 us
+builds: after fetch 1775, after miss 1, at SOF 0; fetch at 168..228 us (avg 197) after SOF; build avg 917 max 1060 cycles
+synth: commit 91 us avg, 302 max after its DMA interrupt (block 667 us); off cadence 0; since boot: blocks lost 0, repeated 0
+cpu: usb audio ISR hooks 3092079 cycles = 0.43% of 1776 ms; longest lock: thread 10732253 us, ISR 4 us

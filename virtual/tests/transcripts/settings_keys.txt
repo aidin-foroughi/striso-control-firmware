@@ -1,0 +1,260 @@
+> StcK\x00
+K ok 0
+> StcK\x01
+K err 1
+> StcK\x02
+K ok 2
+> StcK\x03
+K err 3
+> StcK\x04
+K ok 4
+> StcK\x05
+K err 5
+> StcK\x06
+K err 6
+> StcK\x07
+K err 7
+> StcK\x08
+K err 8
+> StcK\x09
+K err 9
+> StcK\x0A
+K err 10
+> StcK\x0B
+K err 11
+> StcK\x0C
+K err 12
+> StcK\x0D
+K ok 13
+> StcK\x0E
+K err 14
+> StcK\x0F
+K err 15
+> StcK\x10
+K err 16
+> StcK\x11
+K err 17
+> StcK\x12
+K ok 18
+> StcK\x13
+K err 19
+> StcK\x14
+K ok 20
+> StcK\x15
+K err 21
+> StcK\x16
+K ok 22
+> StcK\x17
+K ok 23
+> StcK\x18
+K ok 24
+> StcK\x19
+K ok 25
+> StcK\x1A
+K ok 26
+> StcK\x1B
+K ok 27
+> StcK\x1C
+K ok 28
+> StcK\x1D
+K ok 29
+> StcK\x1E
+K ok 30
+> StcK\x1F
+K ok 31
+> StcK 
+K ok 32
+> StcK!
+K ok 33
+> StcK"
+K ok 34
+> StcK#
+K ok 35
+> StcK$
+K ok 36
+> StcK%
+K ok 37
+> StcK&
+K ok 38
+> StcK'
+K ok 39
+> StcK(
+K err 40
+> StcK)
+K ok 41
+> StcK*
+K err 42
+> StcK+
+K ok 43
+> StcK,
+K err 44
+> StcK-
+K ok 45
+> StcK.
+K err 46
+> StcK/
+K err 47
+> StcK0
+K err 48
+> StcK1
+K err 49
+> StcK2
+K err 50
+> StcK3
+K err 51
+> StcK4
+K err 52
+> StcK5
+K err 53
+> StcK6
+K err 54
+> StcK7
+K err 55
+> StcK8
+K err 56
+> StcK9
+K err 57
+> StcK:
+K err 58
+> StcK;
+K err 59
+> StcK<
+K err 60
+> StcK=
+K err 61
+> StcK>
+K err 62
+> StcK?
+K ok 63
+> StcK@
+K err 64
+> StcKA
+K err 65
+> StcKB
+K err 66
+> StcKC
+K err 67
+> StcKD
+K err 68
+> StcKE
+K err 69
+> Stcv
+  0 strisy
+  1 va:classic
+  2 va:pad
+  3 va:lead
+  4 va:bass
+  5 va:brass
+  6 va:keys
+  7 va:acid
+  8 va:strings
+  9 modal:vibraphone
+  10 modal:marimba
+  11 modal:glockenspiel
+  12 modal:bell
+  13 modal:kalimba
+  14 modal:wine glass
+  15 bowed:violin
+  16 bowed:viola
+  17 bowed:cello
+  18 bowed:bass
+  19 bowed:section
+  20 bowed:ponticello
+  21 bowed:flautando
+  22 bowed:sordino
+  23 bowed:pizzicato
+  24 wind:clarinet
+  25 wind:bass clarinet
+  26 wind:soprano sax
+  27 wind:alto sax
+  28 wind:tenor sax
+  29 wind:baritone sax
+  30 wind:oboe
+  31 wind:bassoon
+  32 wind:flute
+* 33 ep:stage
+  34 ep:suitcase
+  35 ep:mk2
+  36 ep:dyno
+  37 ep:ballad
+  38 ep:bark
+  39 ep:neosoul
+  40 ep:fm80s
+  41 ep:lofi
+  42 ep:wurli
+  43 ep:wurlibark
+  44 ep:pianet
+  45 ep:felt
+  46 ep:celesta
+  47 brass:trumpet
+  48 brass:flugelhorn
+  49 brass:trombone
+  50 brass:horn
+  51 brass:euphonium
+  52 brass:tuba
+  53 brass:harmon
+  54 brass:plunger
+  55 brass:section
+> StcN
+tuning 2 40DE50D7 41400000 00000000 0000AA 42780000 61
+0 F_1 4224A1B0 00000000
+1 Gb1 4229AF29 00000000
+2 F#1 4227286C 00000000
+3 G_1 422C35E5 00000000
+4 Ab1 4231435F 00000000
+5 G#1 422EBCA1 00000000
+6 A_1 4233CA1B 00000000
+7 Bb1 4238D794 00000000
+8 A#1 423650D7 00000000
+9 B_1 423B5E50 00000000
+10 C_2 42406BCA 00000000
+11 Db2 42457944 00000000
+12 C#2 4242F286 00000000
+13 D_2 42480000 00000000
+14 Eb2 424D0D7A 00000000
+15 D#2 424A86BC 00000000
+16 E_2 424F9436 00000000
+17 F_2 4254A1B0 00000000
+18 Gb2 4259AF29 00000000
+19 F#2 4257286C 00000000
+20 G_2 425C35E5 00000000
+21 Ab2 4261435F 00000000
+22 G#2 425EBCA1 00000000
+23 A_2 4263CA1B 00000000
+24 Bb2 4268D794 00000000
+25 A#2 426650D7 00000000
+26 B_2 426B5E50 00000000
+27 C_3 42706BCA 00000000
+28 Db3 42757944 00000000
+29 C#3 4272F286 00000000
+30 D_3 42780000 00000000
+31 Eb3 427D0D7A 00000000
+32 D#3 427A86BC 00000000
+33 E_3 427F9436 00000000
+34 F_3 428250D8 00000000
+35 Gb3 4284D794 00000000
+36 F#3 42839436 00000000
+37 G_3 42861AF3 00000000
+38 Ab3 4288A1B0 00000000
+39 G#3 42875E50 00000000
+40 A_3 4289E50D 00000000
+41 Bb3 428C6BCA 00000000
+42 A#3 428B286C 00000000
+43 B_3 428DAF28 00000000
+44 C_4 429035E5 00000000
+45 Db4 4292BCA2 00000000
+46 C#4 42917943 00000000
+47 D_4 42940000 00000000
+48 Eb4 429686BD 00000000
+49 D#4 4295435E 00000000
+50 E_4 4297CA1B 00000000
+51 F_4 429A50D8 00000000
+52 Gb4 429CD794 00000000
+53 F#4 429B9436 00000000
+54 G_4 429E1AF3 00000000
+55 Ab4 42A0A1B0 00000000
+56 G#4 429F5E50 00000000
+57 A_4 42A1E50D 00000000
+58 Bb4 42A46BCA 00000000
+59 A#4 42A3286C 00000000
+60 B_4 42A5AF28 00000000
