@@ -59,17 +59,20 @@ static inline ScanFrame *scan_link_begin(scan_link_t *l, uint32_t seq) {
 static inline void scan_link_publish(scan_link_t *l, uint32_t ready) { l->ready = ready; }
 
 // --- the thread -------------------------------------------------------------------------------
-// the columns of scan k that are complete (SCAN_COLUMNS while the interrupt writes the next
-// scan), -1 when its frame is being rewritten (the interrupt is two scans further)
+// the columns of scan k that are complete: 0 while the interrupt hasn't started it (the thread
+// finished scan k - 1 before the interrupt's next callback: the usual case), SCAN_COLUMNS while
+// the interrupt writes the next scan, -1 when its frame is being rewritten (the interrupt is two
+// scans further). The scan numbers wrap: compare their difference, signed.
 static inline int scan_link_avail(const scan_link_t *l, uint32_t k) {
-  const uint32_t s = l->seq;
-  if (s == k) return (int)l->ready;
-  if (s - k == 1) return SCAN_COLUMNS;
+  const int32_t d = (int32_t)(l->seq - k);
+  if (d < 0) return 0;
+  if (d == 0) return (int)l->ready;
+  if (d == 1) return SCAN_COLUMNS;
   return -1;
 }
 
 // after a copy from scan k's frame: the interrupt hasn't started rewriting it
-static inline bool scan_link_intact(const scan_link_t *l, uint32_t k) { return l->seq - k < 2; }
+static inline bool scan_link_intact(const scan_link_t *l, uint32_t k) { return (int32_t)(l->seq - k) < 2; }
 
 // Takes the next column into work (and at column 0 the scan's number, time and measured
 // columns). Returns the column, -1 if it isn't complete yet, or -2 if the interrupt overwrote it
