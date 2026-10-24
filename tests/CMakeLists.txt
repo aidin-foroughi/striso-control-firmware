@@ -112,6 +112,13 @@ target_compile_options(test_usb_audio_core PRIVATE -O2 -Werror)
 target_link_libraries(test_usb_audio_core PRIVATE m striso_host_options)
 add_test(NAME usb_audio_core COMMAND test_usb_audio_core)
 set_tests_properties(usb_audio_core PROPERTIES LABELS unit)
+# usb_audio_wrap: the ring across the wrap of its free-running 32-bit frame counters (24.85 h)
+add_executable(test_ua_wrap test_ua_wrap.c)
+target_include_directories(test_ua_wrap PRIVATE "${PROJECT_SOURCE_DIR}/src/usb")
+target_compile_options(test_ua_wrap PRIVATE -O2 -Werror)
+target_link_libraries(test_ua_wrap PRIVATE striso_host_options)
+add_test(NAME usb_audio_wrap COMMAND test_ua_wrap)
+set_tests_properties(usb_audio_wrap PROPERTIES LABELS unit)
 
 # --- drivers and USB (C) ------------------------------------------------------------------------------
 # usb_obq_discard: the console's 'V' drops the bulk console's pending output while an IN transfer
@@ -137,7 +144,7 @@ target_include_directories(test_aux_jack PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/aux_jack/stubs"
   "${PROJECT_SOURCE_DIR}/src/drivers")
 target_link_libraries(test_aux_jack PRIVATE striso_host_options)
-target_compile_options(test_aux_jack PRIVATE -O1 -Wno-unused-parameter -Wno-unused-variable)
+target_compile_options(test_aux_jack PRIVATE -O1 -Wno-unused-parameter -Wno-unused-variable -Wno-switch)
 add_test(NAME aux_jack COMMAND test_aux_jack)
 set_tests_properties(aux_jack PROPERTIES LABELS unit)
 
