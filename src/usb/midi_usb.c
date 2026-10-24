@@ -61,7 +61,7 @@ static bool mdu_start_receive(MidiUSBDriver *mdup) {
   }
 
   /* Checking if there is already a transaction ongoing on the endpoint.*/
-  if (usbGetReceiveStatusI(mdup->config->usbp, mdup->config->bulk_in)) {
+  if (usbGetReceiveStatusI(mdup->config->usbp, mdup->config->bulk_out)) {
     return true;
   }
 
@@ -326,10 +326,25 @@ void mduSuspendHookI(MidiUSBDriver *mdup) {
  * @iclass
  */
 void mduWakeupHookI(MidiUSBDriver *mdup) {
+  USBDriver *usbp = mdup->config->usbp;
 
   chnAddFlagsI(mdup, CHN_CONNECTED);
   bqResumeX(&mdup->ibqueue);
   bqResumeX(&mdup->obqueue);
+
+  /* The suspend aborted the endpoint's transfers (the OTG LLD disabled them, _usb_suspend
+     cleared the transmitting and receiving flags) and nothing else restarts them: re-arm the
+     OUT transfer, and send the queue's head buffer again (it may be the one in flight at the
+     suspend).*/
+  (void) mdu_start_receive(mdup);
+  if ((usbGetDriverStateI(usbp) == USB_ACTIVE) && (mdup->state == MDU_READY) &&
+      !usbGetTransmitStatusI(usbp, mdup->config->bulk_in)) {
+    size_t n;
+    uint8_t *buf = obqGetFullBufferI(&mdup->obqueue, &n);
+    if (buf != NULL) {
+      usbStartTransmitI(usbp, mdup->config->bulk_in, buf, n);
+    }
+  }
 }
 
 /**

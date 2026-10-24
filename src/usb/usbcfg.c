@@ -476,6 +476,41 @@ static const USBEndpointConfig ep2config = {
 };
 
 /*
+ * After a USB suspend and a resume without a bus reset (host sleep, selective suspend): the OTG
+ * LLD's suspend handling (otg_disable_ep) disabled every endpoint's transfer and masked all
+ * endpoint interrupts but EP0's, and its wakeup handling restores neither. Unmask the interrupts
+ * of every configured endpoint and flush the TX FIFOs of the IN transfers it aborted (the data
+ * left in them would be sent before the next transfer's); the drivers' wakeup hooks then re-arm
+ * their transfers. Only when the masks show that a suspend disabled the endpoints.
+ */
+static void usb_resume_endpointsI(USBDriver *usbp) {
+  stm32_otg_t *otgp = usbp->otg;
+  uint32_t mask = 0;
+
+  if (usbp->state != USB_ACTIVE)
+    return;
+  for (usbep_t ep = 1; ep <= USB_MAX_ENDPOINTS; ep++) {
+    if (usbp->epc[ep] == NULL)
+      continue;
+    if (usbp->epc[ep]->in_state != NULL)
+      mask |= DAINTMSK_IEPM(ep);
+    if (usbp->epc[ep]->out_state != NULL)
+      mask |= DAINTMSK_OEPM(ep);
+  }
+  if ((otgp->DAINTMSK & mask) == mask)
+    return;  // not disabled by a suspend
+  for (usbep_t ep = 1; ep <= USB_MAX_ENDPOINTS; ep++) {
+    if (usbp->epc[ep] == NULL || usbp->epc[ep]->in_state == NULL)
+      continue;
+    otgp->GRSTCTL = GRSTCTL_TXFNUM(ep) | GRSTCTL_TXFFLSH;
+    while ((otgp->GRSTCTL & GRSTCTL_TXFFLSH) != 0)
+      ;
+    osalSysPolledDelayX(18);  // 3 PHY clocks, as the LLD's otg_txfifo_flush
+  }
+  otgp->DAINTMSK |= mask;
+}
+
+/*
  * Handles the USB driver global events.
  */
 static void usb_event(USBDriver *usbp, usbevent_t event) {
@@ -520,6 +555,7 @@ static void usb_event(USBDriver *usbp, usbevent_t event) {
   case USB_EVENT_WAKEUP:
     chSysLockFromISR();
     /* Connection event on wakeup.*/
+    usb_resume_endpointsI(usbp);
     bduWakeupHookI(&BDU1);
     mduWakeupHookI(&MDU1);
     usb_audio_wakeup_hookI(usbp);

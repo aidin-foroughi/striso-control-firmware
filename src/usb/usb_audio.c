@@ -259,8 +259,8 @@ void usb_audio_suspend_hookI(void) {
 
 void usb_audio_wakeup_hookI(USBDriver *usbp) {
   if (usbp->state != USB_ACTIVE || usbp->epc[UA_EP] == NULL) return;
-  // the LLD's suspend handling masked all endpoint interrupts but EP0's
-  usbp->otg->DAINTMSK |= DAINTMSK_IEPM(UA_EP);
+  // the LLD's suspend handling masked all endpoint interrupts but EP0's: usb_event (usbcfg.c,
+  // usb_resume_endpointsI) unmasked them and flushed the TX FIFO before this hook
   if (ua_alt != 0U) {
     ua_start(&ua);
     ua_pkt_len = 0;

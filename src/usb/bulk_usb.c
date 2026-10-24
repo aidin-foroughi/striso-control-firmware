@@ -59,7 +59,7 @@ static bool bdu_start_receive(BulkUSBDriver *bdup) {
   }
 
   /* Checking if there is already a transaction ongoing on the endpoint.*/
-  if (usbGetReceiveStatusI(bdup->config->usbp, bdup->config->bulk_in)) {
+  if (usbGetReceiveStatusI(bdup->config->usbp, bdup->config->bulk_out)) {
     return true;
   }
 
@@ -322,10 +322,25 @@ void bduSuspendHookI(BulkUSBDriver *bdup) {
  * @iclass
  */
 void bduWakeupHookI(BulkUSBDriver *bdup) {
+  USBDriver *usbp = bdup->config->usbp;
 
   chnAddFlagsI(bdup, CHN_CONNECTED);
   bqResumeX(&bdup->ibqueue);
   bqResumeX(&bdup->obqueue);
+
+  /* The suspend aborted the endpoint's transfers (the OTG LLD disabled them, _usb_suspend
+     cleared the transmitting and receiving flags) and nothing else restarts them: re-arm the
+     OUT transfer, and send the queue's head buffer again (it may be the one in flight at the
+     suspend).*/
+  (void) bdu_start_receive(bdup);
+  if ((usbGetDriverStateI(usbp) == USB_ACTIVE) && (bdup->state == BDU_READY) &&
+      !usbGetTransmitStatusI(usbp, bdup->config->bulk_in)) {
+    size_t n;
+    uint8_t *buf = obqGetFullBufferI(&bdup->obqueue, &n);
+    if (buf != NULL) {
+      usbStartTransmitI(usbp, bdup->config->bulk_in, buf, n);
+    }
+  }
 }
 
 /**
