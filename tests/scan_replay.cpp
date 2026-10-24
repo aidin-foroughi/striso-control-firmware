@@ -7,7 +7,10 @@
 //   - with the StcS stream recorded in the same session (stream.csv), the messages themselves:
 //     the ones the queue took must be a contiguous run of the stream's key messages.
 // Prints a summary: scans, cycles per scan, key activity, messages. Exit code 1 on any difference.
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
@@ -53,6 +56,43 @@ int main(int argc, char** argv) {
 		std::printf("%s: %u scans (%u asked s, %s), first scan %u\n", argv[1], r.frames, r.head.seconds,
 		    r.head.flags & 1 ? "buffer full" : "time up", r.head.first_seq);
 		std::printf("  messages %zu (%u queued, %u refused), %d keys; scans marked torn %u\n", r.msgs.size(), queued, r.refused, keys, r.torn);
+	}
+	if (!quiet && r.cycles.size() > 1) {
+		std::vector<uint32_t> c(r.cycles.begin() + 1, r.cycles.end());
+		std::sort(c.begin(), c.end());
+		std::printf("  DWT cycles per scan: min %u median %u max %u (%.1f Hz at 400 MHz)\n", c.front(), c[c.size() / 2], c.back(),
+		    400e6 / c[c.size() / 2]);
+	}
+	if (!quiet && r.has_stats) {
+		// the noise floor: the keys with the highest detection sample (threshold kKeyDetect = 64)
+		double worst = 0;
+		int worst_b = -1;
+		double mean_all = 0;
+		int n_all = 0;
+		for (int b = 0; b < ks::kButtons; b++) {
+			const ks::Acc& a = r.stats.on[b];
+			if (!a.n) continue;
+			const double m = static_cast<double>(a.sum) / a.n;
+			mean_all += m;
+			n_all++;
+			if (a.max > worst) {
+				worst = a.max;
+				worst_b = b;
+			}
+		}
+		std::printf("  noise: detection sample mean %.2f over %d buttons, highest max %.0f (button %d; threshold %d)\n",
+		    n_all ? mean_all / n_all : 0.0, n_all, worst, worst_b, ks::kKeyDetect);
+		for (int b = 0; b < ks::kButtons; b++) {
+			const ks::Acc& a = r.stats.on[b];
+			const ks::Acc& p = r.stats.p[b];
+			if (!a.n) continue;
+			const double m = static_cast<double>(a.sum) / a.n;
+			const double sd = std::sqrt(std::max(0.0, static_cast<double>(a.sumsq) / a.n - m * m));
+			const double pm = p.n ? static_cast<double>(p.sum) / p.n : 0.0;
+			if (!quiet && std::getenv("SCAN_NOISE_ALL")) {
+				std::printf("    button %2d on mean %6.2f sd %5.2f max %4u | p n %6u mean %7.2f max %5u\n", b, m, sd, a.max, p.n, pm, p.max);
+			}
+		}
 	}
 	int bad = 0;
 	if (r.mismatched) {

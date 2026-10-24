@@ -7,7 +7,7 @@
  * Header (kHeaderBytes):
  *   u32 magic "KSR1", u16 version, u16 header bytes, u32 frames, u32 record bytes,
  *   u32 seconds asked, u32 flags (bit 0: stopped because the buffer was full),
- *   u32 seq and u32 t_start of the first scan,
+ *   u32 seq and u32 t_start of the first scan, u32 noise statistics bytes, u32 0,
  *   the KeyScanner's state before the first scan: Config (2 x i32), i32 buttons_pressed,
  *   17 x i32 col_pressed, 68 x key: i32 pres velo c_force c_breakpoint c_force2 zero_offset
  *   zero_time zero_max key_detect3, u32 fact (float bits), i32 timer, u8 status, 3 x u8 0.
@@ -28,6 +28,11 @@
  *     n x varint index of a refused attempt (the queue was full)
  * Only the inputs update_button reads are kept (KeyScanner::load_column): a column without a key
  * above kKeyDetect is left out, and so are the corner samples of a key at or below it.
+ *
+ * After the records, the noise statistics (kStatsBytes, NoiseStats): per button of every scan the
+ * detection sample on (all of them, also those the records leave out) and the pressure p of the
+ * scans that measured it: u32 count, u32 sum, u64 sum of squares, u32 max, each for on, then p.
+ * They make a recording of nobody playing useful: the noise floor of every key.
  */
 #pragma once
 
@@ -171,7 +176,54 @@ struct CaptureHeader {
 	uint32_t flags = 0;
 	uint32_t first_seq = 0;
 	uint32_t first_t_start = 0;
+	uint32_t stats_bytes = 0; // after the records: kStatsBytes, or 0
 };
+
+// the noise floor: sum, sum of squares and max of a sample
+struct Acc {
+	uint32_t n = 0;
+	uint32_t sum = 0;
+	uint64_t sumsq = 0;
+	uint32_t max = 0;
+	void add(uint32_t v) {
+		n++;
+		sum += v;
+		sumsq += static_cast<uint64_t>(v) * v;
+		if (v > max) max = v;
+	}
+};
+
+struct NoiseStats {
+	std::array<Acc, kButtons> on{};
+	std::array<Acc, kButtons> p{};
+};
+
+inline constexpr int kStatsBytes = kButtons * 2 * 20;
+
+inline void write_stats(uint8_t* out, const NoiseStats& s) {
+	ByteWriter w{out};
+	for (const auto* a : {&s.on, &s.p}) {
+		for (const Acc& x : *a) {
+			w.u32(x.n);
+			w.u32(x.sum);
+			w.u32(static_cast<uint32_t>(x.sumsq));
+			w.u32(static_cast<uint32_t>(x.sumsq >> 32));
+			w.u32(x.max);
+		}
+	}
+}
+
+inline void read_stats(ByteReader& r, NoiseStats& s) {
+	for (auto* a : {&s.on, &s.p}) {
+		for (Acc& x : *a) {
+			x.n = r.u32();
+			x.sum = r.u32();
+			const uint64_t lo = r.u32();
+			x.sumsq = lo | (static_cast<uint64_t>(r.u32()) << 32);
+			x.max = r.u32();
+		}
+	}
+}
 
 inline constexpr int kHeaderFixedBytes = 40;
 
@@ -187,8 +239,8 @@ inline void write_header_fixed(uint8_t* out, const CaptureHeader& h) {
 	w.u32(h.flags);
 	w.u32(h.first_seq);
 	w.u32(h.first_t_start);
+	w.u32(h.stats_bytes);
 	w.u32(0); // reserved
-	w.u32(0);
 }
 
 inline void write_header(uint8_t* out, const CaptureHeader& h, const KeyScanner& snapshot) {
@@ -208,7 +260,7 @@ inline bool read_header(const uint8_t* p, size_t n, CaptureHeader& h, KeyScanner
 	h.flags = r.u32();
 	h.first_seq = r.u32();
 	h.first_t_start = r.u32();
-	(void)r.u32();
+	h.stats_bytes = r.u32();
 	(void)r.u32();
 	read_snapshot(r, snapshot);
 	return r.ok;

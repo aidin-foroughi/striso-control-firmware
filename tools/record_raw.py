@@ -6,12 +6,13 @@ Usage: tools/.venv/Scripts/python tools/record_raw.py <seconds> <out base> [--no
 
   <out base>.ksr   the raw recording: what the scanner thread consumed, scan by scan, plus its
                    state at the start (src/drivers/key_scanner_capture.hpp)
+                   and the noise floor of every key (statistics of its samples)
   <out base>.csv   the key messages of the StcS stream, as tools/record_keys.py writes them
                    (t,src,id,pres,velo,x,y; 14-bit values as sent)
   <out base>.txt   the board's console replies and counters (StcE before and after, StcZ)
 
 The board records into its RAM for <seconds> (1..99) or until its buffer is full (about 220 KB:
-some 25 s with nobody playing, a few seconds of chords), then sends the recording over USB. Play
+about 30 s with nobody playing at 627 scans/s, a few seconds of chords), then sends the recording over USB. Play
 during the recording; a recording of nobody playing is still useful (noise, scan timing).
 Replay: build/host/tests/scan_replay <out base>.ksr <out base>.csv
 
@@ -94,7 +95,7 @@ def dump(d):
     m = re.search(rb"R err([^\r]*)\r\n", buf)
     if m:
         raise SystemExit("board: R err" + m.group(1).decode())
-    m = re.search(rb"R dump (\d+) bytes (\d+) frames fnv ([0-9a-f]+)\r\n", buf)
+    m = re.search(rb"R dump (\d+) bytes (\d+) frames fnv ([0-9a-fA-F]+)\r\n", buf)
     n, frames, want = int(m.group(1)), int(m.group(2)), int(m.group(3), 16)
     data = buf[m.end():]
     t0 = time.time()

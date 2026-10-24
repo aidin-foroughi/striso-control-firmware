@@ -30,6 +30,9 @@ struct Result {
 	uint32_t torn = 0; // scans the board marked torn
 	uint32_t refused = 0;
 	std::vector<Msg> msgs;
+	std::vector<uint32_t> cycles; // per scan, DWT cycles since the previous one
+	bool has_stats = false;
+	ks::NoiseStats stats;
 };
 
 // the board's sink as the recording saw it: the refused attempts are refused again
@@ -82,8 +85,14 @@ inline Result replay(const std::vector<uint8_t>& blob) {
 		const bool same = sink.attempt == rec.attempts && (rec.attempts == 0 || (sink.hash & 0xffffU) == rec.hash);
 		if (!same && res.mismatched++ == 0) res.first_mismatch = res.frames;
 		if (rec.end_flags & ks::kEndTorn) res.torn++;
+		res.cycles.push_back(rec.cycles);
 		res.refused += static_cast<uint32_t>(rec.nfails);
 		res.frames++;
+	}
+	if (res.head.stats_bytes == static_cast<uint32_t>(ks::kStatsBytes) && blob.size() >= start + res.head.record_bytes + res.head.stats_bytes) {
+		ks::ByteReader sr{blob.data() + start + res.head.record_bytes, blob.data() + blob.size()};
+		ks::read_stats(sr, res.stats);
+		res.has_stats = sr.ok;
 	}
 	if (!reader.ok()) res.error = "malformed record at scan " + std::to_string(res.frames);
 	else if (res.frames != res.head.frames) res.error = "recording has " + std::to_string(res.frames) + " scans, header says " + std::to_string(res.head.frames);

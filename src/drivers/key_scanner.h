@@ -34,8 +34,8 @@ enum {
 	// cycles per scan histogram: bin i counts scans of SCAN_HIST_BASE + i * SCAN_HIST_STEP cycles
 	// and up (the first and last bins also take what is below and above)
 	SCAN_HIST_BINS = 64,
-	SCAN_HIST_BASE = 160000, // 0.4 ms at 400 MHz
-	SCAN_HIST_STEP = 4096,   // 10.24 us
+	SCAN_HIST_BASE = 400000, // 1 ms at 400 MHz (an idle scan is about 1.6 ms)
+	SCAN_HIST_STEP = 8192,   // 20.48 us
 	// callbacks per scan histogram: bin i counts scans of SCAN_CB_BASE + i callbacks
 	SCAN_CB_BINS = 48,
 	SCAN_CB_BASE = 24,

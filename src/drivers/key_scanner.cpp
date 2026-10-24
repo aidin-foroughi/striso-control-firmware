@@ -42,6 +42,8 @@ uint8_t cap_header[ks::kHeaderBytes];
 ks::RecordWriter rec;
 uint32_t rec_overruns = 0;
 int32_t cal_copy[SCAN_BUTTONS];
+ks::NoiseStats noise;
+uint8_t noise_bytes[ks::kStatsBytes];
 
 // the buffer: most of the free AXI SRAM and SRAM4 (D3), records don't straddle the two
 constexpr size_t kBuf0 = 160 * 1024;
@@ -118,6 +120,7 @@ void frame_start(const ScanFrame& f) {
 		cap_head.first_t_start = work.t_start;
 		ks::write_header(cap_header, cap_head, scanner); // the snapshot; counts at the dump
 		rec.reset(work.seq, work.t_start);
+		noise = ks::NoiseStats{};
 		for (Region& r : regions) r.used = 0;
 		region = 0;
 		cap_t0 = chVTGetSystemTimeX();
@@ -167,15 +170,19 @@ void ThreadScanDump(void*) {
 		chBSemWait(&dump_sem);
 		// the header's counts, then a hash over everything sent
 		ks::CaptureHeader h = cap_head;
+		h.stats_bytes = ks::kStatsBytes;
 		ks::write_header_fixed(cap_header, h);
+		ks::write_stats(noise_bytes, noise);
 		uint32_t hash = ks::kFnvBasis;
 		hash = ks::fnv1a_bytes(hash, cap_header, sizeof cap_header);
 		for (const Region& r : regions) hash = ks::fnv1a_bytes(hash, r.base, r.used);
-		const uint32_t total = static_cast<uint32_t>(sizeof cap_header) + h.record_bytes;
+		hash = ks::fnv1a_bytes(hash, noise_bytes, sizeof noise_bytes);
+		const uint32_t total = static_cast<uint32_t>(sizeof cap_header) + h.record_bytes + h.stats_bytes;
 		char line[80];
 		chsnprintf(line, sizeof line, "R dump %lu bytes %lu frames fnv %08lx\r\n", total, h.frames, hash);
 		bool ok = dump_line(line) && dump_write(cap_header, sizeof cap_header);
 		for (const Region& r : regions) ok = ok && dump_write(r.base, r.used);
+		ok = ok && dump_write(noise_bytes, sizeof noise_bytes);
 		ok = ok && dump_line("\r\nR end\r\n");
 		(void)ok; // a dump the host stopped reading is just cut off
 		cap_state = Cap::done;
@@ -218,7 +225,17 @@ void ks_boot_column(const ScanFrame* f, int col) {
 void ks_column(const ScanFrame* f, int col) {
 	if (col == 0) frame_start(*f);
 	copy_column(*f, col);
-	if (cap_state == Cap::running) rec.column(work, col);
+	if (cap_state == Cap::running) {
+		rec.column(work, col);
+		// the noise floor of every key: on always, p when the interrupt measured the column
+		bool measured = false;
+		for (int i = 0; i < f->n && i < ks::kColumns; i++) measured = measured || f->cols[i] == col;
+		for (int n = 0; n < ks::kRows; n++) {
+			const int b = col + n * ks::kColumns;
+			noise.on[b].add(work.on[b]);
+			if (measured) noise.p[b].add(work.m[b].p);
+		}
+	}
 	scanner.process_column(work, col, sink);
 	if (col == ks::kColumns - 1) frame_end();
 }
