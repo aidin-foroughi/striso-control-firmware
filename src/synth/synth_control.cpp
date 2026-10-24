@@ -55,6 +55,12 @@ extern "C" {
 #ifndef SYNTHCTL_NORMAL_BEND_LIKE_MPE
 #define SYNTHCTL_NORMAL_BEND_LIKE_MPE 0
 #endif
+// The motion CCs 16, 17, 18 (acceleration) and 19 (its magnitude) rounded to the nearest step
+// with a quarter step of hysteresis. Off: the rounding adds half a step too much (a bias of +1/2
+// step) and the hysteresis compares at twice the scale (none: jitter sends on every reading) (SC-21).
+#ifndef SYNTHCTL_MOTION_CC_FIX
+#define SYNTHCTL_MOTION_CC_FIX 0
+#endif
 
 #define BUTTONCOUNT 68
 #define MAX_PORTAMENTO_BUTTONS 8
@@ -131,7 +137,6 @@ float clamp_rem(float x, float low, float high, float* rem) {
 float clamp_knob(float cur, float x, float low, float high, float* rem) {
     return clamp_rem(x, min(low, cur), max(high, cur), rem);
 }
-
 
 // float to int, limited to lo..hi first: an out of range (or NaN) float to int is UB, and on
 // the board it gives the wrong end of the range (an absurd tuning, a bend range of 0)
@@ -253,6 +258,17 @@ class MotionSensor {
                     // for binary protocol the max is +/-8g, for MIDI max 2g feels better
                     // -(1<<3) for rounding correctly
                     int d; // calculate direction for hysteresis
+#if SYNTHCTL_MOTION_CC_FIX
+                    // steps of 32 (acc) and 16 (abs): compare at the step's scale, round by half a step
+                    d = ((((last_acc_x-64)<<5) > acc_x)<<4)-(1<<3);
+                    acc_x = __USAT(64+((acc_x+(1<<4)+d)>>5), 7)&0x7F;
+                    d = ((((last_acc_y-64)<<5) > acc_y)<<4)-(1<<3);
+                    acc_y = __USAT(64+((acc_y+(1<<4)+d)>>5), 7)&0x7F;
+                    d = ((((last_acc_z-64)<<5) > acc_z)<<4)-(1<<3);
+                    acc_z = __USAT(64+((acc_z+(1<<4)+d)>>5), 7)&0x7F;
+                    d = (((last_acc_abs<<4) > acc_abs)<<3)-(1<<2);
+                    acc_abs = __USAT((acc_abs+(1<<3)+d)>>4, 7)&0x7F;
+#else
                     d = ((((last_acc_x-64)<<6) > acc_x)<<4)-(1<<3);
                     acc_x = __USAT(64+((acc_x+(1<<5)+d)>>5), 7)&0x7F;
                     d = ((((last_acc_y-64)<<6) > acc_y)<<4)-(1<<3);
@@ -261,6 +277,7 @@ class MotionSensor {
                     acc_z = __USAT(64+((acc_z+(1<<5)+d)>>5), 7)&0x7F;
                     d = (((last_acc_abs<<5) > acc_abs)<<3)-(1<<2);
                     acc_abs = __USAT((acc_abs+(1<<4)+d)>>4, 7)&0x7F;
+#endif
                     d = ((((last_rot_x-64)<<6) > rot_x)<<5)-(1<<4);
                     rot_x = __USAT(64+((rot_x+(1<<5)+d)>>6), 7)&0x7F;
                     d = ((((last_rot_y-64)<<6) > rot_y)<<5)-(1<<4);
