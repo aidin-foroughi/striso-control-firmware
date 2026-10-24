@@ -141,6 +141,14 @@ target_compile_options(test_aux_jack PRIVATE -O1 -Wno-unused-parameter -Wno-unus
 add_test(NAME aux_jack COMMAND test_aux_jack)
 set_tests_properties(aux_jack PROPERTIES LABELS unit)
 
+# codec_linein: the codec's line-in writes (src/drivers/codec_aic3x_linein.h) open and close the
+# analog path LINE2 -> ADC PGA -> line out, in a model of the TLV320AIC3104 registers (D4)
+add_executable(test_codec_linein test_codec_linein.c)
+target_include_directories(test_codec_linein PRIVATE "${PROJECT_SOURCE_DIR}/src/drivers")
+target_link_libraries(test_codec_linein PRIVATE striso_host_options)
+add_test(NAME codec_linein COMMAND test_codec_linein)
+set_tests_properties(codec_linein PROPERTIES LABELS unit)
+
 # --- tools/striso.py: UF2 and config records ----------------------------------------------------------
 add_test(NAME striso_py COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_striso_py.py")
 set_tests_properties(striso_py PROPERTIES LABELS unit)

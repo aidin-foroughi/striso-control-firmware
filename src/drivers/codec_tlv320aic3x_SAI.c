@@ -21,6 +21,7 @@
 
 #include "hal_sai_lld.h"
 #include "codec_tlv320aic3x.h"
+#include "codec_aic3x_linein.h"
 #include "codec.h"
 #include "usb_audio.h"
 
@@ -94,14 +95,17 @@ uint8_t aic3xReadRegister(uint8_t RegisterAddr) {
   return (i2crxbuf[0]);
 }
 
-void aic3xWriteRegister(uint8_t RegisterAddr, uint8_t RegisterValue) {
-  msg_t status;
+static msg_t aic3x_write(uint8_t RegisterAddr, uint8_t RegisterValue) {
   i2ctxbuf[0] = RegisterAddr;
   i2ctxbuf[1] = RegisterValue;
 
   cacheBufferFlush(&i2ctxbuf[0], sizeof i2ctxbuf);
-  status = i2cMasterTransmit(&I2CD_CODEC, AIC3X_I2C_ADDR, i2ctxbuf, 2,
-                             i2crxbuf, 0);
+  return i2cMasterTransmit(&I2CD_CODEC, AIC3X_I2C_ADDR, i2ctxbuf, 2,
+                           i2crxbuf, 0);
+}
+
+void aic3xWriteRegister(uint8_t RegisterAddr, uint8_t RegisterValue) {
+  (void)aic3x_write(RegisterAddr, RegisterValue);
 
   static uint8_t rd;
   rd = aic3xReadRegister(RegisterAddr);
@@ -142,7 +146,7 @@ void codec_aic3x_init(uint16_t samplerate) {
   // aic3xWriteRegister(RADC_VOL, 0x00);
   // Route Left data to Left DAC, Route Right data to Right DAC
   aic3xWriteRegister(AIC3X_CODEC_DATAPATH_REG, 0x0A); // 0b00001010
-  // Power up Left and Right DAC’s
+  // Power up Left and Right DACâ€™s
   aic3xWriteRegister(DAC_PWR, 0xC0); // 0b11000000
   // Unmute Left digital volume control, set gain to 0 dB
   aic3xWriteRegister(LDAC_VOL, 0x00);
@@ -156,9 +160,9 @@ void codec_aic3x_init(uint16_t samplerate) {
   // aic3xWriteRegister(PGAR_2_RLOPM_VOL, 0x80);
   // Route Right DAC output to Right Line outs
   aic3xWriteRegister(DACR1_2_RLOPM_VOL, 0x80);
-  // Power up Left line out ± (differential), set gain to 0dB
+  // Power up Left line out Â± (differential), set gain to 0dB
   aic3xWriteRegister(LLOPM_CTRL, 0x09);
-  // Power up Right line out ± (differential), set gain to 0 dB
+  // Power up Right line out Â± (differential), set gain to 0 dB
   aic3xWriteRegister(RLOPM_CTRL, 0x09);
 
   // aic3xWriteRegister(46, 0b10000000);
@@ -293,24 +297,13 @@ void codec_start(void) {
 void codec_stop(void) {
 }
 
+// LINE2 through the ADC PGA to the line outs (codec_aic3x_linein.h)
 void codec_linein_enable(void) {
-  // Route Line2L to the Left ADC
-  aic3xWriteRegister(LINE2L_2_LADC_CTRL, 0b00001111);
-  // Route Line2R to the Right ADC
-  aic3xWriteRegister(LINE2R_2_RADC_CTRL, 0b11110000);
-  // Route Left input to Left line outs
-  aic3xWriteRegister(PGAL_2_LLOPM_VOL, 0x80);
-  // Route Right input to Right line outs
-  aic3xWriteRegister(PGAR_2_RLOPM_VOL, 0x80);
+  for (unsigned i = 0; i < sizeof aic3x_linein_on / sizeof aic3x_linein_on[0]; i++)
+    aic3xWriteRegister(aic3x_linein_on[i][0], aic3x_linein_on[i][1]);
 }
 
 void codec_linein_disable(void) {
-  // Route Line2L to the Left ADC
-  aic3xWriteRegister(LINE2L_2_LADC_CTRL, 0b11111111);
-  // Route Line2R to the Right ADC
-  aic3xWriteRegister(LINE2R_2_RADC_CTRL, 0b11111111);
-  // Route Left input to Left line outs
-  aic3xWriteRegister(PGAL_2_LLOPM_VOL, 0x00);
-  // Route Right input to Right line outs
-  aic3xWriteRegister(PGAR_2_RLOPM_VOL, 0x00);
+  for (unsigned i = 0; i < sizeof aic3x_linein_off / sizeof aic3x_linein_off[0]; i++)
+    aic3xWriteRegister(aic3x_linein_off[i][0], aic3x_linein_off[i][1]);
 }
