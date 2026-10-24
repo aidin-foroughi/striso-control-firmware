@@ -14,7 +14,9 @@ set(STRISO_SYNTH_ENGINE "strisy" CACHE STRING "synth engine: strisy (C++ voice e
 set_property(CACHE STRISO_SYNTH_ENGINE PROPERTY STRINGS strisy faust)
 set(STRISO_VOICE "strisy" CACHE STRING "voice engine (strisy engine only): strisy, all, or <name> for dsp/include/striso_dsp/voice_<name>.h")
 set(STRISO_OPT "-O1 -ggdb -fomit-frame-pointer -falign-functions=16" CACHE STRING "optimisation flags (USE_OPT)")
-set(STRISO_SYNTH_OPT "-O3 -ggdb -fomit-frame-pointer -falign-functions=16" CACHE STRING "optimisation flags of the synth DSP file (SYNTH_OPT)")
+# -fweb -frename-registers: register allocation only (the same float operations, bit-exact target
+# renders), fewer register copies in the unrolled DSP loops (modal -16% instructions, the rest -0..1%)
+set(STRISO_SYNTH_OPT "-O3 -ggdb -fomit-frame-pointer -falign-functions=16 -fweb -frename-registers" CACHE STRING "optimisation flags of the synth DSP file (SYNTH_OPT)")
 option(STRISO_LTO "link time optimisation" ON)
 option(STRISO_SYNTH_LTO "compile the synth DSP file with LTO too (OFF: a normal object, all per-file flags apply)" ON)
 option(STRISO_LISTING "write an objdump -S listing next to the ELF" OFF)
