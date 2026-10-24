@@ -258,6 +258,18 @@ static bool notes_balanced(bool print = true) {
 		}
 	return ok;
 }
+// MIDI notes on now (note-ons without their note-off)
+static int notes_on() {
+	std::map<std::pair<int, int>, int> on;
+	for (auto& m : midi_log) {
+		const int st = m[0] & 0xf0, ch = m[0] & 0x0f;
+		if (st == 0x90 && m.size() == 3 && m[2] > 0) on[{ch, m[1]}]++;
+		if ((st == 0x80 || (st == 0x90 && m.size() == 3 && m[2] == 0)) && on[{ch, m[1]}] > 0) on[{ch, m[1]}]--;
+	}
+	int n = 0;
+	for (auto& [k, c] : on) n += c;
+	return n;
+}
 // internal synth voices with pres > 0
 static int count_sounding() {
 	int c = 0;
@@ -376,10 +388,9 @@ static void t_sc01_dummy_voices() {
 		}
 	EXPECT(silent == 0, "%d of %d single notes silent on the internal synth", silent, total);
 	// 12 keys held: 12 MIDI notes on 12 channels, the internal synth's 10 voices all sound
-	const size_t m0 = midi_log.size();
 	for (int n = 0; n < 12; n++) key(K(5 + 4 * n), 0.2f + 0.05f * n, 0.1f);
 	for (int n = 0; n < 12; n++) key(K(5 + 4 * n), 0.2f + 0.05f * n);
-	EXPECT(count_midi(m0, 0xf0, 0x90) == 12, "MIDI note-ons %d (expected 12)", count_midi(m0, 0xf0, 0x90));
+	EXPECT(notes_on() == 12, "MIDI notes on: %d (expected 12)", notes_on());
 	EXPECT(count_sounding() == VOICECOUNT, "internal voices sounding %d", count_sounding());
 	int loudest = 0; // the 10 firmest keys are the ones that sound
 	for (int n = 2; n < 12; n++) loudest += voice_playing(dis.buttons[K(5 + 4 * n)].note) >= 0;

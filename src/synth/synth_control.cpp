@@ -302,6 +302,7 @@ class Button {
         int voice = -1;        // MIDI voice: the MPE channel slot (index into voices[])
         int synth_voice = -1;  // internal synth voice (index into synth_voices[]), -1: none
         uint8_t midi_channel = 0;  // the channel of its MIDI note-on (end_all_notes)
+        bool stolen = false;  // its channel was taken while it was held (get_voice), until released
 
         Button() {
         }
@@ -313,9 +314,10 @@ class Button {
             but_y = msg[3];
 
             // allow vol below zero to take over oldest voice
-            if (pres <= 0.0)
+            if (pres <= 0.0) {
                 vol0 = -1.0;
-            else
+                stolen = false;
+            } else
                 vol0 = pres + vpres;
             if (vol < vol0)
                 vol = vol0;
@@ -1129,7 +1131,13 @@ class Instrument {
 
         int get_voice(int but) {
             int voice = -1;
-            float min_vol = buttons[but].vol;// * 0.9 - 0.05; // * factor for hysteresis
+            float min_vol = buttons[but].vol;
+            if (buttons[but].stolen) {
+                // a held key that lost its channel takes one back only from a clearly quieter
+                // note: two keys at about the same pressure don't steal from each other on every
+                // message (SC-06)
+                min_vol = min_vol * 0.9f - 0.05f;
+            }
             for (int n = 0; n < voicecount; n++) {
                 // check if empty or last used voice is available
                 if (voices[n] == -1 || voices[n] == but)
@@ -1144,11 +1152,25 @@ class Instrument {
                     voice = n;
                 }
             }
+            if (voice < 0) {
+                // none quieter than the new note: a released note's channel is free all the same,
+                // the quietest one (else a new note waits until an old one's estimate decays below
+                // it: up to about 0.9 s, SC-03)
+                float min_released = 0;
+                for (int n = 0; n < voicecount; n++) {
+                    const Button& b = buttons[voices[n]];
+                    if (b.state != STATE_ON && (voice < 0 || b.vol < min_released)) {
+                        min_released = b.vol;
+                        voice = n;
+                    }
+                }
+            }
             if (voice >= 0) {
                 // take over the voice
                 if (voices[voice] >= 0) {
                     if (buttons[voices[voice]].state == STATE_ON) {
                         silence_synth_voice(voices[voice]);  // a held note stolen
+                        buttons[voices[voice]].stolen = buttons[voices[voice]].pres > 0.0f;
                     }
                     release_voice(voices[voice]);
                 }
