@@ -2,7 +2,8 @@
 # compiled unchanged with stubs, one scenario per test, and recorded key streams replayed through
 # the message path against golden trace checksums.
 #   synth_control.<scenario>          a scenario of the review (research/review_synth_control.md:
-#                                     SC-xx, and the known bugs Bx); fails if one of its checks fails
+#                                     SC-xx, and the known bugs Bx), or of the MIDI note input (mi_*);
+#                                     fails if one of its checks fails
 #   control_replay.<take>.<mode>      tools/harness/rec/<take>.csv through synth_message in MPE,
 #                                     Normal and Mono mode: no note left on, and the trace (MIDI out
 #                                     and internal synth controls) matches tests/golden/control_replay.txt.
@@ -19,7 +20,7 @@ function(_synth_control_test target)
     "${PROJECT_SOURCE_DIR}/src/app"
     "${PROJECT_SOURCE_DIR}/src/synth")
   target_compile_definitions(${target} PRIVATE SYNTH_ENGINE_STRISY ${ARGN})
-  target_link_libraries(${target} PRIVATE striso_host_options)
+  target_link_libraries(${target} PRIVATE striso::dsp striso_host_options)
   # reproducible float results (the replay traces); Piers' C-style code warns a lot under -Wextra
   target_compile_options(${target} PRIVATE -O1 -ffp-contract=off
     $<$<COMPILE_LANGUAGE:CXX>:-Wno-write-strings -Wno-unused-parameter -Wno-sign-compare -Wno-missing-field-initializers>)
@@ -40,8 +41,9 @@ set(STRISO_SYNTH_CONTROL_SCENARIOS
   sc11_midinote_knob sc11_midinote_preset sc12_flip_offsets sc13_ranges sc14_mcm_zero sc15_pb_in
   sc16_echo sc17_rpn_boot sc18_pedal_channel sc19_poly_pgm sc20_bend_range_key sc21_motion_hyst
   sc22_free_transpose_range sc22_octave_release sc23_panic sc24_knob_y0 sc25_midiparam_first
-  sc27_dials sc28_cc1_lsb sc29_cc65 sc30_mode_messages sc31_steal_dup sc35_tuning_overflow
-  sc37_blink sc38_no_synth preset_keys)
+  sc27_dials sc29_cc65 sc30_mode_messages sc31_steal_dup sc35_tuning_overflow
+  sc37_blink sc38_no_synth preset_keys
+  mi_mpe_note mi_mpe_initial mi_one_channel mi_zone mi_steal mi_no_echo mi_modes mi_render)
 # scenarios of bugs not fixed yet, expected to fail (WILL_FAIL): each fix removed its entry, none
 # is left (the review's open findings have no scenario here)
 set(STRISO_SYNTH_CONTROL_KNOWN_FAILING "")

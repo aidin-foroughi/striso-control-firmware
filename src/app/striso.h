@@ -48,6 +48,8 @@ Button message:
 // the keys (synth_message); never sent on the wire (main.c ThreadSend stops them).
 #define ID_INTERNAL 6
 #define IDI_SETTINGS_KEY 0    // press a settings key: config_but(id, 0, 0) (console StcK)
+#define IDI_MIDI_IN 1         // a MIDI in message: status, data1, data2 (MidiInMsgHandler)
+#define IDI_MIDI_IN_TICK 2    // the 2 ms tick of the MIDI in notes (synth_tick)
 
 // control numbers [0-127]
 #define IDC_PORTAMENTO 0      // length 1

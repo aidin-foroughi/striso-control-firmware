@@ -33,6 +33,8 @@
 #include <utility>
 #include <vector>
 
+#include "striso_dsp/strisy.h" // (the end-to-end render; before the macros of synth_control.cpp)
+
 #include "synth_control.cpp"
 
 // ------------------------------------------------------------------------------------------ stubs
@@ -60,7 +62,12 @@ void led_rgb3_blink(int /*r*/, int /*g*/, int /*b*/, sysinterval_t /*time*/) { b
 void led_updown(uint32_t /*state*/) {}
 void led_updown_dial(int angle) { last_dial = angle; }
 void aux_jack_switch_mode_setting(jack2_mode_t /*mode*/) {}
-int msgSend(int /*size*/, int* /*msg*/) { return 0; }
+// the message queue to the key thread: what the firmware queues for it (MIDI in, its tick, StcK)
+// runs at once, as the thread would run it next
+int msgSend(int size, int* msg) {
+	if (size >= 2 && msg[0] == ID_INTERNAL) synth_message(size, msg);
+	return 0;
+}
 float volume = 0;
 synth_interface_t synth_interface;
 int synth_num_voices(void) { return 2; }
@@ -950,17 +957,6 @@ static void t_sc27_dials() {
 	EXPECT(last_r >= 0 && last_g >= 0 && last_b >= 0, "tilt -2 -> led %d %d %d", last_r, last_g, last_b);
 }
 
-// SC-28: CC1 (fifth) MSB and CC33 LSB: an MSB resets the LSB, an LSB applies at once
-static void t_sc28_cc1_lsb() {
-	midi_in(0xB0, 1, 64);
-	const float f0 = dis.notegen1;
-	EXPECT(std::fabs(f0 - 7.0f) < 1e-6f, "CC1=64: fifth %f", f0);
-	midi_in(0xB0, 33, 100);
-	EXPECT(dis.notegen1 > f0, "CC33=100: fifth %f (unchanged)", dis.notegen1);
-	midi_in(0xB0, 1, 64);
-	EXPECT(std::fabs(dis.notegen1 - 7.0f) < 1e-6f, "CC1=64 again (resets the LSB): fifth %f", dis.notegen1);
-}
-
 // SC-29: CC65 (portamento) is on at >= 64 only
 static void t_sc29_cc65() {
 	midi_in(0xB0, 65, 1);
@@ -1062,6 +1058,183 @@ static void t_preset_keys() {
 	}
 	EXPECT(misses.empty(), "%zu config keys looked up that aren't in default_config", misses.size());
 	for (auto& m : misses) std::printf("    '%s'\n", m.c_str());
+}
+
+
+// ------------------------------------------------------------------------- MIDI note input
+static void note_on(int ch, int n, int v) { midi_in(0x90 | ch, n, v); }
+static void note_off(int ch, int n, int v = 0) { midi_in(0x80 | ch, n, v); }
+static void bend(int ch, int v14) { midi_in(0xE0 | ch, v14 & 0x7f, v14 >> 7); }
+static void chan_pres(int ch, int v) { midi_in(0xD0 | ch, v, 0); }
+static bool near(float a, float b) { return std::fabs(a - b) < 1e-4f; }
+
+// MPE: a note on a member channel, its pressure, bend, CC74 and release
+static void t_mi_mpe_note() {
+	note_on(1, 60, 100); // channel 2
+	int v = voice_playing(60.0f);
+	EXPECT(v >= 0, "MIDI note 60 doesn't sound");
+	if (v < 0) return;
+	EXPECT(near(vc[v].pres, 100 / 127.0f) && near(vc[v].vpres, 100 / 127.0f), "note-on: pres %g vpres %g (velocity 100: 0.787)", vc[v].pres, vc[v].vpres);
+	EXPECT(vc[v].but_x == 0.0f && vc[v].but_y == 0.0f, "x %g y %g", vc[v].but_x, vc[v].but_y);
+	chan_pres(1, 64);
+	EXPECT(near(vc[v].pres, 64 / 127.0f), "channel pressure 64: pres %g", vc[v].pres);
+	ticks(10);
+	EXPECT(vc[v].vpres == 0.0f, "the strike after 20 ms: vpres %g", vc[v].vpres);
+	bend(1, 0x3000); // +1/2 of the range (48): +24
+	EXPECT(near(vc[v].note, 84.0f), "pitch bend 0x3000: note %g (expected 84)", vc[v].note);
+	midi_in(0xB1, 74, 96);
+	EXPECT(near(vc[v].but_y, 0.5f), "CC74 96: y %g", vc[v].but_y);
+	midi_in(0xA1, 60, 30); // poly pressure works too
+	EXPECT(near(vc[v].pres, 30 / 127.0f), "poly pressure 30: pres %g", vc[v].pres);
+	note_off(1, 60, 64);
+	EXPECT(vc[v].pres == 0.0f && near(vc[v].vpres, -64 / 127.0f), "note-off velocity 64: pres %g vpres %g", vc[v].pres, vc[v].vpres);
+	EXPECT(midi_log.empty(), "MIDI in notes sent %zu MIDI messages", midi_log.size());
+}
+
+// MPE: the state sent before the note-on (bend, CC74, pressure), per channel; the bend range (RPN 0)
+static void t_mi_mpe_initial() {
+	bend(2, 0x2000 + 4096); // channel 3: +24
+	midi_in(0xB2, 74, 32);  // y -0.5
+	chan_pres(2, 50);
+	note_on(2, 62, 90);
+	note_on(1, 50, 90); // channel 2: none of channel 3's state
+	int v = voice_playing(86.0f), w = voice_playing(50.0f);
+	EXPECT(v >= 0 && w >= 0, "notes 62+24 and 50 sound: %d %d", v, w);
+	if (v >= 0) EXPECT(near(vc[v].pres, 50 / 127.0f) && near(vc[v].but_y, -0.5f), "channel 3: pres %g y %g", vc[v].pres, vc[v].but_y);
+	if (w >= 0) EXPECT(near(vc[w].pres, 90 / 127.0f) && vc[w].but_y == 0.0f, "channel 2: pres %g y %g", vc[w].pres, vc[w].but_y);
+	rpn(3, 0, 0, 12); // the zone's bend range 12
+	note_on(3, 70, 80);
+	bend(3, 0x3fff);
+	EXPECT(voice_playing(70.0f + 12.0f * 8191 / 8192, 1e-3f) >= 0, "bend range 12, full bend: note 82");
+}
+
+// one channel (no MPE zone: MCM 0): notes, poly and channel pressure, the mod wheel, pitch bend
+static void t_mi_one_channel() {
+	rpn(0, 0, 6, 0); // MCM(0): no zone
+	note_on(0, 60, 80);
+	note_on(0, 64, 80);
+	int a = voice_playing(60.0f), b = voice_playing(64.0f);
+	EXPECT(a >= 0 && b >= 0 && a != b, "two notes on channel 1: voices %d %d", a, b);
+	if (a < 0 || b < 0) return;
+	EXPECT(near(vc[a].pres, 80 / 127.0f), "no pressure yet: pres %g is the velocity", vc[a].pres);
+	midi_in(0xA0, 60, 30);
+	EXPECT(near(vc[a].pres, 30 / 127.0f) && near(vc[b].pres, 80 / 127.0f), "poly pressure on 60: %g %g", vc[a].pres, vc[b].pres);
+	chan_pres(0, 100);
+	EXPECT(near(vc[a].pres, 100 / 127.0f) && near(vc[b].pres, 100 / 127.0f), "channel pressure: %g %g", vc[a].pres, vc[b].pres);
+	midi_in(0xB0, 1, 127);
+	EXPECT(near(vc[a].but_y, 1.0f) && near(vc[b].but_y, 1.0f), "mod wheel 127: y %g %g", vc[a].but_y, vc[b].but_y);
+	bend(0, 0x3000); // channel 1: the instrument's bend, +-2: +1
+	EXPECT(near(vc[a].note, 61.0f) && near(vc[b].note, 65.0f), "pitch bend +1: notes %g %g", vc[a].note, vc[b].note);
+	EXPECT(near(dis.midi_in_bend, 1.0f), "the keys bend too: %g", dis.midi_in_bend);
+	note_off(0, 60);
+	note_off(0, 64);
+	EXPECT(count_sounding() == 0, "after the note-offs: %d voices sound", count_sounding());
+	// with the zone (power on), the master channel is a channel of its own, as without one
+	rpn(0, 0, 6, 15);
+	note_on(0, 48, 70);
+	midi_in(0xB0, 1, 64);
+	int c = voice_playing(48.0f + 1.0f);
+	EXPECT(c >= 0 && near(vc[c].but_y, 64 / 127.0f), "master channel note with the mod wheel");
+}
+
+// the zone from the MCM: members 2..6; channel 8 is a channel of its own
+static void t_mi_zone() {
+	rpn(0, 0, 6, 5);
+	EXPECT(dis.midi_in_members == 5, "members %d", dis.midi_in_members);
+	note_on(2, 60, 90); // channel 3: member
+	note_on(7, 72, 90); // channel 8: one channel
+	bend(2, 0x3000);    // member: its note, +24
+	EXPECT(voice_playing(84.0f) >= 0 && voice_playing(72.0f) >= 0, "member bend: only its note");
+	bend(7, 0x3000); // not a member: the instrument's bend, +1
+	EXPECT(voice_playing(85.0f) >= 0 && voice_playing(73.0f) >= 0, "channel 8's bend moves every note: %g", dis.midi_in_bend);
+}
+
+// keys and MIDI notes share the internal voices and steal by the same rule
+static void t_mi_steal() {
+	for (int n = 0; n < 6; n++) key(K(10 + 5 * n), 0.3f, 0.1f); // 6 keys: voices 0..5
+	for (int n = 0; n < 6; n++) note_on(8 + n, 60 + n, 100);    // 6 louder MIDI notes (channels 9..14)
+	EXPECT(count_sounding() == VOICECOUNT, "%d voices sound", count_sounding());
+	for (int n = 0; n < 6; n++) EXPECT(voice_playing(60.0f + n) >= 0, "MIDI note %d doesn't sound", n);
+	int keys = 0;
+	for (int n = 0; n < 6; n++) keys += voice_playing(dis.buttons[K(10 + 5 * n)].note) >= 0;
+	EXPECT(keys == 4, "%d keys sound (the 2 first lose their voice)", keys);
+	EXPECT(voice_playing(dis.buttons[K(10)].note) < 0 && voice_playing(dis.buttons[K(15)].note) < 0, "the first two keys were stolen");
+	// more MIDI notes than slots: the oldest goes
+	for (int n = 0; n < 6; n++) key(K(10 + 5 * n), 0.0f);
+	ticks(300);                                   // (the keys' channels take MIDI notes again 0.5 s after their last note data)
+	for (int n = 6; n < MIDI_IN_NOTES + 1; n++) { // a note every 20 ms: the older ones are quieter
+		note_on(1 + n % 15, 60 + n, 100);
+		ticks(10);
+	}
+	EXPECT(voice_playing(60.0f) < 0 && voice_playing(60.0f + MIDI_IN_NOTES) >= 0, "the 17th note takes the first one's slot");
+	stck(63);
+	EXPECT(count_sounding() == 0, "after panic: %d voices", count_sounding());
+}
+
+// no echo: the keys' own MIDI out coming back doesn't play; MIDI notes send nothing
+static void t_mi_no_echo() {
+	const int b = K(30);
+	key(b, 0.5f, 0.2f);
+	key(b, 0.6f, 0.0f, 0.2f, 0.4f);
+	const size_t n = midi_log.size();
+	for (size_t i = 0; i < n; i++) {
+		auto m = midi_log[i];
+		midi_in(m[0], m.size() > 1 ? m[1] : 0, m.size() > 2 ? m[2] : 0);
+	}
+	EXPECT(count_sounding() == 1, "the key's echo played: %d voices", count_sounding());
+	note_on(7, 40, 100); // a channel the keys don't use: plays
+	EXPECT(voice_playing(40.0f) >= 0, "a note on channel 8 doesn't sound");
+	EXPECT(midi_log.size() == n, "MIDI in notes went out: %zu messages", midi_log.size() - n);
+	key(b, 0.0f);
+	ticks(300); // 0.6 s later the key's channel takes MIDI notes again
+	note_on(1, 45, 100);
+	EXPECT(voice_playing(45.0f) >= 0, "a note on channel 2, 0.6 s after the key");
+}
+
+// MIDI notes in Normal and Mono mode (the keys' MIDI mode doesn't change the input)
+static void t_mi_modes() {
+	stck(2);
+	note_on(1, 60, 100);
+	key(K(30), 0.5f, 0.2f);
+	EXPECT(voice_playing(60.0f) >= 0 && count_sounding() == 2, "Normal mode: %d voices", count_sounding());
+	note_off(1, 60);
+	key(K(30), 0.0f);
+	stck(4);
+	note_on(1, 62, 100);
+	key(K(30), 0.5f, 0.2f);
+	EXPECT(voice_playing(62.0f) >= 0 && count_sounding() == 2, "Mono mode: %d voices", count_sounding());
+}
+
+// end to end: USB MIDI packets as the board receives them (PExReceive: cable/CIN, then the message)
+// -> the internal synth's controls -> the strisy engine: it sounds, and is silent after the release
+static void t_mi_render() {
+	static strisy::Engine e;
+	strisy::init(e, SAMPLERATE, VOICECOUNT);
+	auto run = [&](int blocks) {
+		float peak = 0;
+		for (int k = 0; k < blocks; k++) {
+			for (int v = 0; v < VOICECOUNT; v++) e.vc[v] = {vc[v].note, vc[v].pres, vc[v].vpres, vc[v].but_x, vc[v].but_y};
+			e.g = {1.0f, 0, 0, 0, 0, 0, 0, pedal_f};
+			float out[strisy::BLOCK];
+			strisy::process(e, out);
+			for (float x : out) peak = std::fabs(x) > peak ? std::fabs(x) : peak;
+			if (k % 3 == 0) ticks(1);
+		}
+		return peak;
+	};
+	const uint8_t on[] = {0x09, 0x91, 60, 100, 0x0D, 0xD1, 90, 0, 0x0E, 0xE1, 0x00, 0x48};
+	const uint8_t off[] = {0x08, 0x81, 60, 40};
+	auto feed = [](const uint8_t* p, size_t n) {
+		for (size_t i = 0; i + 3 < n; i += 4) MidiInMsgHandler(MIDI_DEVICE_USB_DEVICE, ((p[i] & 0xF0) >> 4) + 1, p[i + 1], p[i + 2], p[i + 3]);
+	};
+	feed(on, sizeof on);
+	const float held = run(1500); // 1 s
+	feed(off, sizeof off);
+	run(15000); // 10 s of release
+	const float tail = run(300);
+	EXPECT(held > 0.05f, "held note: peak %g", held);
+	EXPECT(tail < 1e-4f, "10 s after the release: peak %g", tail);
+	std::printf("    strisy: held peak %.3f, tail %.2g\n", held, tail);
 }
 
 // ----------------------------------------------------------------------------------------- replay
@@ -1240,7 +1413,6 @@ static const Scenario scenarios[] = {
     {"sc24_knob_y0", t_sc24_knob_y0},
     {"sc25_midiparam_first", t_sc25_midiparam_first},
     {"sc27_dials", t_sc27_dials},
-    {"sc28_cc1_lsb", t_sc28_cc1_lsb},
     {"sc29_cc65", t_sc29_cc65},
     {"sc30_mode_messages", t_sc30_mode_messages},
     {"sc31_steal_dup", t_sc31_steal_dup},
@@ -1248,6 +1420,14 @@ static const Scenario scenarios[] = {
     {"sc37_blink", t_sc37_blink},
     {"sc38_no_synth", t_sc38_no_synth},
     {"preset_keys", t_preset_keys},
+    {"mi_mpe_note", t_mi_mpe_note},
+    {"mi_mpe_initial", t_mi_mpe_initial},
+    {"mi_one_channel", t_mi_one_channel},
+    {"mi_zone", t_mi_zone},
+    {"mi_steal", t_mi_steal},
+    {"mi_no_echo", t_mi_no_echo},
+    {"mi_modes", t_mi_modes},
+    {"mi_render", t_mi_render},
 };
 
 int main(int argc, char** argv) {
