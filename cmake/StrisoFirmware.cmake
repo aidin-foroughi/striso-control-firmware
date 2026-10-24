@@ -192,6 +192,7 @@ add_custom_command(TARGET striso_control POST_BUILD
     "-DOBJCOPY=${CMAKE_OBJCOPY}" "-DOBJDUMP=${CMAKE_OBJDUMP}" "-DNM=${CMAKE_NM}"
     "-DREADELF=${CMAKE_READELF}" "-DSIZE=${CMAKE_SIZE}" "-DPYTHON=${Python3_EXECUTABLE}"
     "-DSTACKCHECK=${STRISO_STACKCHECK}" "-DUF2CONV=${STRISO_UF2CONV}" "-DSYNTH_SRC=${_synth_src}"
+    "-DSRC_DIR=${PROJECT_SOURCE_DIR}/src"
     "-DLOAD_ADDR=${STRISO_LOAD_ADDRESS}" "-DUF2_FAMILY=0xa21e1295" "-DLISTING=${_listing}"
     -P "${PROJECT_SOURCE_DIR}/cmake/firmware_checks.cmake"
   BYPRODUCTS "${_out}.bin" "${_out}.hex" "${_out}.uf2"
@@ -201,6 +202,16 @@ add_custom_command(TARGET striso_control POST_BUILD
 add_test(NAME usb_descriptors
   COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/usbaudio/check_descriptors.py"
           --elf "$<TARGET_FILE:striso_control>")
+# the USB descriptors (with the MS OS descriptors) and default_config byte for byte against
+# tests/golden/firmware_bytes.txt (tools/firmware_goldens.py --update after an intended change)
+if(STRISO_USB_AUDIO_UAC1)
+  set(_usb_variant uac1)
+else()
+  set(_usb_variant uac2)
+endif()
+add_test(NAME firmware_bytes
+  COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/firmware_goldens.py"
+          --elf "$<TARGET_FILE:striso_control>" --variant ${_usb_variant})
 # tools/striso.py flash accepts the UF2 (app region only) and expects the version the build embedded
 add_test(NAME striso_py_firmware
   COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tests/test_striso_py.py"

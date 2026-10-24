@@ -5,12 +5,12 @@
 # Checks (as tools/build.sh did):
 #   1. no software floating point helpers (__aeabi_fadd etc.): some file was compiled without the
 #      FPU flags, and the DSP would be many times too slow;
-#   2. the synth thread's stack: worst call path from synthThread (tools/stackcheck.py: a
-#      conservative frame per function; fails on recursion and indirect calls) + 256 bytes for the
-#      exception frame the hardware stacks (with FPU state) must fit the working area;
+#   2. every thread's stack (below): the worst call path from its entry (tools/stackcheck.py: a
+#      conservative frame per function; fails on recursion and on undeclared indirect calls) plus a
+#      margin must fit the thread's stack;
 #   3. the load address is the application's (0x08040000), never the bootloader's.
 #
-# Variables: ELF BIN HEX UF2 OBJCOPY OBJDUMP NM READELF SIZE PYTHON STACKCHECK UF2CONV SYNTH_SRC
+# Variables: ELF BIN HEX UF2 OBJCOPY OBJDUMP NM READELF SIZE PYTHON STACKCHECK UF2CONV SYNTH_SRC SRC_DIR
 #            LOAD_ADDR UF2_FAMILY LISTING(optional: write <elf>.list with objdump -S)
 
 file(REMOVE "${UF2}")
@@ -48,26 +48,84 @@ if(softfp)
   reject("software float helpers linked in (missing FPU flags?):${softfp}")
 endif()
 
-# 2. synth thread stack
-file(READ "${SYNTH_SRC}" src)
-string(REGEX MATCH "THD_WORKING_AREA\\(waSynthThread, *([0-9]+)\\)" _ "${src}")
-set(wa "${CMAKE_MATCH_1}")
+# 2. thread stacks: every thread's worst call path (tools/stackcheck.py) must fit its stack.
+# Per thread: name, entry function, the source and working area variable its size is read from
+# (or "-" and a fixed size), and a margin on top of the deepest path:
+# - THD_WORKING_AREA threads: ChibiOS adds the context switch frame (port_intctx), the exception
+#   frame (port_extctx, with FPU state) and 64 bytes to the size the source asks for, so the path
+#   (without _port_switch's frame: --no-frame) must fit the size itself: margin 0. The synth thread
+#   keeps the 256 bytes it always had.
+# - main runs on the process stack (__process_stack_size__ 0x400, StrisoFirmware.cmake), which has
+#   no such reserve: 256 bytes for the switch and exception frames (100 + 104).
+# - the idle thread: PORT_IDLE_THREAD_STACK_SIZE (16, the ChibiOS default; cfg/ doesn't change it).
+# Interrupts run on the main stack (__main_stack_size__) and are not checked here.
+set(_threads
+  "synth|_ZL11synthThreadPv|${SYNTH_SRC}|waSynthThread|256"
+  "read_buttons|ThreadReadButtons|${SRC_DIR}/drivers/button_read.c|waThreadReadButtons|0"
+  "send messages|ThreadSend|${SRC_DIR}/app/main.c|waThreadSend|0"
+  "blinker|Thread1|${SRC_DIR}/app/main.c|waThread1|0"
+  "auxjack|AuxJack|${SRC_DIR}/drivers/aux_jack.c|waAuxJack|0"
+  "motion|ThreadAccel|${SRC_DIR}/drivers/motionsensor.c|waThreadAccel|0"
+  "main|main|-|1024|256"
+  "idle|_idle_thread|-|16|0")
+if(EXISTS "${SRC_DIR}/drivers/key_scanner.cpp")
+  list(APPEND _threads "scan_dump|ThreadScanDump|${SRC_DIR}/drivers/key_scanner.cpp|waScanDump|0")
+endif()
+# indirect calls (stream vmt methods, buffer queue callbacks) and the functions they can reach
+set(_indirect
+  --indirect chprintf=_put,_write          # chprintf(stream): the stream's put/write
+  --indirect main=_readt,_write            # PExReceive (inlined): chnReadTimeout, streamWrite
+  --indirect obqPostFullBufferS=obnotify   # USB bulk/MIDI output queues
+  --indirect ibqReleaseEmptyBufferS=ibnotify
+  "--indirect=oqWriteTimeout=notify[0-9]*" # serial (DIN MIDI) queues
+  "--indirect=oqPutTimeout=notify[0-9]*"
+  "--indirect=iqReadTimeout=notify[0-9]*")
+set(_roots "")
+foreach(t IN LISTS _threads)
+  string(REPLACE "|" ";" t "${t}")
+  list(GET t 1 root)
+  list(APPEND _roots "${root}")
+endforeach()
 execute_process(COMMAND "${OBJDUMP}" -d --no-show-raw-insn "${ELF}"
-                COMMAND "${PYTHON}" "${STACKCHECK}" _ZL11synthThreadPv
-                OUTPUT_VARIABLE depth OUTPUT_STRIP_TRAILING_WHITESPACE RESULTS_VARIABLE rcs)
+                COMMAND "${PYTHON}" "${STACKCHECK}" --no-frame _port_switch ${_indirect} ${_roots}
+                OUTPUT_VARIABLE depths OUTPUT_STRIP_TRAILING_WHITESPACE RESULTS_VARIABLE rcs)
 list(GET rcs 1 rc)
 if(NOT rc EQUAL 0)
-  reject("synth thread stack check failed: ${depth}")
+  reject("thread stack check failed: ${depths}")
 endif()
-string(REGEX MATCH "^([0-9]+) (.*)$" _ "${depth}")
-set(deepest "${CMAKE_MATCH_1}")
-set(path "${CMAKE_MATCH_2}")
-math(EXPR need "${deepest} + 256")
-cmake_path(GET SYNTH_SRC FILENAME synth_name)
-message("synth thread stack (${synth_name}): deepest ${deepest} bytes [${path}] + 256 margin = ${need} of ${wa} bytes")
-if(wa STREQUAL "" OR need GREATER wa)
-  reject("synth thread stack overflow: needs ~${need} bytes, working area is ${wa} bytes")
-endif()
+string(REPLACE "\n" ";" depths "${depths}")
+foreach(t IN LISTS _threads)
+  string(REPLACE "|" ";" t "${t}")
+  list(GET t 0 name)
+  list(GET t 1 root)
+  list(GET t 2 file)
+  list(GET t 3 var)
+  list(GET t 4 margin)
+  if(file STREQUAL "-")
+    set(wa "${var}")
+    set(where "fixed")
+  else()
+    file(READ "${file}" src)
+    string(REGEX MATCH "THD_WORKING_AREA\\(${var}, *([0-9]+)\\)" _ "${src}")
+    set(wa "${CMAKE_MATCH_1}")
+    cmake_path(GET file FILENAME where)
+  endif()
+  set(deepest "")
+  foreach(d IN LISTS depths)
+    if(d MATCHES "^${root} ([0-9]+) (.*)$")
+      set(deepest "${CMAKE_MATCH_1}")
+      set(path "${CMAKE_MATCH_2}")
+    endif()
+  endforeach()
+  if(deepest STREQUAL "" OR wa STREQUAL "")
+    reject("thread stack check: no result for ${name} (${root}, ${where} ${var})")
+  endif()
+  math(EXPR need "${deepest} + ${margin}")
+  message("thread stack ${name} (${where}): deepest ${deepest} bytes [${path}] + ${margin} margin = ${need} of ${wa} bytes")
+  if(need GREATER wa)
+    reject("thread ${name} stack overflow: needs ~${need} bytes, its stack is ${wa} bytes")
+  endif()
+endforeach()
 
 # 3. load address
 execute_process(COMMAND "${READELF}" -l "${ELF}" OUTPUT_VARIABLE phdrs RESULT_VARIABLE rc)
