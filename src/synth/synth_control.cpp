@@ -375,6 +375,18 @@ class Instrument {
             set_volume(volume_linear);
         }
 
+        // the MIDI channel of voice (MPE channel slot) n: offset + n, kept in 0..15 (fit_channels)
+        uint8_t voice_channel(int n) const {
+            return (midi_channel_offset + n) & 0x0f;
+        }
+
+        // keep the channels offset .. offset + voicecount - 1 within the 16 MIDI channels: a
+        // channel number above 15 runs into the status nibble (note-off as note-on, B4)
+        void fit_channels(void) {
+            midi_channel_offset = clamp(midi_channel_offset, 0, 15);
+            voicecount = clamp(voicecount, 1, min(MAX_VOICECOUNT, 16 - midi_channel_offset));
+        }
+
         void set_portamento(int p) {
             // in mono mode portamento should stay on
             if (config.midi_mode != MIDI_MODE_MPE || transposemode) {
@@ -922,7 +934,7 @@ class Instrument {
 #ifdef USE_MIDI_OUT
                 int velo = 0 - buttons[but].vpres * velo_sensitivity * 128 * 2;
                 velo = clamp(velo, 0, 127);
-                MidiSend3(MIDI_NOTE_OFF | (midi_channel_offset + buttons[but].voice),
+                MidiSend3(MIDI_NOTE_OFF | voice_channel(buttons[but].voice),
                                    buttons[but].midinote, velo);
 #endif
             }
@@ -972,12 +984,12 @@ class Instrument {
                 int pitchbend = (buttons[but].note - buttons[but].midinote)
                                 * (0x2000 / midi_bend_range) + 0x2000 + 0.5;
                 pitchbend = clamp(pitchbend, 0, 0x3fff);
-                MidiSend3(MIDI_PITCH_BEND | (midi_channel_offset + buttons[but].voice),
+                MidiSend3(MIDI_PITCH_BEND | voice_channel(buttons[but].voice),
                                    pitchbend & 0x7f, (pitchbend >> 7) & 0x7f);
                 // don't set last_pichbend to send pitchbend again after note_on for compatibility with some MPE implementations
                 // buttons[but].last_pitchbend = pitchbend;
 
-                MidiSend3(MIDI_NOTE_ON | (midi_channel_offset + buttons[but].voice),
+                MidiSend3(MIDI_NOTE_ON | voice_channel(buttons[but].voice),
                                    buttons[but].midinote, velo);
                 buttons[but].last_velo = velo;
 #endif
@@ -1025,16 +1037,16 @@ class Instrument {
 
             // pitchbend is also used for tuning and glissando
             if (pitchbend != buttons[but].last_pitchbend) {
-                MidiSend3(MIDI_PITCH_BEND | (midi_channel_offset + buttons[but].voice),
+                MidiSend3(MIDI_PITCH_BEND | voice_channel(buttons[but].voice),
                                    pitchbend & 0x7f, (pitchbend >> 7) & 0x7f);
                 buttons[but].last_pitchbend = pitchbend;
             }
             if (pres != buttons[but].last_pres) {
                 if (config.mpe_pres == CFG_CHANNEL_PRESSURE) {
-                    MidiSend2(MIDI_CHANNEL_PRESSURE | (midi_channel_offset + buttons[but].voice),
+                    MidiSend2(MIDI_CHANNEL_PRESSURE | voice_channel(buttons[but].voice),
                                     pres);
                 } else if (config.mpe_pres < 120) {
-                    MidiSend3(MIDI_CONTROL_CHANGE | (midi_channel_offset + buttons[but].voice),
+                    MidiSend3(MIDI_CONTROL_CHANGE | voice_channel(buttons[but].voice),
                                     config.mpe_pres, pres);
                 }
                 buttons[but].last_pres = pres;
@@ -1043,14 +1055,14 @@ class Instrument {
                 int bend = 64.5 + buttons[but].but_x * 64;
                 bend = clamp(bend, 0, 127);
                 if (bend != buttons[but].last_bend) {
-                    MidiSend3(MIDI_CONTROL_CHANGE | (midi_channel_offset + buttons[but].voice),
+                    MidiSend3(MIDI_CONTROL_CHANGE | voice_channel(buttons[but].voice),
                                     config.mpe_x, bend);
                     buttons[but].last_bend = bend;
                 }
             }
             if (tilt != buttons[but].last_tilt) {
                 if (config.mpe_y < 120) {
-                    MidiSend3(MIDI_CONTROL_CHANGE | (midi_channel_offset + buttons[but].voice),
+                    MidiSend3(MIDI_CONTROL_CHANGE | voice_channel(buttons[but].voice),
                                     config.mpe_y, tilt);
                 }
                 buttons[but].last_tilt = tilt;
@@ -1062,12 +1074,12 @@ class Instrument {
                     int velo = 0 + velof * 256;
                     velo = clamp(velo, 0, 127);
                     if (velo != buttons[but].last_velo) {
-                        MidiSend3(MIDI_CONTROL_CHANGE | (midi_channel_offset + buttons[but].voice),
+                        MidiSend3(MIDI_CONTROL_CHANGE | voice_channel(buttons[but].voice),
                                         73, velo);
                         buttons[but].last_velo = velo;
                     }
                     if (buttons[but].last_rvelo > 0) {
-                        MidiSend3(MIDI_CONTROL_CHANGE | (midi_channel_offset + buttons[but].voice),
+                        MidiSend3(MIDI_CONTROL_CHANGE | voice_channel(buttons[but].voice),
                                         72, 0);
                         buttons[but].last_rvelo = 0;
                     }
@@ -1075,12 +1087,12 @@ class Instrument {
                     int rvelo = 0 - velof * 256;
                     rvelo = clamp(rvelo, 0, 127);
                     if (rvelo != buttons[but].last_rvelo) {
-                        MidiSend3(MIDI_CONTROL_CHANGE | (midi_channel_offset + buttons[but].voice),
+                        MidiSend3(MIDI_CONTROL_CHANGE | voice_channel(buttons[but].voice),
                                         72, rvelo);
                         buttons[but].last_rvelo = rvelo;
                     }
                     if (buttons[but].last_velo > 0) {
-                        MidiSend3(MIDI_CONTROL_CHANGE | (midi_channel_offset + buttons[but].voice),
+                        MidiSend3(MIDI_CONTROL_CHANGE | voice_channel(buttons[but].voice),
                                         73, 0);
                         buttons[but].last_velo = 0;
                     }
@@ -1436,6 +1448,7 @@ void load_preset(int n) {
         dis.voicecount = i;
         sendcfg = true;
     }
+    dis.fit_channels();
 
     key[0] = 'f';
     strset(key, 3, "thres");
@@ -1506,7 +1519,7 @@ void load_preset(int n) {
             MidiSend2(MIDI_PROGRAM_CHANGE, i);
         }
         for (int n = 0; n < dis.voicecount; n++) {
-            MidiSend2(MIDI_PROGRAM_CHANGE | (dis.midi_channel_offset + n), i);
+            MidiSend2(MIDI_PROGRAM_CHANGE | dis.voice_channel(n), i);
         }
     }
 
@@ -1814,6 +1827,7 @@ float config_but(int but, int type, float adjust) {
             if (type == 2) a = a / 2;
             if (a != 0) {
                 dis.voicecount = clamp(dis.voicecount + a, 1, 15);
+                dis.fit_channels();
                 led_updown_dial(dis.voicecount);
                 midi_config();
             }
@@ -1830,6 +1844,7 @@ float config_but(int but, int type, float adjust) {
             if (type == 2) a = a / 2;
             if (a != 0) {
                 dis.midi_channel_offset = clamp(dis.midi_channel_offset + a, 0, 15);
+                dis.fit_channels();
                 led_updown_dial(dis.midi_channel_offset + 1);
                 midi_config();
             }
@@ -1846,6 +1861,7 @@ float config_but(int but, int type, float adjust) {
             if (type == 2) a = a / 2;
             if (a != 0) {
                 dis.midi_channel_offset = clamp(dis.midi_channel_offset + a, 0, 15);
+                dis.fit_channels();
                 led_updown_dial(dis.midi_channel_offset + 1);
                 midi_config();
             }
@@ -2110,7 +2126,7 @@ float config_but(int but, int type, float adjust) {
         if (type == 0) {
 #ifdef USE_MIDI_OUT
             for (int n = 0; n < (config.midi_mode == MIDI_MODE_POLY ? 1 : dis.voicecount); n++) {
-                MidiSend3(MIDI_CONTROL_CHANGE | (dis.midi_channel_offset + n), MIDI_C_ALL_NOTES_OFF, 0);
+                MidiSend3(MIDI_CONTROL_CHANGE | dis.voice_channel(n), MIDI_C_ALL_NOTES_OFF, 0);
             }
             led_rgb(0x342000);
 #endif
@@ -2175,14 +2191,16 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
                         dis.midi_bend_range = data2;
                     }
                 } else if (lastRPN_LSB_ch == 6 && lastRPN_MSB_ch == 0) {
-                    if (channel + data2 <= 15) {
+                    // MPE Configuration Message: the lower zone (master channel 1) with data2 member
+                    // channels. 0 (zone off) is ignored rather than leaving no channel; the upper
+                    // zone (master channel 16) isn't supported. The same configuration again (an
+                    // echo of midi_config's) changes nothing.
+                    if (channel == 0 && data2 >= 1 && data2 <= MAX_VOICECOUNT
+                        && !(config.midi_mode == MIDI_MODE_MPE && dis.midi_channel_offset == 1 && dis.voicecount == data2)) {
                         set_midi_mode(MIDI_MODE_MPE);
-                        dis.midi_channel_offset = channel + 1;
-                        if (data2 > MAX_VOICECOUNT) {
-                            dis.voicecount = MAX_VOICECOUNT;
-                        } else {
-                            dis.voicecount = data2;
-                        }
+                        dis.midi_channel_offset = 1;
+                        dis.voicecount = data2;
+                        dis.fit_channels();
                     }
                 } else if (lastRPN_LSB_ch == 1 && lastRPN_MSB_ch == 0) {
                     // TODO: Tuning, done with pitch bend
@@ -2249,13 +2267,15 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
                     set_midi_mode(MIDI_MODE_MPE);
                     dis.midi_channel_offset = channel;
                     if (data2 > 0) {
-                        dis.voicecount = min(data2, 16 - channel);
+                        dis.voicecount = data2;
                     }
                 }
+                dis.fit_channels();
             } break;
             case MIDI_C_POLY: { // Polyphonic mode on the channel the message is received
                 set_midi_mode(MIDI_MODE_POLY);
                 dis.midi_channel_offset = channel;
+                dis.fit_channels();
             } break;
             default: break;
         }
@@ -2303,11 +2323,11 @@ void midi_config(void) {
         }
         for (int n = 0; n < dis.voicecount; n++) {
             // send bend range on all channels to be more compatible
-            MidiSend3(MIDI_CONTROL_CHANGE | (dis.midi_channel_offset + n), MIDI_C_RPN_MSB, 0);
-            MidiSend3(MIDI_CONTROL_CHANGE | (dis.midi_channel_offset + n), MIDI_C_RPN_LSB, 0); // bend range
-            MidiSend3(MIDI_CONTROL_CHANGE | (dis.midi_channel_offset + n), MIDI_C_DATA_ENTRY, dis.midi_bend_range);
-            MidiSend3(MIDI_CONTROL_CHANGE | (dis.midi_channel_offset + n), MIDI_C_RPN_MSB, 0x7f); // reset RPN
-            MidiSend3(MIDI_CONTROL_CHANGE | (dis.midi_channel_offset + n), MIDI_C_RPN_LSB, 0x7f);
+            MidiSend3(MIDI_CONTROL_CHANGE | dis.voice_channel(n), MIDI_C_RPN_MSB, 0);
+            MidiSend3(MIDI_CONTROL_CHANGE | dis.voice_channel(n), MIDI_C_RPN_LSB, 0); // bend range
+            MidiSend3(MIDI_CONTROL_CHANGE | dis.voice_channel(n), MIDI_C_DATA_ENTRY, dis.midi_bend_range);
+            MidiSend3(MIDI_CONTROL_CHANGE | dis.voice_channel(n), MIDI_C_RPN_MSB, 0x7f); // reset RPN
+            MidiSend3(MIDI_CONTROL_CHANGE | dis.voice_channel(n), MIDI_C_RPN_LSB, 0x7f);
         }
     } else if (config.midi_mode == MIDI_MODE_MONO) {
         MidiSend3(MIDI_CONTROL_CHANGE | dis.midi_channel_offset, MIDI_C_RPN_MSB, 0);
