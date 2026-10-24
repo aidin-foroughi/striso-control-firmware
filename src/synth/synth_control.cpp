@@ -1059,13 +1059,18 @@ class Instrument {
                         if (transpose_button2 >= 0
                             && buttons[transpose_button2].state == STATE_TRANSPOSE) {
                             // do free transpose
-                            change_note_offset(buttons[transpose_button].note
-                                               - buttons[transpose_button2].note);
+                            float shift = buttons[transpose_button].note - buttons[transpose_button2].note;
+                            if (change_note_offset(shift) == 0) {
+                                buttons[transpose_button2].start_note_offset = start_note_offset;
+                            } else {
+                                // beyond the transposition range (the led shows red): it stays, and
+                                // the second key alone continues the first's pitch (SC-22)
+                                buttons[transpose_button2].start_note_offset += shift;
+                            }
                             buttons[transpose_button2].midinote = buttons[transpose_button].midinote;
                             buttons[transpose_button2].voice = buttons[transpose_button].voice;
                             buttons[transpose_button2].midi_channel = buttons[transpose_button].midi_channel;
                             buttons[transpose_button2].new_channel_state();
-                            buttons[transpose_button2].start_note_offset = start_note_offset;
                             voices[buttons[transpose_button2].voice] = transpose_button2;
                             hand_over_synth_voice(transpose_button, transpose_button2);
                             buttons[transpose_button2].state = STATE_ON;
