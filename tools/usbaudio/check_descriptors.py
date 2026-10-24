@@ -51,6 +51,10 @@ def elf_symbols(path):
                 if sec[1] == 8:   # NOBITS
                     continue
                 base = n.split(".")[0]   # LTO renames statics to name.lto_priv.N
+                # a name can repeat (statics of other files, e.g. ChibiOS' 8-byte ADC
+                # default_config next to the firmware's): the firmware's tables are the larger
+                if base in syms and len(syms[base]) >= size:
+                    continue
                 syms[base] = data[sec[4] + value - sec[3]:sec[4] + value - sec[3] + size]
     return syms
 
