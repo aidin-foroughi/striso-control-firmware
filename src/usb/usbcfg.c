@@ -545,7 +545,7 @@ static void usb_event(USBDriver *usbp, usbevent_t event) {
     /* GET_STATUS(device) answers usbp->status, which the reset cleared: report self powered
        (D0), as the configuration descriptor's bmAttributes (0xC0) says.*/
     usbp->status |= 1U;
-    /* Falls into.*/
+    /* falls through */
   case USB_EVENT_UNCONFIGURED:
     /* Falls into.*/
   case USB_EVENT_SUSPEND:
