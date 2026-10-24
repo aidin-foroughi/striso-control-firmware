@@ -2192,8 +2192,9 @@ float config_but(int but, int type, float adjust) {
         if (type > 0) {
             dis.pres_sensitivity = clamp_knob(dis.pres_sensitivity, dis.pres_sensitivity + adjust * (1.0f/8.0f), 0, 3.0f, &rem);
         }
-        led_updown_dial(dis.pres_sensitivity * 8 + 0.9f);
-        led_rgb3(dis.pres_sensitivity * 64.0f, dis.pres_sensitivity * 64.0f, 0);
+        // (the dial has 16 leds and wraps: clamp, as the velocity and bend dials do, SC-27)
+        led_updown_dial(to_int_clamped(dis.pres_sensitivity * 8 + 0.9f, 0, 15));
+        led_rgb3(to_int_clamped(dis.pres_sensitivity * 64.0f, 0, 255), to_int_clamped(dis.pres_sensitivity * 64.0f, 0, 255), 0);
         return rem * 8;
         }
     case (21): { // knob: velo sensitivity
@@ -2219,8 +2220,9 @@ float config_but(int but, int type, float adjust) {
         if (type > 0) {
             dis.y_sensitivity = clamp_knob(dis.y_sensitivity, dis.y_sensitivity + adjust * (1.0f/8.0f), 0, 3.0f, &rem);
         }
-        led_updown_dial(dis.y_sensitivity * 8 + 0.5f);
-        led_rgb3(dis.y_sensitivity * 32.0f, 0, dis.y_sensitivity * 64.0f);
+        // (a negative tilt from a preset or Striso Live gave negative led values: full on, SC-27)
+        led_updown_dial(to_int_clamped(dis.y_sensitivity * 8 + 0.5f, 0, 15));
+        led_rgb3(to_int_clamped(dis.y_sensitivity * 32.0f, 0, 255), 0, to_int_clamped(dis.y_sensitivity * 64.0f, 0, 255));
         return rem * 8;
         }
     // row 4: 18 20 22 24 26 28 13 15
@@ -2485,7 +2487,11 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
     uint8_t channel = status & 0x0f;
     status &= 0xf0;
 
-    led_rgb3_blink(255, 0, 127, TIME_MS2I(100));
+    // blink for channel messages; not for system messages (a DAW's clock, 24 per quarter note,
+    // and active sensing kept the led pink, hiding the settings feedback, SC-37)
+    if (status != 0xf0) {
+        led_rgb3_blink(255, 0, 127, TIME_MS2I(100));
+    }
 
     if (config.send_midi_monitor) {
         // Monitor MIDI input
