@@ -1158,7 +1158,7 @@ static bool settings_key_allowed(int id) {
     case 34: case 36: case 38: case 23: case 25: case 27: case 29: case 31: case 33:  // tunings
     case 35: case 37: case 39: case 41: case 43: case 45: case 30: case 32:  // settings presets
 #ifdef USE_INTERNAL_SYNTH
-    case 18: case 20: case 22: case 24: case 26: case 28: case 13:           // voices
+    case 18: case 20: case 22: case 24: case 26: case 28: case 13: case 15:  // voices
 #endif
     case 63:                                                                 // panic
         return true;
@@ -1914,6 +1914,7 @@ float config_but(int but, int type, float adjust) {
     case (26): return config_voice("wind", 0, 64, 0, type, adjust);
     case (28): return config_voice("ep", 40, 0, 64, type, adjust);
     case (13): return config_voice("brass", 64, 40, 0, type, adjust);
+    case (15): return config_voice("trumpet", 0, 48, 48, type, adjust);  // cyan
 #endif
     // row 5: 34 36 38 23 25 27 29 31 33
     case (34): // set 12tet tuning, knob: tuning offset
