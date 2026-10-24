@@ -11,7 +11,8 @@
 #   build   configure (the host-virtual preset) and build
 #   test    ctest (the goldens through the board, the protocol, the API)
 #   all     both (default)
-#   UNIVERSAL=1   macOS: one library for arm64 and x86_64, macOS 10.15 and later (as Striso Live),
+#   UNIVERSAL=1   macOS: one library for arm64 and x86_64, macOS 11 and later (std::binary_semaphore;
+#                 Striso Live itself runs on 10.15),
 #                 in build/host-virtual-universal; tools/ctest_arch.py runs its x86_64 slice
 #   BUILD_DIR     the build directory, relative to the checkout (default build/host-virtual)
 #   CHIBIOS_DIR   ChibiOS (its os/hal is built in) when the checkout has no third_party/ChibiOS
@@ -65,7 +66,7 @@ bdir="${BUILD_DIR:-build/host-virtual}"
 if [ "${UNIVERSAL:-0}" = 1 ]; then
   [ "$(uname -s)" = Darwin ] || { echo "virtual.sh: UNIVERSAL=1 is for macOS" >&2; exit 2; }
   bdir="${BUILD_DIR:-build/host-virtual-universal}"
-  cfg+=("-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=10.15)
+  cfg+=("-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0)
 fi
 
 q() { [ $# -eq 0 ] || printf '"%s" ' "$@"; }

@@ -38,7 +38,9 @@ def main(argv):
         props = {p["name"]: p["value"] for p in t.get("properties", [])}
         if props.get("DISABLED") or (regex and not regex.search(t["name"])):
             continue
-        cmd = t["command"]
+        cmd = t.get("command")
+        if not cmd:
+            sys.exit(f"ctest_arch.py: {t['name']} has no command (not built?)")
         if os.path.abspath(cmd[0]).startswith(build + os.sep):
             cmd = launcher + cmd
         env = dict(os.environ)

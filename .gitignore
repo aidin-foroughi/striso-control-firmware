@@ -20,5 +20,6 @@ __pycache__
 tools/utils/striso_util
 tools/utils/synth
 tools/utils/stribri
-# tools/release_dryrun.sh, tools/package.sh
+# release files (tools/release_dryrun.sh, tools/package.sh) and CI's ccache (tools/ci_docker.sh)
 dist/
+.ccache/
