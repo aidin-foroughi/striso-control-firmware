@@ -64,6 +64,18 @@
  *   pedal       vibrato depth (above the default position)
  *   shake       lip shake (trill to the next partial)
  *
+ * Mutes (presets, or any preset with the mute_type parameter): harmon stem out (5), cup (6),
+ * straight (7), plunger (8), harmon stem in (9: tilt = the hand over the stem's cup, "wah-wah"),
+ * bucket (10: dark, soft), practice (11: very quiet, ~9 dB below the others), solotone (12: nasal,
+ * megaphone). A mute here is a resonator on the radiated sound; its pitch and response effects on
+ * the bore are not modelled (the player's pitch loop keeps the notes in tune anyway).
+ *
+ * The player layer (brass_core.h, off in every preset: perf 0): perf is the overall amount, carry
+ * keeps the breath across a slur, auto_expr dips (and, upward, pushes) the breath at a slur by the
+ * interval, transitions classifies a new note: slur / legato tongue (a harder strike on a held note:
+ * the air dips, the note doesn't restart) / smear (a very soft strike, valves only: they glide) /
+ * quick re-tongue (within 150 ms of a release: the breath carries).
+ *
  * Polyphony: 4 players (trumpets); a fifth key steals the quietest released player, else the
  * oldest. Cost (QEMU Cortex-M7 instruction counts, tools/target_render): ~35k instructions per
  * sounding player per block, ~140k for 4 at ff with valves moving (~170k cycles at 1.2 cycles per
@@ -144,6 +156,12 @@ struct Params {
 	real valve_ms; // valve travel time
 	real voices;   // players
 	real room;     // early reflections
+	// appended (the earlier parameters keep their indices)
+	real mute_type;   // the mute (Mute: 0 none .. 8 solotone); a preset sets its own
+	real perf;        // the player layer (brass_core.h), overall amount: 0 off
+	real carry;       // M1 breath carried across slurs
+	real auto_expr;   // M2 auto expression at transitions
+	real transitions; // M3 transition classifier (on / off)
 };
 static constexpr int NPARAMS = sizeof(Params) / sizeof(real);
 static_assert(sizeof(Params) == NPARAMS * sizeof(real), "Params must hold only floats");
@@ -152,6 +170,10 @@ using brasspm::MUTE_CUP;
 using brasspm::MUTE_HARMON;
 using brasspm::MUTE_NONE;
 using brasspm::MUTE_PLUNGER;
+using brasspm::MUTE_BUCKET;
+using brasspm::MUTE_HARMON_IN;
+using brasspm::MUTE_PRACTICE;
+using brasspm::MUTE_SOLOTONE;
 using brasspm::MUTE_STRAIGHT;
 using Preset = brasspm::Preset<Params>;
 
@@ -192,10 +214,15 @@ using Preset = brasspm::Preset<Params>;
 	p.valve_ms = 14.0f;
 	p.voices = (real)NP;
 	p.room = 0.5f;
+	p.mute_type = 0.0f;
+	p.perf = 0.0f; // the player layer is off unless switched on (A/B it live)
+	p.carry = 1.0f;
+	p.auto_expr = 0.5f;
+	p.transitions = 1.0f;
 	return p;
 }
 
-static constexpr int NUM_PRESETS = 9;
+static constexpr int NUM_PRESETS = 13;
 
 [[nodiscard]] static inline Preset preset_def(int i) {
 	Params p = base_params();
@@ -269,12 +296,42 @@ static constexpr int NUM_PRESETS = 9;
 		p.tilt_lip = 0.0f;
 		p.growl = 0.5f;
 		return {"plunger", 0, MUTE_PLUNGER, p};
+	// the newer mutes: a sibling preset's player and horn (and so its calibration and seeds: cal_of),
+	// the mute's radiation
+	case 9: { // harmon, stem in: the classic "wah-wah"; tilt = the hand over the stem's cup
+		Preset q = preset_def(5);
+		q.name = "harmon in";
+		q.mute = MUTE_HARMON_IN;
+		q.p.wah = 0.9f;
+		return q;
+	}
+	case 10: { // bucket: dark, soft, round (felt-lined)
+		Preset q = preset_def(6);
+		q.name = "bucket";
+		q.mute = MUTE_BUCKET;
+		q.p.brassy = 2.0f;
+		q.p.bell = -1.0f;
+		return q;
+	}
+	case 11: { // practice / whisper mute: very quiet, stuffy
+		Preset q = preset_def(6);
+		q.name = "practice";
+		q.mute = MUTE_PRACTICE;
+		q.p.brassy = 2.5f;
+		return q;
+	}
+	case 12: { // solotone: nasal, megaphone
+		Preset q = preset_def(7);
+		q.name = "solotone";
+		q.mute = MUTE_SOLOTONE;
+		return q;
+	}
 	}
 }
 
 [[nodiscard]] static inline const char* preset_name(int i) {
 	static constexpr const char* names[NUM_PRESETS] = {"bb classical", "bb jazz", "c trumpet", "piccolo", "cornet",
-	    "harmon", "cup mute", "straight", "plunger"};
+	    "harmon", "cup mute", "straight", "plunger", "harmon in", "bucket", "practice", "solotone"};
 	return (i >= 0 && i < NUM_PRESETS) ? names[i] : names[0];
 }
 
@@ -285,7 +342,10 @@ static constexpr int DEFAULT_PRESET = TRUMPET_PRESET;
 #endif
 
 // level matching per preset (median active RMS, measured with the default performance)
-static constexpr real PRESET_GAIN[NUM_PRESETS] = {0.81f, 0.685f, 0.776f, 1.06f, 1.31f, 0.0978f, 0.489f, 0.21f, 0.487f};
+static constexpr real PRESET_GAIN[NUM_PRESETS] = {0.81f, 0.685f, 0.776f, 1.06f, 1.31f, 0.0978f, 0.489f, 0.21f, 0.487f, 0.129f, 1.29f, 0.407f, 0.0866f};
+// the calibration and seed table of each preset (trumpet_cal.h, trumpet_seed.h: the first 9 presets)
+static constexpr int NCALSET = 9;
+static constexpr int CAL_OF[NUM_PRESETS] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 5, 6, 6, 7};
 
 // ---------------------------------------------------------------------------------------------
 // the trumpet family for the shared core (brass_core.h)
@@ -297,6 +357,10 @@ struct Family {
 	using SeedState = seed::State;
 	using SeedSet = seed::Set;
 	static constexpr bool HAS_SLIDE = false;
+	static constexpr bool LAYER = true; // the player layer (live switches perf, carry, auto_expr, transitions)
+	// its constants (first guesses: carry 70 ms; re-tongue gap 150 ms; dips 5 % + 4 % per partial, 2 %
+	// for valves, 35 ms, a 6 % push up; legato tongue to 0.45 for 10 ms; smear valves 5x slower)
+	static constexpr brasspm::TransRules TRANS = {0.07f, 0.15f, 0.05f, 0.04f, 0.02f, 0.035f, 0.06f, 0.45f, 10.0f, 5.0f};
 	static constexpr int NP = trumpet::NP;
 	static constexpr int CLEN = trumpet::CLEN;
 	static constexpr uint32_t CMASK = CLEN - 1;
@@ -308,11 +372,12 @@ struct Family {
 	static constexpr const float (&HINT)[NDEC] = bore::HINT;
 	static constexpr const Bore (&BORES)[bore::NBORE] = bore::BORES;
 	static constexpr int NCAL = cal::NCAL;
-	static constexpr const Cal (&CAL)[trumpet::NUM_PRESETS] = cal::CAL;
+	static constexpr const Cal (&CAL)[NCALSET] = cal::CAL;
 	static constexpr int NH = seed::NH, NDYN = seed::NDYN, NSIG = seed::NSIG;
 	static constexpr const float (&DYN)[NDYN] = seed::DYN;
 	static constexpr const float (&COS64)[64] = seed::COS64;
-	static constexpr const SeedSet (&SEEDS)[trumpet::NUM_PRESETS] = seed::SETS;
+	static constexpr const SeedSet (&SEEDS)[NCALSET] = seed::SETS;
+	[[nodiscard]] static constexpr int cal_of(int preset) { return CAL_OF[preset]; }
 	static constexpr float (&cyl_f)[NP][CLEN] = cyl_f_buf;
 	static constexpr float (&cyl_b)[NP][CLEN] = cyl_b_buf;
 	static constexpr float (&room_buf)[brasspm::ROOML] = room_buf_;
@@ -380,6 +445,16 @@ struct ParamEntry {
 
 static constexpr strisy::ParamKind C_ = strisy::ParamKind::continuous;
 static constexpr strisy::ParamKind S_ = strisy::ParamKind::steps;
+static constexpr strisy::ParamKind T_ = strisy::ParamKind::toggle;
+
+// a live change of the mute type: that mute, in (a preset without one gets depth 1), its filters cleared
+static inline void mute_changed(Engine& e) {
+	const int mt = (int)brasspm::clampr(e.p.mute_type + 0.5f, 0.0f, (real)(brasspm::NUM_MUTES - 1));
+	if (mt == e.mute_type) return;
+	e.mute_type = mt;
+	if (mt != MUTE_NONE && e.p.mute <= 0.0f) e.p.mute = 1.0f;
+	for (auto& m : e.mute_s) m[0] = m[1] = 0.0f;
+}
 
 static constexpr ParamEntry param_table[] = {
     {{"gain", "level", 0.1f, 4.0f, C_}, &Params::gain},
@@ -417,6 +492,11 @@ static constexpr ParamEntry param_table[] = {
     {{"valve_ms", "play", 3.0f, 60.0f, C_}, &Params::valve_ms},
     {{"voices", "play", 1.0f, (float)NP, S_}, &Params::voices},
     {{"room", "room", 0.0f, 1.0f, C_}, &Params::room},
+    {{"mute_type", "mute", 0.0f, (float)(brasspm::NUM_MUTES - 1), S_}, &Params::mute_type}, // 0 none 1 harmon 2 cup 3 straight 4 plunger 5 harmon in 6 bucket 7 practice 8 solotone
+    {{"perf", "perform", 0.0f, 1.0f, C_}, &Params::perf},                                   // the player layer, overall (0 off)
+    {{"carry", "perform", 0.0f, 1.0f, C_}, &Params::carry},                                 // breath carried across slurs
+    {{"auto_expr", "perform", 0.0f, 1.0f, C_}, &Params::auto_expr},                         // auto expression at transitions
+    {{"transitions", "perform", 0.0f, 1.0f, T_}, &Params::transitions},                     // slur / legato tongue / re-tongue / smear
 };
 static constexpr int NUM_LIVE_PARAMS = sizeof(param_table) / sizeof(param_table[0]);
 static_assert(NUM_LIVE_PARAMS == NPARAMS, "every Params field is exposed once");
@@ -430,7 +510,10 @@ template <> struct EngineParams<trumpet::Engine> {
 	[[nodiscard]] static float* ptr(trumpet::Engine& e, int i) {
 		return (i >= 0 && i < count) ? &(e.p.*(trumpet::param_table[i].m)) : nullptr;
 	}
-	static void changed(trumpet::Engine& e, int) { trumpet::update_derived(e); }
+	static void changed(trumpet::Engine& e, int) {
+		trumpet::update_derived(e);
+		trumpet::mute_changed(e);
+	}
 };
 } // namespace strisy
 

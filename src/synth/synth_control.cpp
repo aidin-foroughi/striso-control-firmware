@@ -1751,7 +1751,7 @@ float config_but(int but, int type, float adjust) {
  * Returns the unused part of adjust, like config_but.
  */
 static float config_voice(const char* engine, int r, int g, int b, int type, float adjust) {
-    static int8_t remembered[64];  // preset per engine, indexed by the engine's first entry
+    static int8_t remembered[128];  // preset per engine, indexed by the engine's first entry
     int first = -1, count = 0;
     for (int n = 0; n < synth_num_voices(); n++) {
         const char* preset;
@@ -1760,7 +1760,7 @@ static float config_voice(const char* engine, int r, int g, int b, int type, flo
             count++;
         }
     }
-    if (count == 0 || first >= 64) {
+    if (count == 0 || first >= 128) {
         led_rgb3(64, 0, 0);  // engine not in this firmware
         return 0;
     }

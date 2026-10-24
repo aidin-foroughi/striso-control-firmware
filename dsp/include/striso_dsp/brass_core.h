@@ -116,7 +116,12 @@ enum Mute : int { MUTE_NONE = 0,
 	MUTE_HARMON,
 	MUTE_CUP,
 	MUTE_STRAIGHT,
-	MUTE_PLUNGER };
+	MUTE_PLUNGER,
+	MUTE_HARMON_IN, // harmon, stem in: the classic "wah-wah"
+	MUTE_BUCKET,    // bucket: felt-lined, dark and soft
+	MUTE_PRACTICE,  // practice / whisper: sealed, very quiet, stuffy
+	MUTE_SOLOTONE,  // solotone ("mic-a-mute"): double chamber, nasal, megaphone
+	NUM_MUTES };
 
 template <class P> struct Preset {
 	const char* name;
@@ -208,26 +213,36 @@ template <class F> struct Player {
 	real sl, sl_to, lag_c;
 	int sl_jump;
 	// the player layer (F::LAYER): the last transition, its context and what it does to the breath
-	int tr_kind;      // Transition
-	int tr_pending;   // classified in the next block, when the new fingering is known
-	real tr_strike;   // its strike
-	real tr_gap;      // s since this player's last release (< 0: an overlap, the old key still held)
-	real tr_interval; // semitones from the previous note (signed)
-	int tr_k0, tr_c0; // the previous partial and combination
-	real tr_age;      // s since the transition
-	real carry;       // M1: the breath carried across the transition (key pressure units)
+	int tr_kind;                // Transition
+	int tr_pending;             // classified in the next block, when the new fingering is known
+	real tr_strike;             // its strike
+	real tr_gap;                // s since this player's last release (< 0: an overlap, the old key still held)
+	real tr_interval;           // semitones from the previous note (signed)
+	int tr_k0, tr_c0;           // the previous partial and combination
+	real tr_age;                // s since the transition
+	real carry;                 // M1: the breath carried across the transition (key pressure units)
 	real ae_d, ae_push, ae_len; // M2: transition envelope (breath dip, push after it, length s)
-	int dip_blocks;   // legato tongue ("doo"): blocks the tongue dips the air
-	real dip_g;       // the gate it dips to
-	uint32_t t_off;   // block of the last release
+	int dip_blocks;             // legato tongue ("doo"): blocks the tongue dips the air
+	real dip_g;                 // the gate it dips to
+	uint32_t t_off;             // block of the last release
 };
 
 // what a new note's start is (the player layer's transition classifier, F::LAYER)
 enum Transition : int { TR_ONSET = 0, // tongued from silence
-	TR_SLUR,                         // connected, no tongue: the lips change partial (or the valves move)
-	TR_LTONGUE,                      // connected, a soft legato tongue ("doo"): the air dips while the slide moves
-	TR_RETONGUE,                     // a new tongued note soon after the last one: the breath carries
-	TR_SMEAR };                      // connected, no tongue, the slide (lips) glide: a gliss
+	TR_SLUR,                          // connected, no tongue: the lips change partial (or the valves move)
+	TR_LTONGUE,                       // connected, a soft legato tongue ("doo"): the air dips while the slide moves
+	TR_RETONGUE,                      // a new tongued note soon after the last one: the breath carries
+	TR_SMEAR };                       // connected, no tongue, the slide (lips) glide: a gliss
+
+// the player layer's constants per family (F::TRANS; first guesses, not fitted yet)
+struct TransRules {
+	real carry_t;     // M1: the carried breath decays into the new key's pressure (s)
+	real gap;         // M3: a new note within this time of the last release is a quick re-tongue (s)
+	real d0, d1, dv;  // M2: breath dip at a partial change (d0 + d1 x |dk|, |dk| <= 4), at a valve-only change
+	real len, push;   // M2: its length (s), the push after an upward one (fraction of the breath)
+	real lt_g, lt_ms; // M3: a legato tongue dips the gate to lt_g for lt_ms (ms)
+	real smear_v;     // M3: a smear moves the valves this much slower (x the valve time)
+};
 
 struct KeyState {
 	real pres_prev;
@@ -256,7 +271,7 @@ template <class F> struct Engine {
 	real combo_semis[F::NCOMBO];
 	real valve_len[F::NCOMBO]; // one-way samples
 	real open_midi;
-	real leff; // one-way effective length of the open horn (samples) at the nominal pitch
+	real leff;           // one-way effective length of the open horn (samples) at the nominal pitch
 	real sl_max, lvloss; // slide instruments: the slide's reach (one-way samples), log2 of the added tubing's loss per sample
 	real learn[F::NCOMBO][F::NK];
 	real fpitch[F::NCOMBO][F::NK]; // fingering chart (MIDI), -1000: not playable
@@ -270,13 +285,15 @@ template <class F> struct Engine {
 	int hbpos;
 	real rad_s[3][2]; // radiation biquads (DF2T)
 	real bell_s[2];
-	real mute_s[4][2]; // mute SVF states
+	real mute_s[6][2]; // mute SVF states
 	real fit_s[2][2];  // fit EQ states
 	real plunge;       // plunger position (smoothed)
 	real room_lp, dc;
 	uint32_t room_w;
-	real quiet;     // blocks without sound (state flush)
-	int wseeds;     // warm starts in this block (at most F::WARM_PER_BLOCK: the others wait a block)
+	real quiet;          // blocks without sound (state flush)
+	int wseeds;          // warm starts in this block (at most F::WARM_PER_BLOCK: the others wait a block)
+	uint32_t t_off_last; // the player layer: block of the last key release, and the breath it had
+	real br_last;
 	float wtab[68]; // warm start: one period of the seeded cup pressure (scratch)
 };
 
@@ -351,7 +368,7 @@ struct CalPoint {
 	real trim, lip, pthr;
 };
 template <class F> [[nodiscard]] static inline CalPoint cal_at(const Engine<F>& e, real note) {
-	const typename F::Cal& c = F::CAL[e.preset];
+	const typename F::Cal& c = F::CAL[F::cal_of(e.preset)];
 	const real x = clampr(note - c.lo, 0.0f, (real)(F::NCAL - 1) - 0.001f);
 	const int i = (int)x;
 	const real f = x - (real)i;
@@ -441,6 +458,7 @@ template <class F> static inline void set_preset(Engine<F>& e, int i) {
 	const int old_bore = e.bore_i;
 	e.preset = i;
 	e.p = pr.p;
+	e.p.mute_type = (real)pr.mute; // the mute: the preset's, until the mute_type parameter changes it
 	e.ps = e.p;
 	e.bore_i = pr.bore;
 	e.mute_type = pr.mute;
@@ -711,7 +729,7 @@ template <class F> static inline bool warm_lookup(const Engine<F>& e, real note,
 #endif
 	if (a == nullptr) {
 		// the nearest captured note with this fingering (a bent note may sit nearer the next semitone)
-		const typename F::SeedSet& st = F::SEEDS[e.preset];
+		const typename F::SeedSet& st = F::SEEDS[F::cal_of(e.preset)];
 		if (st.st == nullptr) return false;
 		const int n0 = (int)(note + 0.5f) - st.lo, n1 = note + 0.5f - (real)(int)(note + 0.5f) < 0.5f ? n0 - 1 : n0 + 1;
 		int n = -1;
@@ -752,7 +770,7 @@ template <class F> static inline bool warm_lookup(const Engine<F>& e, real note,
 
 // the fingering of the nearest captured note, if it reaches this one (lipped within 1.2 semitones)
 template <class F> [[nodiscard]] static inline bool warm_fingering(const Engine<F>& e, real note, Fingering& f) {
-	const typename F::SeedSet& st = F::SEEDS[e.preset];
+	const typename F::SeedSet& st = F::SEEDS[F::cal_of(e.preset)];
 	const int n = (int)(note + 0.5f) - st.lo;
 	if (st.st == nullptr || n < 0 || n >= st.n) return false;
 	for (int d = 0; d < F::NDYN; d++) {
@@ -768,7 +786,7 @@ template <class F> [[nodiscard]] static inline bool warm_fingering(const Engine<
 
 // a seed exists for this note (some breath)
 template <class F> [[nodiscard]] static inline bool warm_has(const Engine<F>& e, real note) {
-	const typename F::SeedSet& st = F::SEEDS[e.preset];
+	const typename F::SeedSet& st = F::SEEDS[F::cal_of(e.preset)];
 	const int n = (int)(note + 0.5f) - st.lo;
 	if (st.st == nullptr || n < 0 || n >= st.n) return false;
 	for (int d = 0; d < F::NDYN; d++)
@@ -1085,6 +1103,10 @@ template <class F> static inline void process_player(Engine<F>& e, int i) {
 		(void)old_nom;
 	}
 	s.nominal = fg.nominal;
+	if constexpr (F::LAYER) {
+		if (s.tr_pending) transition_settle(e, s);
+		s.tr_age += e.block_dt;
+	}
 	// warm start: a tongued note from silence, seeded for the breath the strike announces (the key
 	// pressure takes 10-30 ms to arrive); the player holds that breath through the attack
 	WarmSeed<F> wseed;
@@ -1094,8 +1116,12 @@ template <class F> static inline void process_player(Engine<F>& e, int i) {
 	if (s.seed > 0.0f && held && P.warm > 0.05f) {
 		const real h = s.wdyn;
 		const WarmAtk& W = warm_shape<F>();
-		const real dyn_m = clampr(rmax(F::WARM_D0 + F::WARM_D1 * h, pres), 0.05f, 1.3f);  // the breath meant
-		real dyn = clampr(dyn_m * clampr(W.ws + W.wsl * dyn_m, 0.2f, 1.0f), 0.05f, 1.3f); // the seed's
+		real pres_c = pres;
+		if constexpr (F::LAYER) {
+			if (s.carry > 0.0f) pres_c = rmax(pres, s.carry); // a quick re-tongue: the breath carried
+		}
+		const real dyn_m = clampr(rmax(F::WARM_D0 + F::WARM_D1 * h, pres_c), 0.05f, 1.3f); // the breath meant
+		real dyn = clampr(dyn_m * clampr(W.ws + W.wsl * dyn_m, 0.2f, 1.0f), 0.05f, 1.3f);  // the seed's
 #ifdef BRASS_DEBUG
 		if (dbg_force_dyn > 0.0f) dyn = dbg_force_dyn;
 #endif
@@ -1186,6 +1212,14 @@ template <class F> static inline void process_player(Engine<F>& e, int i) {
 		// fully, the player's air arrives at the tongue release (the pressure velocity tells how hard)
 		real pin = pres;
 		if (held && !s.warm && age < 0.06f) pin = rmin(pres + A.lead * rmax(cc.vpres, 0.0f), rmax(pres, 1.1f));
+		if constexpr (F::LAYER) {
+			// M1: the breath carried across the transition, decaying into the new key's pressure
+			if (s.carry > 0.0f) {
+				pin = rmax(pin, s.carry);
+				s.carry *= 1.0f - rmin(e.block_dt / F::TRANS.carry_t, 1.0f);
+				if (s.carry < 0.002f || !held) s.carry = 0.0f;
+			}
+		}
 		SVF_TICK(pin, b1, b2, e.bc, t, bl);
 		s.b1 = b1;
 		s.b2 = b2;
@@ -1194,6 +1228,19 @@ template <class F> static inline void process_player(Engine<F>& e, int i) {
 		// a tongued note starts on the breath the player built up behind the tongue: the strike tells
 		// how hard (the key pressure itself takes ~10 ms to arrive); it hands over to the pressure
 		bl = clampr(rmax(bl, s.bfloor), 0.0f, 1.5f);
+		if constexpr (F::LAYER) {
+			// M2: the breath dips across the transition (raised cosine over ae_len), an upward one is
+			// pushed after it
+			if (s.ae_len > 0.0f) {
+				const real u = s.tr_age / s.ae_len;
+				if (u >= 1.5f) {
+					s.ae_len = 0.0f;
+				} else {
+					const real sd = u < 1.0f ? psin(0.5f * u) : 0.0f, sp = u > 0.5f ? psin(0.5f * (u - 0.5f)) : 0.0f;
+					bl = clampr(bl * (1.0f - s.ae_d * sd * sd + s.ae_push * sp * sp), 0.0f, 1.5f);
+				}
+			}
+		}
 		if (s.warm && s.wb1 > 0.0f) {
 			// a warm start: the breath rises from the seed's to the one meant, held while the key goes down
 			const WarmAtk& W = warm_shape<F>();
@@ -1215,14 +1262,25 @@ template <class F> static inline void process_player(Engine<F>& e, int i) {
 
 	// gate: tongue stop, attack, release
 	const bool sounding = held || (s.gest_len > 0.0f && s.gest_t < s.gest_len);
+	bool dip = false;
+	if constexpr (F::LAYER) {
+		// a legato tongue ("doo"): the tongue dips the air briefly, the lips keep buzzing
+		if (s.dip_blocks > 0 && s.stop_blocks == 0) {
+			s.dip_blocks--;
+			s.gate += rmin(e.block_dt * (1.0f / 0.0015f), 1.0f) * (s.dip_g - s.gate);
+			dip = true;
+		}
+	}
 	if (s.stop_blocks > 0) {
 		s.stop_blocks--;
 		s.gate *= 0.6f;
-	} else if (sounding) {
-		const real a = rmin(e.block_dt / rmax(s.tau_on, 0.0008f), 1.0f);
-		s.gate += a * (1.0f - s.gate);
-	} else {
-		s.gate *= 1.0f - rmin(e.block_dt / rmax(P.release, 0.005f), 1.0f);
+	} else if (!dip) {
+		if (sounding) {
+			const real a = rmin(e.block_dt / rmax(s.tau_on, 0.0008f), 1.0f);
+			s.gate += a * (1.0f - s.gate);
+		} else {
+			s.gate *= 1.0f - rmin(e.block_dt / rmax(P.release, 0.005f), 1.0f);
+		}
 	}
 	s.ov *= 1.0f - e.block_dt / (s.warm ? 0.04f : rmax(A.ovt, 0.002f));
 	s.ovt *= 1.0f - e.block_dt / 0.04f;
@@ -1633,10 +1691,73 @@ template <class F> static inline void detach_key(Engine<F>& e, int key) {
 	}
 }
 
+// ---------------------------------------------------------------------------------------------
+// the player layer (F::LAYER): what the player does at a transition, from its context (performance
+// modeling, research/performance_modeling.md M1-M3). Each mechanism has a live switch: the family's
+// Params perf (the overall amount, 0..1) x carry / auto_expr / transitions. With perf 0 nothing below
+// acts (the trumpet's presets are bit-identical to the engine without the layer).
+//   M1 breath carry: a slur (or legato tongue, a quick re-tongue) keeps the breath the player was
+//      blowing while the new finger lands (its pressure takes 10-30 ms to arrive), decaying into it
+//   M2 auto expression: a breath dip across a slur, deeper for a bigger partial change, small for a
+//      valve-only change; an upward one gets a push after it (players support upward slurs)
+//   M3 transition classifier: a new key while one is held is a slur (soft strike), a legato tongue
+//      ("doo", harder strike: the air dips, the note doesn't restart) or a smear (very soft strike,
+//      the valves glide on one partial); a new note soon after a release is a quick re-tongue (the
+//      breath carries); otherwise a tongued start from silence
+
+struct LayerAmounts {
+	real carry, ae, tr;
+};
+template <class F> [[nodiscard]] static inline LayerAmounts layer_amounts(const typename F::Params& P) {
+	const real m = clampr(P.perf, 0.0f, 1.0f);
+	return {m * clampr(P.carry, 0.0f, 1.0f), m * clampr(P.auto_expr, 0.0f, 1.0f), m * clampr(P.transitions, 0.0f, 1.0f)};
+}
+
+// a transition starts on player i (its fingering is settled in the next block: transition_settle)
+template <class F> static inline void transition_begin(Engine<F>& e, int i, int kind, real strike, real gap, real note_new, real carry) {
+	Player<F>& s = e.pl[i];
+	s.tr_kind = kind;
+	s.tr_pending = 1;
+	s.tr_strike = strike;
+	s.tr_gap = gap;
+	s.tr_interval = fold_note(e, note_new) - s.note;
+	s.tr_k0 = s.k;
+	s.tr_c0 = s.combo + 64 * s.ext;
+	s.tr_age = 0.0f;
+	if (carry > 0.0f) s.carry = rmax(s.carry, carry);
+}
+
+// the block after a transition: the new fingering is known
+template <class F> static inline void transition_settle(Engine<F>& e, Player<F>& s) {
+	const typename F::Params& P = e.ps;
+	const TransRules& R = F::TRANS;
+	const LayerAmounts L = layer_amounts<F>(P);
+	s.tr_pending = 0;
+	const int dk = s.k - s.tr_k0;
+	const bool valves = s.combo + 64 * s.ext != s.tr_c0;
+	if (s.tr_kind == TR_SMEAR && (dk != 0 || !valves)) s.tr_kind = TR_SLUR; // a smear glides the valves on one partial
+	if (s.tr_kind == TR_LTONGUE) {
+		s.dip_blocks = (int)(R.lt_ms * 0.001f / e.block_dt + 0.5f);
+		s.dip_g = R.lt_g;
+		s.tau_on = 0.006f; // a soft "d" reopens the air
+	}
+	if (s.tr_kind == TR_SMEAR) s.vrate *= 1.0f / R.smear_v;
+	if (L.ae > 0.0f && (s.tr_kind == TR_SLUR || s.tr_kind == TR_LTONGUE || s.tr_kind == TR_SMEAR)) {
+		const real adk = (real)(dk < 0 ? -dk : dk);
+		const real d = dk != 0 ? R.d0 + R.d1 * rmin(adk, 4.0f) : (valves ? R.dv : 0.0f);
+		s.ae_d = 2.0f * L.ae * d; // the amount's middle (0.5) is the nominal dip
+		s.ae_push = s.tr_interval > 0.5f ? 2.0f * L.ae * R.push : 0.0f;
+		s.ae_len = s.tr_interval < -0.5f ? 0.7f * R.len : R.len; // a downward slur: shorter
+		s.tr_age = 0.0f;
+	}
+}
+
 template <class F> static inline void key_on(Engine<F>& e, int key, real strike) {
 	KeyState& k = e.ks[key];
 	const typename F::Params& P = e.ps;
 	const int mode = (int)(P.legato + 0.5f);
+	const LayerAmounts L = layer_amounts<F>(P);
+	const bool m3 = L.tr > 0.5f; // the transition classifier: a harder strike on a held note is a legato tongue
 	int slur_from = -1;
 	if (mode >= 1) {
 		// the most recent sounding player whose key is held
@@ -1645,7 +1766,7 @@ template <class F> static inline void key_on(Engine<F>& e, int key, real strike)
 			const Player<F>& s = e.pl[i];
 			if (s.active && s.owner >= 0 && s.owner != key && s.t_on >= newest) {
 				const bool old_enough = e.blocks - s.t_on > (uint32_t)(0.06f / e.block_dt);
-				if (mode == 2 || (old_enough && strike < P.slur_thr)) {
+				if (mode == 2 || (old_enough && (strike < P.slur_thr || m3))) {
 					newest = s.t_on;
 					slur_from = i;
 				}
@@ -1663,6 +1784,12 @@ template <class F> static inline void key_on(Engine<F>& e, int key, real strike)
 		s.owner = key;
 		k.player = slur_from;
 		start_note(e, slur_from, strike, false, false);
+		if (L.carry > 0.0f || L.ae > 0.0f || m3) {
+			const int kind = !m3 ? TR_SLUR : strike >= P.slur_thr ? TR_LTONGUE :
+			    strike < 0.5f * P.slur_thr                        ? TR_SMEAR :
+			                                                        TR_SLUR;
+			transition_begin(e, slur_from, kind, strike, -1.0f, e.vc[key].note, L.carry * s.pres_last);
+		}
 		return;
 	}
 	int i = -1;
@@ -1702,6 +1829,11 @@ template <class F> static inline void key_on(Engine<F>& e, int key, real strike)
 	}
 	s.wpre = quiet_tail ? 1 : 0;
 	start_note(e, i, rmax(strike, 0.15f), true, from_silence || quiet_tail);
+	if (m3 && e.t_off_last != 0) {
+		// a quick re-tongue: the breath of the note just released carries into this one
+		const real gap = (real)(e.blocks - e.t_off_last) * e.block_dt;
+		if (gap < F::TRANS.gap) transition_begin(e, i, TR_RETONGUE, strike, gap, e.vc[key].note, L.carry * e.br_last * (1.0f - gap / F::TRANS.gap));
+	}
 }
 
 template <class F> static inline void key_off(Engine<F>& e, int key) {
@@ -1719,10 +1851,14 @@ template <class F> static inline void key_off(Engine<F>& e, int key) {
 			s.owner = back;
 			e.ks[back].player = i;
 			start_note(e, i, 0.0f, false, false);
+			const LayerAmounts L = layer_amounts<F>(e.ps);
+			if (L.carry > 0.0f || L.ae > 0.0f) transition_begin(e, i, TR_SLUR, 0.0f, -1.0f, e.vc[back].note, L.carry * s.pres_last);
 			return;
 		}
 	}
 	s.owner = -1;
+	s.t_off = e.t_off_last = e.blocks;
+	e.br_last = s.pres_last;
 	// release gesture: fall (tilt left) or doit (tilt right)
 	const real bx = s.bx_last;
 	if (fabsf(bx) > 0.35f && s.pres_last > 0.08f) {
@@ -1809,8 +1945,9 @@ template <class F> static inline void process_output(Engine<F>& e, real* __restr
 		e.plunge += 0.05f * (y - e.plunge);
 	}
 	const real wy = clampr(P.wah * e.plunge, -1.0f, 1.0f);
-	Svf2 m0{}, m1{}, m2{};
+	Svf2 m0{}, m1{}, m2{}, m3{};
 	real g_bp = 0.0f, g_bp2 = 0.0f, mgain = 1.0f;
+	int nhp = 0, nlp = 0; // the newer mutes' chain: high-passes (m0), two peaks (m1, m3), low-passes (m2)
 	switch (mt) {
 	case MUTE_HARMON:                                     // stem out: no lows, a strong nasal peak, buzzy highs; hand on the stem = wah
 		m0 = svf_at(e, 950.0f, 0.75f);                    // high-pass (twice)
@@ -1840,6 +1977,53 @@ template <class F> static inline void process_output(Engine<F>& e, real* __restr
 		mgain = 0.55f + 0.45f * open;
 		break;
 	}
+	// A mute closes most of the bell with a resonator: the cavity and its opening (a stem, a cup, a
+	// felt-lined bucket) make a pass band with one or two strong resonances, the lows below the cavity's
+	// own resonance are lost (Ancell 1960, Watts 2009); here, on the radiated sound
+	case MUTE_HARMON_IN: // stem in: hollow "wah" around 1 kHz, the hand over the stem's cup moves it (tilt)
+		m0 = svf_at(e, 620.0f, 0.7f);
+		nhp = 2;
+		m1 = svf_at(e, 1050.0f * exp2s(1.1f * wy), 3.2f); // closed (back) ~500 Hz .. open ~2.2 kHz
+		g_bp = 3.0f * exp2s(0.4f * wy);
+		m3 = svf_at(e, 2700.0f, 2.5f);
+		g_bp2 = 0.7f;
+		m2 = svf_at(e, 5200.0f, 0.7f); // less buzz than stem out
+		nlp = 1;
+		mgain = 2.4f;
+		break;
+	case MUTE_BUCKET: // felt absorbs the highs: dark, soft, round, the fundamental kept
+		m0 = svf_at(e, 110.0f, 0.6f);
+		nhp = 1;
+		m1 = svf_at(e, 480.0f, 0.9f);
+		g_bp = 0.5f;
+		m3 = svf_at(e, 1500.0f, 1.0f);
+		g_bp2 = -0.35f;
+		m2 = svf_at(e, 1150.0f, 0.6f);
+		nlp = 2;
+		mgain = 1.5f;
+		break;
+	case MUTE_PRACTICE: // sealed: very quiet, a boxy cavity resonance, no highs
+		m0 = svf_at(e, 340.0f, 0.7f);
+		nhp = 2;
+		m1 = svf_at(e, 860.0f, 2.2f);
+		g_bp = 2.5f;
+		m3 = svf_at(e, 2200.0f, 3.0f);
+		g_bp2 = 0.6f;
+		m2 = svf_at(e, 1700.0f, 0.7f);
+		nlp = 2;
+		mgain = 0.35f;
+		break;
+	case MUTE_SOLOTONE: // a tube between two chambers: narrow, nasal, telephone / megaphone
+		m0 = svf_at(e, 760.0f, 0.8f);
+		nhp = 2;
+		m1 = svf_at(e, 1250.0f, 4.5f);
+		g_bp = 3.5f;
+		m3 = svf_at(e, 2900.0f, 3.5f);
+		g_bp2 = 2.2f;
+		m2 = svf_at(e, 4200.0f, 0.8f);
+		nlp = 1;
+		mgain = 2.8f;
+		break;
 	default:
 		break;
 	}
@@ -1884,7 +2068,22 @@ template <class F> static inline void process_output(Engine<F>& e, real* __restr
 			y += fit_pg * fit_pk.k * v1;
 		}
 		// mute
-		if (mt != MUTE_NONE) {
+		if (mt >= MUTE_HARMON_IN) { // the newer mutes
+			real wet = y, v1, v2;
+			for (int h = 0; h < nhp; h++) {
+				SVF_TICK(wet, e.mute_s[h][0], e.mute_s[h][1], m0.c, v1, v2);
+				wet = wet - m0.k * v1 - v2;
+			}
+			SVF_TICK(wet, e.mute_s[2][0], e.mute_s[2][1], m1.c, v1, v2);
+			wet += g_bp * m1.k * v1;
+			SVF_TICK(wet, e.mute_s[3][0], e.mute_s[3][1], m3.c, v1, v2);
+			wet += g_bp2 * m3.k * v1;
+			for (int l = 0; l < nlp; l++) {
+				SVF_TICK(wet, e.mute_s[4 + l][0], e.mute_s[4 + l][1], m2.c, v1, v2);
+				wet = v2;
+			}
+			y += md * (mgain * wet - y);
+		} else if (mt != MUTE_NONE) {
 			real wet = y, v1, v2;
 			if (mt == MUTE_HARMON || mt == MUTE_STRAIGHT || mt == MUTE_CUP) {
 				SVF_TICK(wet, e.mute_s[0][0], e.mute_s[0][1], m0.c, v1, v2);

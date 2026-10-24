@@ -138,7 +138,7 @@ def main(outp):
         Z = [bore.RHO * bore.C0 / (np.pi * r * r) for (n, r) in secs] + [fit['Zw']]
         ks = [(Z[i + 1] - Z[i]) / (Z[i + 1] + Z[i]) for i in range(len(secs))]
         Le = bore.C0 / (2 * inst.f_nom)
-        vd = [Le * (2 ** (s / 12) - 1) / bore.C0 * FS for s in inst.valve_semis]
+        vd = [Le * (2 ** (s / 12) - 1) / bore.C0 * FS + 1e-9 for s in inst.valve_semis]
         # wall loss of added cylinder tubing at ~300 Hz (Benade: alpha = 2.96e-5 sqrt(f) / r per m)
         alpha = 2.96e-5 * np.sqrt(300) / inst.r_bore
         fit['vloss'] = np.exp(-alpha * bore.C0 / FS)

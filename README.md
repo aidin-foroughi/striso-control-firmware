@@ -58,9 +58,10 @@ The Striso is now also a **class-compliant USB sound card**, called **"Striso Sy
   | green | **wind** (reeds and flute) | clarinet, bass clarinet, soprano/alto/tenor/baritone sax, oboe, bassoon, flute |
   | purple | **EP** (electric pianos) | stage, suitcase, mk2, dyno, ballad, bark, neosoul, fm80s, lofi, wurli, wurlibark, pianet, felt, celesta |
   | amber | **brass** | trumpet, flugelhorn, trombone, horn, euphonium, tuba, harmon, plunger, section |
-  | cyan | **trumpet** (physical model) | Bb classical, Bb jazz, C trumpet, piccolo, cornet, harmon, cup mute, straight, plunger |
+  | cyan | **trumpet** (physical model) | Bb classical, Bb jazz, C trumpet, piccolo, cornet; mutes: harmon (stem out), cup, straight, plunger, harmon stem in, bucket, practice, solotone |
 
   Every voice responds to pressure, strike velocity, tilt (x/y) and the pedal.
+  The trumpet also has a switchable **player layer** (live parameters `perf`, `carry`, `auto_expr`, `transitions`; off by default): the breath carried across slurs, automatic expression at transitions, and a choice of slur, legato tongue, smear or quick re-tongue from how a note is played. Its mute can be changed live with `mute_type`.
 - **Live control over USB:** every synth and effect parameter can be read and set while you play. So can the global touch sensitivity (pressure, velocity, tilt, bend, threshold) and a per-key sensitivity factor. You can save them to the board.
 - **Fixes:**
   - The motion sensor's I²C bus recovers after a reboot.
