@@ -21,6 +21,7 @@
 #ifndef KEY_SCANNER_H_
 #define KEY_SCANNER_H_
 
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -31,6 +32,7 @@ enum {
 	SCAN_COLUMNS = 17,
 	SCAN_ROWS = 4,
 	SCAN_BUTTONS = SCAN_COLUMNS * SCAN_ROWS, // button = column + 17 * row
+	SCAN_KEYS = 61,                          // keys (config_store.c button_number_map)
 	// cycles per scan histogram: bin i counts scans of SCAN_HIST_BASE + i * SCAN_HIST_STEP cycles
 	// and up (the first and last bins also take what is below and above)
 	SCAN_HIST_BINS = 64,
@@ -86,6 +88,16 @@ typedef struct {
 } scan_cal_t;
 
 extern scan_cal_t ks_cal[SCAN_BUTTONS];
+
+// --- key_calibration.c ---------------------------------------------------------------------
+// The boot calibration (ButtonReadStart). cal holds the defaults (ks_init); calibrated: the
+// board's calibration record (calib, of the given type) is this board's. Writes cal's c_force,
+// the factory c_force (before the user's key factors), the key factors and zero offsets from the
+// config (fCfac<key>, fCoff<key>; zero_offset 0: none).
+void ks_boot_calibration(bool calibrated, unsigned type, const uint16_t calib[SCAN_BUTTONS], scan_cal_t cal[SCAN_BUTTONS],
+    int32_t c_force_factory[SCAN_BUTTONS], float key_factor[SCAN_KEYS], int32_t zero_offset[SCAN_BUTTONS]);
+// StcC (calibration mode): every button the same c_force, no breakpoint
+void ks_reset_calibration(scan_cal_t cal[SCAN_BUTTONS], int32_t base_calib_force);
 
 // --- key_scanner.cpp ------------------------------------------------------------------------
 void ks_init(void);                                  // the KeyScanner's initial state; ks_cal from it

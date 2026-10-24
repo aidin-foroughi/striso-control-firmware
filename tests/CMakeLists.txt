@@ -38,14 +38,17 @@ add_executable(striso_tests
   test_bowed_bounds.cpp
   test_config_store.cpp
   test_tuning.cpp
+  test_key_calibration.cpp
   config_defaults.c
-  "${PROJECT_SOURCE_DIR}/src/app/config_store.c")
+  "${PROJECT_SOURCE_DIR}/src/app/config_store.c"
+  "${PROJECT_SOURCE_DIR}/src/drivers/key_calibration.c")
 target_include_directories(striso_tests PRIVATE
   "${CMAKE_CURRENT_BINARY_DIR}/generated"
   "${PROJECT_SOURCE_DIR}/third_party/doctest"
   "${PROJECT_SOURCE_DIR}/tools/harness"
   "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
   "${PROJECT_SOURCE_DIR}/src/app"
+  "${PROJECT_SOURCE_DIR}/src/drivers"
   "${PROJECT_SOURCE_DIR}/src/synth")
 target_compile_definitions(striso_tests PRIVATE "STRISO_REC_DIR=\"${PROJECT_SOURCE_DIR}/tools/harness/rec\"")
 target_link_libraries(striso_tests PRIVATE striso::dsp striso_host_options)

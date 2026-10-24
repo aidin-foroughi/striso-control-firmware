@@ -969,9 +969,8 @@ void buttonSetCalibration(void) {
     int32_t c_force, zero_offset, pres;
     ks_key_state(n, &status, &c_force, &zero_offset, &pres);
     chprintf((BaseSequentialStream *)&BDU1, "but[%d] c_force: %d zero_offset: %d\r\n", n, c_force, zero_offset);
-    ks_cal[n].c_force = base_calib_force;
-    ks_cal[n].c_breakpoint = INT32_MAX;
   }
+  ks_reset_calibration(ks_cal, base_calib_force);
   ks_calibration_changed();
   chprintf((BaseSequentialStream *)&BDU1, "c_force: %d\r\n", base_calib_force);
 }
@@ -1070,56 +1069,16 @@ void ButtonReadStart(void) {
 
   uint32_t* const UID = (uint32_t*)UID_BASE;
 
-  for (int n = 0; n < 61; n++) {
-    key_factor[n] = 1.0f;
+  const bool calibrated = calib_dis_force->UID[0] == UID[0] &&
+                          calib_dis_force->UID[1] == UID[1] &&
+                          calib_dis_force->UID[2] == UID[2];
+  static int32_t zero_offset[N_BUTTONS];  // static: main's stack is 1 KB
+  ks_boot_calibration(calibrated, calib_dis_force->type, calib_dis_force->calib, ks_cal, c_force_factory,
+                      key_factor, zero_offset);
+  for (int n = 0; n < N_BUTTONS; n++) {
+    if (zero_offset[n]) ks_set_zero_offset(n, zero_offset[n]);
   }
-
-  if (calib_dis_force->UID[0] == UID[0] &&
-      calib_dis_force->UID[1] == UID[1] &&
-      calib_dis_force->UID[2] == UID[2]) {
-    for (int n=0; n<N_BUTTONS; n++) {
-#ifdef BREAKPOINT_CALIBRATION
-      ks_cal[n].c_force = calib_dis_force->calib[n];
-#else
-      if (calib_dis_force->type == 0x02) { /* devspec_id->hardware_revision == 1 */
-        ks_cal[n].c_force = 2 * calib_dis_force->calib[n]; // * 2 to make up for non-linearity
-      } else if (calib_dis_force->type == 0x00) { /* devspec_id->hardware_revision == 0 */
-        // calibrated per sensor, so should be / 3 to get the same sensitivity.
-        // However with 10k pullup the higher force measurement is not stable, so make it 1.5 times more sensitive
-        ks_cal[n].c_force = 2 * calib_dis_force->calib[n] / 2;
-      }
-#endif
-    }
-
-    for (int n = 0; n < N_BUTTONS; n++) {
-      c_force_factory[n] = ks_cal[n].c_force;
-    }
-
-    CC_ALIGN(8) char key[8] = "fCoffC_";
-    float f;
-    for (int n = 0; n < 61; n++) {
-      key[2] = 'f';
-      key[3] = 'a';
-      key[4] = 'c';
-      put_button_name(n, &key[5]);
-      int but = button_number_map[n];
-      f = getConfigFloat(key);
-      if (f != 1.0f && f >= 0.0f && f <= 10.0f) {
-        ks_cal[but].c_force = (int32_t)(ks_cal[but].c_force * f + 0.5f);
-        key_factor[n] = f;
-      }
-      key[2] = 'o';
-      key[3] = 'f';
-      key[4] = 'f';
-      f = getConfigFloat(key);
-      if (f > 0.0f && f <= 1.0f) {
-        ks_set_zero_offset(but, f * INTERNAL_ONE);
-      }
-    }
-  } else {
-    for (int n = 0; n < N_BUTTONS; n++) {
-      c_force_factory[n] = ks_cal[n].c_force;
-    }
+  if (!calibrated) {
     led_rgb(0xff0000);
     chThdSleepMilliseconds(200);
   }
