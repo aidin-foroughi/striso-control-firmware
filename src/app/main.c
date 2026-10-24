@@ -112,7 +112,10 @@ static void unpack(uint8_t *in, int *out, int n) {
 /*
  * Message send thread
  */
-static THD_WORKING_AREA(waThreadSend, 512);
+// the key thread: synth_message, the settings keys (load_preset), MIDI in, MIDI out over USB.
+// Its deepest direct path (tools/stackcheck.py, the USB driver's indirect calls left out) is
+// 564 bytes (500 at 3d6f498: 12 bytes to spare), so 1024 leaves a margin.
+static THD_WORKING_AREA(waThreadSend, 1024);
 static void ThreadSend(void *arg) {
 
   (void)arg;
