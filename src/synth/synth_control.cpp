@@ -1435,10 +1435,6 @@ unsigned int aux_button_map = 0;
  * flash or reboots.
  */
 static bool settings_key_allowed(int id) {
-#ifdef OLD_CONFIG_LAYOUT
-    (void)id;
-    return false;
-#else
     switch (id) {
     case 0: case 2: case 4:                                                  // MIDI modes
     case 34: case 36: case 38: case 23: case 25: case 27: case 29: case 31: case 33:  // tunings
@@ -1451,7 +1447,6 @@ static bool settings_key_allowed(int id) {
     default:
         return false;
     }
-#endif
 }
 
 static void settings_key_press(int id) {
@@ -1801,244 +1796,6 @@ void load_preset(int n) {
     led_rgb(led);
 }
 
-#ifdef OLD_CONFIG_LAYOUT
-float config_but(int but, int type, float adjust) {
-    if (type > 0) return 0;
-    switch (but) {
-        // row 1:  0  2  4
-        case (0): {
-            set_midi_mode(MIDI_MODE_MPE);
-        } return 0;
-        case (2): {
-            set_midi_mode(MIDI_MODE_POLY);
-        } return 0;
-        case (4): {
-            set_midi_mode(MIDI_MODE_MONO);
-        } return 0;
-        // row 2:  1  3  5  7  9 11
-        case (1): {
-            config.message_interval = 1;
-            ws2812_write_led(0, 1, 12, 0);
-        } return 0;
-        case (3): {
-            config.message_interval = 10;
-            ws2812_write_led(0, 4, 2, 0);
-        } return 0;
-        case (5): {
-            config.send_motion_interval = 1;
-            ws2812_write_led(0, 1, 12, 0);
-        } return 0;
-        case (7): {
-            config.send_motion_interval = 10;
-            ws2812_write_led(0, 4, 2, 0);
-        } return 0;
-        case (9): {
-            config.send_motion_interval = 0;
-            *(dis.synth_interface->acc_abs) = 1.0f;
-            *(dis.synth_interface->acc_x) = 0.0f;
-            *(dis.synth_interface->acc_y) = 0.0f;
-            *(dis.synth_interface->acc_z) = 0.0f;
-            *(dis.synth_interface->rot_x) = 0.0f;
-            *(dis.synth_interface->rot_y) = 0.0f;
-            *(dis.synth_interface->rot_z) = 0.0f;
-            ws2812_write_led(0, 3, 0, 0);
-        } return 0;
-        case (11): { // debug setting for easy testing
-            if (dis.portamento & 1) {
-                if (config.debug) {
-                    config.debug = 0;
-                    // led_updown(0xf000);
-                } else {
-                    config.debug = 1;
-                    // led_updown(0xffff);
-                }
-            } else {
-                dis.flip();
-            }
-        } return 0;
-        // row 3: 17 19 21  6  8 10 12 14 16
-        case (17): {
-            dis.pres_sensitivity = 0.67f;
-            ws2812_write_led(0, 1, 1, 0);
-        } return 0;
-        case (19): {
-            dis.pres_sensitivity = 1.0f;
-            ws2812_write_led(0, 4, 4, 0);
-        } return 0;
-        case (21): {
-            dis.pres_sensitivity = 1.5f;
-            ws2812_write_led(0, 12, 12, 0);
-        } return 0;
-        case (6): {
-            dis.velo_sensitivity = 0.67f;
-            ws2812_write_led(0, 1, 0, 1);
-        } return 0;
-        case (8): {
-            dis.velo_sensitivity = 1.0f;
-            ws2812_write_led(0, 4, 0, 4);
-        } return 0;
-        case (10): {
-            dis.velo_sensitivity = 1.5f;
-            ws2812_write_led(0, 12, 0, 12);
-        } return 0;
-        case (12): {
-            dis.bend_sensitivity = 0.0f;
-            ws2812_write_led(0, 1, 0, 0);
-        } return 0;
-        case (14): {
-            dis.bend_sensitivity = 0.25f;
-            ws2812_write_led(0, 4, 0, 0);
-        } return 0;
-        case (16): {
-            dis.bend_sensitivity = 0.5f;
-            ws2812_write_led(0, 12, 0, 0);
-        } return 0;
-        // row 4: 18 20 22 24 26 28 13 15
-        case (18): {
-            config.zero_offset = 0 * ((1<<24) / 128);
-            led_rgb3(14, 7, 0);
-        } return 0;
-        case (20): {
-            config.zero_offset = 4 * ((1<<24) / 128);
-            led_rgb3(56, 28, 0);
-        } return 0;
-        case (22): {
-            config.zero_offset = 8 * ((1<<24) / 128);
-            led_rgb3(168, 84, 0);
-        } return 0;
-        // Load config preset
-        // row 5: 34 36 38 23 25 27 29 31 33
-        case (34): { // set 12tet tuning
-            dis.load_tuning(0);
-        } return 0;
-        case (36): {
-            dis.load_tuning(1);
-        } return 0;
-        case (38): {
-            dis.load_tuning(2);
-        } return 0;
-        case (23): {
-            dis.load_tuning(3);
-        } return 0;
-        case (25): {
-            dis.load_tuning(4);
-        } return 0;
-        case (27): {
-            dis.load_tuning(5);
-        } return 0;
-        case (29): {
-            dis.load_tuning(6);
-        } return 0;
-        case (31): {
-            dis.load_tuning(7);
-        } return 0;
-        case (33): {
-            dis.load_tuning(8);
-        } return 0;
-        // row 6: 35 37 39 41 43 45 30 32
-        case (35): {
-            load_preset(1);
-        } return 0;
-        case (37): {
-            load_preset(2);
-        } return 0;
-        case (39): {
-            load_preset(3);
-        } return 0;
-        case (41): {
-            load_preset(4);
-        } return 0;
-        case (43): {
-            load_preset(5);
-        } return 0;
-        case (45): {
-            load_preset(6);
-        } return 0;
-        case (30): {
-            load_preset(7);
-        } return 0;
-        case (32): {
-            load_preset(8);
-        } return 0;
-        // row 7: 51 53 55 40 42 44 46 48 50
-        case (51): {
-            MidiSend3(MIDI_CONTROL_CHANGE,
-                                MIDI_C_MAIN_VOLUME, 7);
-            set_volume(7);
-            ws2812_write_led(0, 1, 1, 1);
-        } return 0;
-        case (53): {
-            MidiSend3(MIDI_CONTROL_CHANGE,
-                                MIDI_C_MAIN_VOLUME, 15);
-            set_volume(15);
-            ws2812_write_led(0, 2, 2, 2);
-        } return 0;
-        case (55): {
-            MidiSend3(MIDI_CONTROL_CHANGE,
-                                MIDI_C_MAIN_VOLUME, 31);
-            set_volume(31);
-            ws2812_write_led(0, 3, 3, 3);
-        } return 0;
-        case (40): {
-            MidiSend3(MIDI_CONTROL_CHANGE,
-                                MIDI_C_MAIN_VOLUME, 47);
-            set_volume(47);
-            ws2812_write_led(0, 4, 4, 4);
-        } return 0;
-        case (42): {
-            MidiSend3(MIDI_CONTROL_CHANGE,
-                                MIDI_C_MAIN_VOLUME, 63);
-            set_volume(63);
-            ws2812_write_led(0, 6, 6, 6);
-        } return 0;
-        case (44): {
-            MidiSend3(MIDI_CONTROL_CHANGE,
-                                MIDI_C_MAIN_VOLUME, 79);
-            set_volume(79);
-            ws2812_write_led(0, 8, 8, 8);
-        } return 0;
-        case (46): {
-            MidiSend3(MIDI_CONTROL_CHANGE,
-                                MIDI_C_MAIN_VOLUME, 95);
-            set_volume(95);
-            ws2812_write_led(0, 10, 10, 10);
-        } return 0;
-        case (48): {
-            MidiSend3(MIDI_CONTROL_CHANGE,
-                                MIDI_C_MAIN_VOLUME, 111);
-            set_volume(111);
-            ws2812_write_led(0, 14, 14, 14);
-        } return 0;
-        case (50): {
-            MidiSend3(MIDI_CONTROL_CHANGE,
-                                MIDI_C_MAIN_VOLUME, 127);
-            set_volume(127);
-            ws2812_write_led(0, 18, 18, 18);
-        } return 0;
-
-        // row 8:       56 58 60 62 47 49
-        // row 9:                   63 65 67
-        case (63): { // panic/request config
-#ifdef USE_MIDI_OUT
-            MidiSend3(MIDI_CONTROL_CHANGE,
-                                MIDI_C_ALL_NOTES_OFF, 0);
-            ws2812_write_led(0, 16, 0, 0);
-#endif
-        } return 0;
-        case (65): { // send config
-#ifdef USE_MIDI_OUT
-            // TODO: send config
-            ws2812_write_led(0, 16, 0, 0);
-#endif
-        } return 0;
-        case (67): { // system reset
-            led_rgb(0xff0000);
-            reset_on_release = true;
-        } return 0;
-        default: return 0;
-    }
-}
-#else // !OLD_CONFIG_LAYOUT
 
 #ifdef USE_INTERNAL_SYNTH
 /*
@@ -2429,7 +2186,6 @@ float config_but(int but, int type, float adjust) {
     }
     return 0;
 }
-#endif // !OLD_CONFIG_LAYOUT
 
 /*
  * MIDI in's configuration CCs overlap what the Striso sends, so a DAW's MIDI thru or a loop through
