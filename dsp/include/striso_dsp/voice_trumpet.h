@@ -1,49 +1,63 @@
 /**
- * trumpet: a physical model of the trumpet (stage 1: one instrument, played like the brass engine's
- * trumpet). Build with `VOICE=trumpet`.
+ * trumpet: a physical model of the trumpet. Stage 1: one instrument, fitted to sound and respond like
+ * the brass engine's "trumpet" (the hybrid); real bore profiles, valves and partials, mutes and the
+ * other instruments come later, on top of the same parts. Build with `VOICE=trumpet`.
  *
  * Every voice is a player blowing a horn; nothing sets the pitch but the lips and the bore together:
  *
- *   breath   key pressure -> mouth pressure p_m (Pa): from just above the oscillation threshold of
- *            this note (lightest touch) to p_loud (ff); the threshold is estimated from the lips'
- *            and the horn's small-signal impedances, so every note speaks at the lightest touch
- *   tongue   the strike is the tongue: it releases the air (fast for a hard strike, a soft "d" for a
- *            gentle one), with the pressure built up behind it (an overshoot that decays) and a
- *            turbulent "t"; a gentle press without a strike is a breath attack
+ *   breath   key pressure -> breath level (as the hybrid: pres (a + b pres) + the strike's accent,
+ *            smoothed) -> mouth pressure: from the oscillation threshold of this note (the lightest
+ *            touch) to p_loud x threshold (ff). The threshold is computed from the lips' and the
+ *            horn's small-signal impedances (below), so every note speaks at the lightest touch
+ *   tongue   the strike is the tongue: it releases the air (faster for a harder strike, never faster
+ *            than 1 ms), the pressure built up behind it (an accent that decays) and a turbulent "t";
+ *            while the strike rises the tongue holds the lips closed and lets them go at its peak (a
+ *            harder strike: from further), so they start swinging at once, at their own frequency.
+ *            A press without a strike is a breath attack
  *   LIPS     one mechanical mode, outward striking (the pressure difference pushes them open; Elliott
- *            & Bowsher 1982), tuned below the note: mass, Q, rest opening, width per register; contact
- *            stiffness when closed. Flow: Bernoulli jet u = w h sqrt(2 (p_m - p_c) / rho) (regularised
- *            at small dp), with turbulence riding on the flow pulses. Soft playing keeps the lips
- *            swinging around their opening (a round, nearly sinusoidal flow); loud playing closes them
- *            for part of each cycle (narrow, buzzy pulses). A hard tongue release kicks them into their
- *            swing at once, at their own (lower) frequency: the bore pulls them up onto the note (the
- *            scoop and the "blat" of a tongued attack are not added, they happen)
- *   MOUTHPIECE  cup compliance V / (rho c^2) and backbore inertance (+ loss): the Helmholtz "popping"
- *            resonance between the lips and the bore (the formant of brass), solved implicitly
- *            (trapezoidal) with the jet's conductance
- *   BORE     a waveguide (two delay lines, AXI SRAM) whose resonances sit on the harmonics of the note:
- *            the horn a real flare and mouthpiece approximate, with its length following the note (as
- *            a slide). At the bell the low frequencies reflect (one-pole lowpass x the round-trip loss
- *            from a decay time; a DC-free reflection: the open end), the rest radiates; the loop delay
- *            is set so that with the bell's and the mouthpiece's phases the resonance falls on the note
- *   BRASSINESS  the wave steepens on its way to the bell (finite-amplitude propagation: pressure crests
- *            travel faster; Hirschberg et al. 1996): the radiated wave is read at a delay that moves with
- *            the pressure, in two stages, rate-limited (no fold-back, no aliasing grit); the loop itself
- *            stays linear (no chaos)
+ *            & Bowsher 1982), tuned below the note: mass, Q, rest opening per register, width, contact
+ *            stiffness and damping when closed, tissue losses growing with the lip speed, and an
+ *            embouchure that firms with the breath (the rest position moves in by part of the static
+ *            deflection above the threshold: the aperture holds, so loud playing closes the lips for
+ *            part of each cycle). Flow: Bernoulli jet u = w h sqrt(2 (p_m - p_c) / rho), regularised at
+ *            small dp, with turbulence riding on its pulsating part. Soft playing: the lips swing
+ *            around their opening (round, nearly sinusoidal); loud: narrow buzzy pulses
+ *   MOUTHPIECE  cup compliance V / (rho c^2), backbore inertance with a loss in parallel (none for
+ *            the mean flow): the Helmholtz "popping" resonance between lips and bore, solved
+ *            implicitly (trapezoidal) together with the jet's conductance
+ *   BORE     a waveguide (two delay lines, AXI SRAM) whose resonances sit on the harmonics of the note
+ *            (the horn a real flare and mouthpiece approximate; its length follows the note, as a
+ *            slide). At the bell the low frequencies reflect (one-pole lowpass x the round-trip loss
+ *            from a decay time), -1 at DC (the open end: the mean flow neither builds up nor
+ *            radiates). The loop delay is solved per block (Newton) so that the small-signal loop gain
+ *            of the lips' admittance and the load they see (cup || backbore + bore) is real at the
+ *            note: the note sounds in tune at the threshold; the same loop gain gives the threshold.
+ *            The player's ear trims the bore slowly for the pull of louder lips (zero crossings of
+ *            the lip motion)
+ *   BRASSINESS  the wave steepens on its way to the bell (finite-amplitude propagation; Hirschberg et
+ *            al. 1996): the radiated wave is read at a delay that moves with the pressure (Pa), in two
+ *            rate-limited stages (no fold-back, no aliasing grit); the loop itself stays linear
  *   RADIATION  bell transmission (1 - reflection), radiation high-pass, bell/directivity low-pass
  *
  * Every element is passive or bounded: the jet only draws on the mouth pressure, the bore loop gain is
- * < 0.95, the mouthpiece is solved implicitly, the steepening only re-times samples; lip excursion and
- * cup pressure are clamped; a per-voice guard resets a voice whose state is non-finite or absurd.
+ * < 0.95, the mouthpiece is solved implicitly, the steepening only re-times samples; lip excursion,
+ * flows and cup pressure are clamped; a per-voice guard resets a voice whose state is non-finite or
+ * absurd; the master has a DC blocker and a soft ceiling at 4.2.
  *
- * Playing:
+ * Playing (as the hybrid):
  *   pressure   breath: dynamics and brightness together (pp round -> ff blaring)
- *   strike     tonguing: hard = a fast release with an accent, a bright blat and a "t"; soft = "d";
- *              none = a breath attack. Re-striking a held key re-tongues
- *   release    the breath stops, the bore rings out briefly (pedal lengthens the release)
+ *   strike     tonguing: hard = a fast release, an accent, the lips released from closed (a blat that
+ *              scoops up onto the note) and a "t"; soft = "d"; none = a breath attack
+ *   release    the breath stops, the bore rings out (pedal lengthens the release)
  *   tilt fwd/back  embouchure: forward firmer (brighter), back looser (darker)
  *   tilt sideways  pitch bend (the firmware moves the note; the horn follows)
  *   shake      flutter tongue
+ *
+ * Cost (QEMU Cortex-M7 instruction counts, 10 voices at ff, notes jumping, master effects on): about
+ * 112k instructions per block on average, 136k at worst (all ten notes starting in the same block).
+ * Per voice-sample: three divisions, one square root, ~110 FP operations; per block a few complex
+ * impedance evaluations for the loop delay and threshold. Memory: bore delay lines 80 KB (AXI SRAM),
+ * Engine ~7 KB.
  */
 #ifndef VOICE_TRUMPET_H_
 #define VOICE_TRUMPET_H_
@@ -138,6 +152,7 @@ struct Params {
 	real acc_amp;  // the pressure built up behind the tongue: overshoot
 	real acc_t;    // its decay (s)
 	real tongue_t; // tongue release time of a soft "d" (s); a hard strike is ~16x faster
+	real tongue_lip; // a tongued start: the tongue held the lips closed by this much (mm at a full strike)
 	real slur;     // articulation on a legato note change
 	real pitch_t;  // the player's ear: pitch correction time constant (s)
 	// modulation
@@ -148,48 +163,49 @@ static_assert(sizeof(Params) == NPARAMS * sizeof(real), "Params must hold only f
 
 [[nodiscard]] static inline Params trumpet_params() {
 	Params p;
-	p.gain = 1.0f;
-	p.pc_a = 0.3f;
-	p.pc_b = 0.7f;
-	p.lv_hz = 40.0f;
-	p.rel = 0.03f;
+	p.gain = 19.3075f;
+	p.pc_a = 0.351743f;
+	p.pc_b = 1.19262f;
+	p.lv_hz = 16.0102f;
+	p.rel = 0.050774f;
 	p.rel_ped = 0.4f;
-	p.p_soft = 1.02f;
-	p.p_loud = 3.0f;
-	p.p_reg = 0.0f;
-	p.p_curve = 1.0f;
-	p.lip_tune = -400.0f;
-	p.lip_treg = 0.0f;
-	p.lip_q = 16.0f;
-	p.lip_mass = 4.0f;
-	p.mass_reg = 0.5f;
-	p.lip_open = 0.2f;
-	p.open_reg = 0.3f;
-	p.lip_width = 8.0f;
-	p.contact = 3.0f;
-	p.lip_nl = 1.0f;
-	p.embouch = 1.0f;
-	p.lip_tilt = 0.3f;
-	p.jitter = 6.0f;
-	p.cup = 0.7f;
-	p.pop_hz = 900.0f;
-	p.pop_q = 2.0f;
-	p.bore_t = 0.025f;
-	p.bore_reg = 0.0f;
-	p.bell_hz = 1400.0f;
-	p.brass = 12.0f;
-	p.rad_hz = 350.0f;
-	p.tone_hz = 5500.0f;
-	p.tone_q = 0.8f;
-	p.low_comp = 0.75f;
-	p.breath = 0.08f;
-	p.t_noise = 0.15f;
-	p.tongue = 1.0f;
-	p.acc_amp = 0.35f;
-	p.acc_t = 0.05f;
-	p.tongue_t = 0.01f;
-	p.slur = 0.25f;
-	p.pitch_t = 0.04f;
+	p.p_soft = 1.05585f;
+	p.p_loud = 14.9845f;
+	p.p_reg = -0.130238f;
+	p.p_curve = 2.41112f;
+	p.lip_tune = -265.508f;
+	p.lip_treg = 84.7883f;
+	p.lip_q = 9.98719f;
+	p.lip_mass = 5.04216f;
+	p.mass_reg = 1.24726f;
+	p.lip_open = 0.020385f;
+	p.open_reg = 1.02704f;
+	p.lip_width = 12.906f;
+	p.contact = 1.01252f;
+	p.lip_nl = 4.18258f;
+	p.embouch = 0.93927f;
+	p.lip_tilt = 0.061837f;
+	p.jitter = 1.37483f;
+	p.cup = 1.48285f;
+	p.pop_hz = 1427.48f;
+	p.pop_q = 0.976347f;
+	p.bore_t = 0.044498f;
+	p.bore_reg = 0.784376f;
+	p.bell_hz = 1821.65f;
+	p.brass = 448.664f;
+	p.rad_hz = 109.229f;
+	p.tone_hz = 8298.62f;
+	p.tone_q = 0.542062f;
+	p.low_comp = 1.05614f;
+	p.breath = 0.108717f;
+	p.t_noise = 0.211963f;
+	p.tongue = 1.39721f;
+	p.acc_amp = 1.25615f;
+	p.acc_t = 0.031235f;
+	p.tongue_t = 0.001128f;
+	p.tongue_lip = 0.053056f;
+	p.slur = 0.148917f;
+	p.pitch_t = 0.00626f;
 	p.flutter = 0.6f;
 	p.flut_hz = 24.0f;
 	return p;
@@ -210,8 +226,12 @@ static constexpr int DEFAULT_PRESET = 0;
 struct VoiceState {
 	// lips (opening x, velocity v), cup pressure, backbore flow, the previous jet flow and incoming wave
 	real x, v, pc, ub, uM, uprev, pinprev;
+	real um; // the jet's mean flow (turbulence rides on the flow pulses)
+	real tlev; // the strike the tongue has held the lips for
+	int age;   // blocks since the note started from silence
 	// bore
 	real lps, hps; // bell reflection lowpass, DC high-pass states
+	real ltd;      // the transmitted wave's slow part (the bell reflects the mean flow)
 	real d1;       // stage 1 steepened read delay
 	real D;        // loop delay (samples)
 	real ds;       // stage 2 read delay
@@ -226,6 +246,7 @@ struct VoiceState {
 	real gate;        // tongue / breath gate
 	real gate_rate;   // its opening rate (per control step)
 	real acc, tn;     // accent and tongue noise envelopes
+	real accf;        // the accent's pressure, rising with the tongue's release (after the breath smoother)
 	real ty1, ty2;    // tilt smoother
 	real pm_prev;     // mouth pressure at the end of the last block
 	real pthr;        // threshold estimate (Pa)
@@ -346,8 +367,8 @@ struct Cx {
 // setup
 
 static inline void reset_voice(Engine& e, VoiceState& s, int v) {
-	s.x = s.v = s.pc = s.ub = s.uM = s.uprev = s.pinprev = 0.0f;
-	s.lps = s.hps = s.lpt = 0.0f;
+	s.x = s.v = s.pc = s.ub = s.uM = s.uprev = s.pinprev = s.um = 0.0f;
+	s.lps = s.hps = s.lpt = s.ltd = 0.0f;
 	s.d1 = 0.0f;
 	s.D = 100.0f;
 	s.ds = (real)SD;
@@ -356,7 +377,7 @@ static inline void reset_voice(Engine& e, VoiceState& s, int v) {
 	s.rs = s.t1 = s.t2 = 0.0f;
 	s.lv1 = s.lv2 = s.amp = s.gate = 0.0f;
 	s.gate_rate = 0.0f;
-	s.acc = s.tn = 0.0f;
+	s.acc = s.tn = s.accf = 0.0f;
 	s.ty1 = s.ty2 = 0.0f;
 	s.pm_prev = 0.0f;
 	s.pthr = 3000.0f;
@@ -466,7 +487,7 @@ static inline void process_voice(Engine& e, int vi) {
 	s.note_prev = note;
 	if (start) {
 		// from silence: the lips at rest, the tongue against them
-		s.x = s.v = s.pc = s.ub = s.uM = s.uprev = s.pinprev = 0.0f;
+		s.x = s.v = s.pc = s.ub = s.uM = s.uprev = s.pinprev = s.um = 0.0f;
 		s.gate = 0.0f;
 		s.lv1 = 0.0f;
 		s.lv2 = 0.0f;
@@ -474,7 +495,7 @@ static inline void process_voice(Engine& e, int vi) {
 		s.pm_prev = 0.0f;
 	}
 	// a strike opens the tongue: fast for a hard one
-	if (vplev > 0.05f && (start || vplev > s.acc + 0.05f)) s.gate_rate = rmin(e.ctrl_dt / (rmax(P.tongue_t, 0.0005f) * exp2s(-4.0f * vplev)), 1.0f);
+	if (vplev > 0.05f && (start || vplev > s.acc + 0.05f)) s.gate_rate = rmin(e.ctrl_dt / rmax(P.tongue_t * exp2s(-4.0f * vplev), 0.001f), 1.0f);
 	if (start && vplev <= 0.05f) s.gate_rate = rmin(e.ctrl_dt / rmax(P.tongue_t, 0.0005f), 1.0f);
 
 	const real by = clampr(cc.but_y, -1.0f, 1.0f);
@@ -560,7 +581,7 @@ static inline void process_voice(Engine& e, int vi) {
 	// mouthpiece's phases). Then what the lips play on: the small-signal loop gain L = Y Z of the lips'
 	// admittance Y and the load Z they see (the cup in parallel with backbore + bore, the bore's input
 	// impedance from its round-trip reflection R e^{-i w D}) must be real at the note: a Newton step on
-	// D per block (several at a new note). The same L gives the oscillation threshold.
+	// D per block (three at a new note). The same L gives the oscillation threshold.
 	const real phase0 = atans(rbell.im / rmax(rbell.re, 1e-6f)) + mp_ph;
 	const real Dpole = clampr(P0 * (1.0f + phase0 * (0.5f / PI)), 2.0f, 2.0f * DMAX);
 	const real wdig = 2.0f * PI / P0;
@@ -598,7 +619,7 @@ static inline void process_voice(Engine& e, int vi) {
 		s.tlast = -1e4f;
 	}
 	{
-		const int iters = jump ? 6 : 1;
+		const int iters = jump ? 3 : 1; // (then one per block: converged within a few ms)
 		const real lo = Dpole - 0.15f * P0, hi = Dpole + 0.15f * P0;
 		real D = clampr(s.D, lo, hi);
 		for (int it = 0; it < iters; it++) {
@@ -668,21 +689,24 @@ static inline void process_voice(Engine& e, int vi) {
 	const real shake = e.shake * rmax(P.flutter, 0.0f);
 	const real flut_inc = P.flut_hz * e.ctrl_dt;
 	{
-		real lv1 = s.lv1, lv2 = s.lv2, amp = s.amp, acc = s.acc, tn = s.tn, gate = s.gate, fph = s.flut_ph;
+		real lv1 = s.lv1, lv2 = s.lv2, amp = s.amp, acc = s.acc, accf = s.accf, tn = s.tn, gate = s.gate, fph = s.flut_ph;
+		// the lungs and the mouth follow the key slowly (the breath smoother); the tongue's accent is fast
+		const real fac_af = rmin(e.ctrl_dt / rmax(rmax(P.tongue_t, 0.0005f) * exp2s(-4.0f * acc), 0.001f), 1.0f);
 		const strisy::SvfCoef lc = e.lv_c;
 		for (int k = 0; k < NCTRL; k++) {
 			acc = rmax(acc * fac_acc, vplev);
 			tn = rmax(tn * fac_tn, vplev);
 			real t1, ls;
-			SVF_TICK(rmin(pcl + P.acc_amp * acc, 2.0f), lv1, lv2, lc, t1, ls);
+			SVF_TICK(rmin(pcl, 2.0f), lv1, lv2, lc, t1, ls);
 			amp = rmax(rmax(ls, 0.0f), amp * fac);
+			accf += fac_af * (P.acc_amp * acc - accf);
 			if (held) gate += s.gate_rate * (1.0f - gate);
 			else gate -= fac_gate * gate;
 			fph += flut_inc;
 			if (fph >= 1.0f) fph -= 1.0f;
 			const real am = 1.0f - shake * (0.5f + 0.5f * psin(fph));
 			// breath -> mouth pressure (amp^p_curve: exp2s(p_curve log2 amp) without libm)
-			const real a = rmin(amp, 1.5f);
+			const real a = rmin(amp + accf, 1.5f);
 			const real ap = (pcv != 1.0f && a > 1e-6f) ? exp2s(pcv * log2s(a)) : a;
 			e.pmc[k] = gate * am * (p_lo + (p_hi - p_lo) * ap);
 			e.tnc[k] = P.t_noise * tn * tn;
@@ -691,6 +715,7 @@ static inline void process_voice(Engine& e, int vi) {
 		s.lv2 = lv2;
 		s.amp = amp;
 		s.acc = acc;
+		s.accf = accf;
 		s.tn = tn;
 		s.gate = gate;
 		s.flut_ph = fph;
@@ -699,8 +724,21 @@ static inline void process_voice(Engine& e, int vi) {
 	// ---- audio rate: lips, mouthpiece, bore, steepening, bell ------------------------------------
 	float* __restrict__ B1 = bore_buf[vi][0];
 	float* __restrict__ B2 = bore_buf[vi][1];
-	real x = s.x, v = s.v, pc = s.pc, ub = s.ub, uM = s.uM, uprev = s.uprev, pinp = s.pinprev;
-	real lps = s.lps, hps = s.hps, lpt = s.lpt, d1 = s.d1, ds = s.ds;
+	// a tongued start: while the strike rises (the first ~16 ms of a note from silence) the tongue
+	// holds the lips closed, more for a harder strike; at its peak it lets them go
+	if (start) {
+		s.age = 0;
+		s.tlev = 0.0f;
+	} else if (s.age < 1000) {
+		s.age++;
+	}
+	if (s.age < 24 && vplev > s.tlev + 0.02f) {
+		s.tlev = vplev;
+		s.x = rmin(s.x, x0 - clampr(P.tongue_lip, 0.0f, 3.0f) * 0.001f * vplev);
+		s.v = rmin(s.v, 0.0f);
+	}
+	real x = s.x, v = s.v, pc = s.pc, ub = s.ub, uM = s.uM, uprev = s.uprev, pinp = s.pinprev, um = s.um;
+	real lps = s.lps, hps = s.hps, lpt = s.lpt, ltd = s.ltd, d1 = s.d1, ds = s.ds;
 	uint32_t w = s.w, ws = s.ws, nr = s.nrng;
 	float* __restrict__ SB = s.sb;
 	real* __restrict__ out = e.vout;
@@ -737,10 +775,12 @@ static inline void process_voice(Engine& e, int vi) {
 			nr = nr * 1664525u + 1013904223u;
 			const real nz = (real)(int32_t)nr * 4.656613e-10f;
 #ifdef TRUMPET_TEST_HOOK
-			real u0 = uj * (1.0f + br * nz) + tnl * nz;
+			um += 0.0005f * (uj - um);
+			real u0 = uj + br * (uj - um) * nz + tnl * nz;
 			if (trumpet_dbg_imp && vi == 0) u0 = (trumpet_dbg_n == 0) ? 1e-3f : 0.0f;
 #else
-			const real u0 = uj * (1.0f + br * nz) + tnl * nz;
+			um += 0.0005f * (uj - um);
+			const real u0 = uj + br * (uj - um) * nz + tnl * nz;
 #endif
 			const real G = wh * isj * (1.0f / RHO); // the jet's conductance (implicit in p_c)
 			// cup + backbore (trapezoidal). Cup: alpha (pc' - pc) = u' + u - ub' - ub. Backbore: the
@@ -834,7 +874,11 @@ static inline void process_voice(Engine& e, int vi) {
 			const real vt = (yst - lpt) * Gb;
 			const real lt = vt + lpt;
 			lpt = lt + vt;
-			out[k * CTRL + j] = yst - g * lt;
+			// ... and its slow part reflects too (R = -1 at DC: the mean flow does not radiate)
+			const real vdc = (yst - ltd) * Gd;
+			const real ldc = vdc + ltd;
+			ltd = ldc + vdc;
+			out[k * CTRL + j] = yst - g * lt - (1.0f - g) * ldc;
 		}
 	}
 	s.x = x;
@@ -842,11 +886,13 @@ static inline void process_voice(Engine& e, int vi) {
 	s.pc = pc;
 	s.ub = ub;
 	s.uM = uM;
+	s.um = um;
 	s.uprev = uprev;
 	s.pinprev = pinp;
 	s.lps = lps;
 	s.hps = hps;
 	s.lpt = lpt;
+	s.ltd = ltd;
 	s.d1 = d1;
 	s.ds = ds;
 	s.w = w;
@@ -983,6 +1029,7 @@ static constexpr ParamEntry param_table[] = {
     {{"acc_level", "attack", 0.0f, 1.5f, C_}, &Params::acc_amp},
     {{"acc_decay", "attack", 0.01f, 0.3f, C_}, &Params::acc_t},
     {{"tongue_t", "attack", 0.001f, 0.05f, C_}, &Params::tongue_t},
+    {{"tongue_lip", "attack", 0.0f, 2.0f, C_}, &Params::tongue_lip},
     {{"slur", "attack", 0.0f, 1.0f, C_}, &Params::slur},
     {{"pitch_t", "attack", 0.003f, 0.3f, C_}, &Params::pitch_t},
     {{"flutter", "mod", 0.0f, 1.0f, C_}, &Params::flutter},

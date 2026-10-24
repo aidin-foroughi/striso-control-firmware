@@ -58,7 +58,7 @@ The Striso is now also a **class-compliant USB sound card**, called **"Striso Sy
   | green | **wind** (reeds and flute) | clarinet, bass clarinet, soprano/alto/tenor/baritone sax, oboe, bassoon, flute |
   | purple | **EP** (electric pianos) | stage, suitcase, mk2, dyno, ballad, bark, neosoul, fm80s, lofi, wurli, wurlibark, pianet, felt, celesta |
   | amber | **brass** | trumpet, flugelhorn, trombone, horn, euphonium, tuba, harmon, plunger, section |
-  | cyan | **trumpet** (physical model) | Bb classical, Bb jazz, C trumpet, piccolo, cornet, harmon, cup mute, straight, plunger |
+  | cyan | **trumpet** (physical model, in development) | trumpet: a fully physical trumpet (lips, mouthpiece, bore) played like the brass trumpet; more instruments and mutes later |
 
   Every voice responds to pressure, strike velocity, tilt (x/y) and the pedal.
 - **Live control over USB:** every synth and effect parameter can be read and set while you play. So can the global touch sensitivity (pressure, velocity, tilt, bend, threshold) and a per-key sensitivity factor. You can save them to the board.
