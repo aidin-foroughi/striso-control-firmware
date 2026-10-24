@@ -178,6 +178,7 @@ extern "C" {
   void bduSuspendHookI(BulkUSBDriver *bdup);
   void bduWakeupHookI(BulkUSBDriver *bdup);
   void bduConfigureHookI(BulkUSBDriver *bdup);
+  void bduDiscardOutputI(BulkUSBDriver *bdup);
   bool bduRequestsHook(USBDriver *usbp);
   void bduSOFHookI(BulkUSBDriver *bdup);
   void bduDataTransmitted(USBDriver *usbp, usbep_t ep);

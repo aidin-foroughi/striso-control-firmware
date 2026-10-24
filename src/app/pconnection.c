@@ -262,10 +262,10 @@ void PExReceiveByte(unsigned char c) {
       }
       else if (c == 'V') { // firmware version
         config.send_usb_bulk = 0;
+        // drop the stream data not sent yet; a packet the host hasn't fetched stays (a reset under
+        // it halted the board, D1)
         chSysLock();
-        if (!obqIsEmptyI(&BDU1.obqueue)) {
-          obqResetI(&BDU1.obqueue);
-        }
+        bduDiscardOutputI(&BDU1);
         chSysUnlock();
         chprintf((BaseSequentialStream *)&BDU1, FWVERSION " %08X%08X%08X ",
                  ((uint32_t*)UID_BASE)[2], ((uint32_t*)UID_BASE)[1], ((uint32_t*)UID_BASE)[0]);

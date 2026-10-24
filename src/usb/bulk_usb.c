@@ -28,6 +28,7 @@
 
 #include "hal.h"
 #include "bulk_usb.h"
+#include "obq_discard.h"
 
 #if 1 // HAL_USE_BULK_USB || defined(__DOXYGEN__)
 
@@ -342,6 +343,21 @@ void bduConfigureHookI(BulkUSBDriver *bdup) {
   bqResumeX(&bdup->obqueue);
   chnAddFlagsI(bdup, CHN_CONNECTED);
   (void) bdu_start_receive(bdup);
+}
+
+/**
+ * @brief   Drops the output not yet sent (e.g. a binary stream left on), safely.
+ * @details An IN transfer in flight keeps its buffer: obqResetI() under it would make its
+ *          completion assert (chSysHalt), see obq_discard.h.
+ *
+ * @param[in] bdup      pointer to a @p BulkUSBDriver object
+ *
+ * @iclass
+ */
+void bduDiscardOutputI(BulkUSBDriver *bdup) {
+
+  obq_discard_pendingI(&bdup->obqueue,
+                       usbGetTransmitStatusI(bdup->config->usbp, bdup->config->bulk_in));
 }
 
 /**

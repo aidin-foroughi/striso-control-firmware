@@ -113,6 +113,23 @@ target_link_libraries(test_usb_audio_core PRIVATE m striso_host_options)
 add_test(NAME usb_audio_core COMMAND test_usb_audio_core)
 set_tests_properties(usb_audio_core PROPERTIES LABELS unit)
 
+# --- drivers and USB (C) ------------------------------------------------------------------------------
+# usb_obq_discard: the console's 'V' drops the bulk console's pending output while an IN transfer
+# may be reading it (src/usb/obq_discard.h, D1), against ChibiOS' own hal_buffers.c
+if(EXISTS "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c")
+  add_executable(test_obq_discard usb_queue/test_obq_discard.c "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c")
+  target_include_directories(test_obq_discard PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/usb_queue/stubs"
+    "${STRISO_CHIBIOS_DIR}/os/hal/include"
+    "${PROJECT_SOURCE_DIR}/src/usb")
+  target_link_libraries(test_obq_discard PRIVATE striso_host_options)
+  target_compile_options(test_obq_discard PRIVATE -O1 -Wno-unused-parameter)
+  add_test(NAME usb_obq_discard COMMAND test_obq_discard)
+  set_tests_properties(usb_obq_discard PROPERTIES LABELS unit)
+else()
+  message(WARNING "ChibiOS not found (git submodule update --init): test usb_obq_discard skipped")
+endif()
+
 # --- tools/striso.py: UF2 and config records ----------------------------------------------------------
 add_test(NAME striso_py COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_striso_py.py")
 set_tests_properties(striso_py PROPERTIES LABELS unit)
