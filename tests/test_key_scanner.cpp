@@ -438,3 +438,51 @@ TEST_CASE("key scanner S4: a full message queue never blocks the scanner, and no
 	}
 	CHECK(offs >= 20);
 }
+
+TEST_CASE("key scanner: played input, as the original: staccato, hard strikes, repeated notes, chords") {
+	// what a player does, many takes: every message (pres, velo, x, y per key) and the state after
+	// every scan the same as the original key processing (play-trumpet 3d6f498)
+	size_t msgs = 0;
+	int notes = 0;
+	int max_pres = 0;
+	for (uint32_t seed = 61; seed < 81; seed++) {
+		CAPTURE(seed);
+		std::mt19937 rng(seed);
+		Scenario sc;
+		sc.seed = seed;
+		sc.frames = 5000;
+		sc.noise = 1.0f + static_cast<float>(rng() % 6);
+		int t = 20;
+		while (t < 4700) {
+			const uint32_t kind = rng() % 4;
+			const int b = static_cast<int>(rng() % ks::kButtons);
+			const float tx = static_cast<float>(static_cast<int>(rng() % 81) - 40) / 100.0f;
+			const float ty = static_cast<float>(static_cast<int>(rng() % 81) - 40) / 100.0f;
+			if (kind == 0) { // fast staccato on one key
+				for (int i = 0; i < 6; i++) sc.presses.push_back({b, scansim::ramp(t + i * 25, 1, 8, 1, 0.3f + static_cast<float>(rng() % 900) / 1000.0f), tx, ty});
+				t += 160;
+			} else if (kind == 1) { // a hard strike, near full scale
+				sc.presses.push_back({b, scansim::ramp(t, 1, 150 + static_cast<int>(rng() % 300), 3, 1.6f + static_cast<float>(rng() % 400) / 1000.0f), tx, ty});
+				t += 60 + static_cast<int>(rng() % 200);
+			} else if (kind == 2) { // a chord, held, with swelling pressure
+				const int len = 200 + static_cast<int>(rng() % 600);
+				for (int i = 0; i < 3 + static_cast<int>(rng() % 4); i++) {
+					sc.presses.push_back({static_cast<int>(rng() % ks::kButtons), scansim::ramp(t + static_cast<int>(rng() % 15), 5 + static_cast<int>(rng() % 80), len, 5 + static_cast<int>(rng() % 60), 0.2f + static_cast<float>(rng() % 1300) / 1000.0f), tx, ty});
+				}
+				t += len / 2;
+			} else { // a slow swell and a light hold
+				sc.presses.push_back({b, scansim::ramp(t, 300, 400, 300, 0.05f + static_cast<float>(rng() % 600) / 1000.0f), tx, ty});
+				t += 250;
+			}
+		}
+		const Outcome o = run(sc, scanner);
+		CHECK_MESSAGE(o.error.empty(), o.error);
+		msgs += o.msgs.size();
+		notes += o.notes;
+		for (const Msg6& m : o.msgs) max_pres = std::max(max_pres, m[2]);
+	}
+	MESSAGE("played takes: " << msgs << " messages, " << notes << " note starts, max pres " << max_pres);
+	CHECK(msgs > 50000);
+	CHECK(notes > 1000);
+	CHECK(max_pres > 8000); // up to full scale (8192 = 1.0)
+}
