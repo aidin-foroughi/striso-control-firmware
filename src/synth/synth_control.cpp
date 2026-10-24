@@ -53,7 +53,6 @@ extern "C" {
 
 #define VOL_TICK (0.0005) // (1.0 / (SAMPLINGFREQ / CHANNEL_BUFFER_SIZE) / 0.5) // decay time of estimated volume
 #define VOL_TICK_FACT (0.998) // 0.5**(1/(SAMPLINGFREQ / CHANNEL_BUFFER_SIZE)/0.1)
-#define CLEAR_TIMER TIME_MS2I(500) // interval to clear dead notes
 
 float volume_linear = 90.0f; // volume in range 0-127
 void set_volume(float vol) {
@@ -298,7 +297,6 @@ class Button {
         float vol0;
         float vol = 0.0;
         button_state_t state = STATE_OFF;
-        systime_t timer = -1;
         int voice = -1;
 
         Button() {
@@ -798,7 +796,6 @@ class Instrument {
                                     notegen0 * buttons[but].coord0 +
                                     notegen1 * buttons[but].coord1
                                     + note_offset;
-                buttons[but].timer = chVTGetSystemTime() + CLEAR_TIMER;
 
                 if (but == master_button) {
                     // calculate average of portamento buttons
@@ -1099,24 +1096,6 @@ class Instrument {
                 }
             }
 #endif
-        }
-
-        void clear_dead_notes(void) {
-            systime_t now = chVTGetSystemTime();
-
-            for (int n = 0; n < voicecount; n++) {
-                if (voices[n] >= 0 && buttons[voices[n]].state == STATE_ON
-                    && buttons[voices[n]].timer < now)
-                {
-                    release_voice(voices[n]);
-                    #ifdef USE_INTERNAL_SYNTH
-                    *(synth_interface->pres[n])  = 0.0;
-                    *(synth_interface->vpres[n]) = 0.0;
-                    *(synth_interface->but_x[n]) = 0.0;
-                    *(synth_interface->but_y[n]) = 0.0;
-                    #endif
-                }
-            }
         }
 
         void tick(void) {
@@ -2438,10 +2417,6 @@ void synth_control_init(void) {
             config.key_swap = true;
         }
     }
-}
-
-void clear_dead_notes(void) {
-    dis.clear_dead_notes();
 }
 
 void synth_tick(void) {
