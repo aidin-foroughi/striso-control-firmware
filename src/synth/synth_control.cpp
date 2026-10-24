@@ -42,6 +42,7 @@ extern "C" {
 
 #include <bit>
 #include <cstdint>
+#include <type_traits>
 
 #ifndef USE_WS2812
 #define ws2812_write_led(n,r,g,b) led_rgb3(14*r,14*g,14*b)
@@ -113,6 +114,11 @@ float clamp_rem(float x, float low, float high, float* rem) {
 }
 
 static inline uint32_t log2i(const uint32_t x){return (31 - __builtin_clz (x));}
+
+// time a is after time b; the system time wraps (32 bit at 2 kHz: after 24.9 days)
+static inline bool time_after(systime_t a, systime_t b) {
+    return (std::make_signed_t<systime_t>)(a - b) > 0;
+}
 
 void update_leds(void);
 void set_midi_mode(midi_mode_t mode);
@@ -552,6 +558,9 @@ class Instrument {
                 if (a > pow2(0.5f)) {
                     float angle = atan2f(buttons[but].but_x, buttons[but].but_y)*(8/3.1415926536) + 8.0f;
                     if (old_angle == -1000.0f) {
+                        // a time from an earlier press may be any age (time_after only orders times
+                        // less than 12 days apart)
+                        next_knobchange = chVTGetSystemTime();
                         // nudge up or down
                         if (buttons[but].but_x < 0.3 && buttons[but].but_x > -0.3) {
                             if (buttons[but].but_y > 0) {
@@ -572,18 +581,20 @@ class Instrument {
                                 nudged = false;
                                 old_angle = angle;
                             } else {
-                                if (chVTGetSystemTime() > next_knobchange) {
+                                if (time_after(chVTGetSystemTime(), next_knobchange)) {
                                     // nudge up or down
                                     if (buttons[but].but_y > 0) {
                                         config_but(but, 1, 1.0f);
                                     } else {
                                         config_but(but, 1, -1.0f);
                                     }
-                                    next_knobchange = chVTGetSystemTime() + TIME_MS2I(200 / (4*pow2(buttons[but].but_y)));
+                                    // faster the further up or down; y can be exactly 0 (rolled to the side): at most 10 s
+                                    float y2 = pow2(buttons[but].but_y);
+                                    next_knobchange = chVTGetSystemTime() + TIME_MS2I(y2 > 0.005f ? 200 / (4*y2) : 10000.0f);
                                 }
                             }
                         } else {
-                            if (chVTGetSystemTime() > next_knobchange) {
+                            if (time_after(chVTGetSystemTime(), next_knobchange)) {
                                 adjust = config_but(but, 2, adjust);
                                 old_angle = angle - clamp(adjust, -4, 4);
                                 next_knobchange = chVTGetSystemTime() + TIME_MS2I(20);
