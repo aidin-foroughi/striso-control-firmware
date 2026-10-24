@@ -28,6 +28,9 @@
 extern "C" {
 #endif
 
+// a C header (button_read.c, key_calibration.c, pconnection.c): its types are C typedefs
+// NOLINTBEGIN(modernize-use-using)
+
 enum {
 	SCAN_COLUMNS = 17,
 	SCAN_ROWS = 4,
@@ -86,6 +89,7 @@ typedef struct {
 	int32_t c_breakpoint;
 	int32_t c_force2;
 } scan_cal_t;
+// NOLINTEND(modernize-use-using)
 
 extern scan_cal_t ks_cal[SCAN_BUTTONS];
 

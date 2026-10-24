@@ -374,6 +374,7 @@ TEST_CASE("key scanner: a raw recording replays to the board's messages") {
 	CHECK(r.refused > 0);
 	// the live run's messages of scans 700..2299: count them by replaying the frame indices
 	std::vector<Msg6> replayed;
+	replayed.reserve(r.msgs.size());
 	for (const scanreplay::Msg& m : r.msgs) replayed.push_back(m.v);
 	REQUIRE(!replayed.empty());
 	// they are a contiguous run of the live messages
