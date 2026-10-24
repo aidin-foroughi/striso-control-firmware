@@ -125,6 +125,13 @@ float clamp_rem(float x, float low, float high, float* rem) {
     }
 }
 
+// a settings knob's new value: clamp_rem to the knob's range, widened to the current value, so a
+// value set outside that range (by a preset or Striso Live) moves back towards it but never jumps
+// against the direction of the knob (SC-13)
+float clamp_knob(float cur, float x, float low, float high, float* rem) {
+    return clamp_rem(x, min(low, cur), max(high, cur), rem);
+}
+
 static inline uint32_t log2i(const uint32_t x){return (31 - __builtin_clz (x));}
 
 // float to int, limited to lo..hi first: an out of range (or NaN) float to int is UB, and on
@@ -1715,15 +1722,18 @@ void load_preset(int n) {
         dis.y_sensitivity = f;
     }
 
+    // volume and decays are 0..127 (config.h); up to 254 gave 4x the knob's maximum gain (+12 dB)
+    // and a pedal value of 2 (SC-13)
     strset(key, 3, "volum");
     f = getConfigFloat(key);
     if (f >= 0.0f && f < 255.0f) {
-        set_volume(f);
+        set_volume(min(f, 127.0f));
     }
 
     strset(key, 3, "decay");
     f = getConfigFloat(key);
     if (f >= 0.0f && f < 255.0f) {
+        f = min(f, 127.0f);
         config.pedal_sw1_values[0] = f;
         *(dis.synth_interface->pedal) = f * (1.0f/127.0f);
     }
@@ -1731,7 +1741,7 @@ void load_preset(int n) {
     strset(key, 3, "decaP");
     f = getConfigFloat(key);
     if (f >= 0.0f && f < 255.0f) {
-        config.pedal_sw1_values[1] = f;
+        config.pedal_sw1_values[1] = min(f, 127.0f);
     }
 
     key[0] = 'i';
@@ -2121,7 +2131,8 @@ float config_but(int but, int type, float adjust) {
     case (17): { // knob: key detection threshold
         int a = adjust * ((1 << 24) / 256);
         if (type > 0) {
-            config.zero_offset = clamp(config.zero_offset + a, 0, 16 * (1 << 24) / 256 - 1);
+            config.zero_offset = clamp(config.zero_offset + a, min(0, config.zero_offset),
+                                       max(16 * (1 << 24) / 256 - 1, config.zero_offset));
         }
         int dial = clamp(config.zero_offset / ((1 << 24) / 256), 0, 15);
         led_updown_dial(dial);
@@ -2131,7 +2142,7 @@ float config_but(int but, int type, float adjust) {
     case (19): { // knob: pres sensitivity
         float rem = 0;
         if (type > 0) {
-            dis.pres_sensitivity = clamp_rem(dis.pres_sensitivity + adjust * (1.0f/8.0f), 0, 3.0f, &rem);
+            dis.pres_sensitivity = clamp_knob(dis.pres_sensitivity, dis.pres_sensitivity + adjust * (1.0f/8.0f), 0, 3.0f, &rem);
         }
         led_updown_dial(dis.pres_sensitivity * 8 + 0.9f);
         led_rgb3(dis.pres_sensitivity * 64.0f, dis.pres_sensitivity * 64.0f, 0);
@@ -2140,7 +2151,7 @@ float config_but(int but, int type, float adjust) {
     case (21): { // knob: velo sensitivity
         float rem = 0;
         if (type > 0) {
-            dis.velo_sensitivity = clamp_rem(dis.velo_sensitivity + adjust * (1.0f/8.0f), 0, 2.0f, &rem);
+            dis.velo_sensitivity = clamp_knob(dis.velo_sensitivity, dis.velo_sensitivity + adjust * (1.0f/8.0f), 0, 2.0f, &rem);
         }
         led_updown_dial(min((int)(dis.velo_sensitivity * 8 + 0.9f), 15));
         led_rgb3(dis.velo_sensitivity * 64.0f, 0, dis.velo_sensitivity * 64.0f);
@@ -2149,7 +2160,7 @@ float config_but(int but, int type, float adjust) {
     case (6): { // knob: pitchbend range
         float rem = 0;
         if (type > 0) {
-            dis.bend_sensitivity = clamp_rem(dis.bend_sensitivity + adjust * 0.25f, 0, 4.0f, &rem);
+            dis.bend_sensitivity = clamp_knob(dis.bend_sensitivity, dis.bend_sensitivity + adjust * 0.25f, 0, 4.0f, &rem);
         }
         led_updown_dial(min((int)(dis.bend_sensitivity * 4 + 0.9f), 15));
         led_rgb3(dis.bend_sensitivity * 64.0f, 0, 0);
@@ -2158,7 +2169,7 @@ float config_but(int but, int type, float adjust) {
     case (8): { // knob: y sensitivity (TODO: flip?)
         float rem = 0;
         if (type > 0) {
-            dis.y_sensitivity = clamp_rem(dis.y_sensitivity + adjust * (1.0f/8.0f), 0, 3.0f, &rem);
+            dis.y_sensitivity = clamp_knob(dis.y_sensitivity, dis.y_sensitivity + adjust * (1.0f/8.0f), 0, 3.0f, &rem);
         }
         led_updown_dial(dis.y_sensitivity * 8 + 0.5f);
         led_rgb3(dis.y_sensitivity * 32.0f, 0, dis.y_sensitivity * 64.0f);
@@ -2286,7 +2297,7 @@ float config_but(int but, int type, float adjust) {
     case (51): { // knob: Volume (CC7)
         float rem = 0;
         if (type > 0) {
-            float vol = clamp_rem(volume_linear + adjust * 8.0f, 0, 127.0f, &rem);
+            float vol = clamp_knob(volume_linear, volume_linear + adjust * 8.0f, 0, 127.0f, &rem);
             if ((int)(volume_linear + 0.5f) != (int)(vol + 0.5f)) {
                 MidiSend3(MIDI_CONTROL_CHANGE, MIDI_C_MAIN_VOLUME, vol + 0.5f);
             }
@@ -2299,7 +2310,7 @@ float config_but(int but, int type, float adjust) {
     case (53): { // knob: sustain/decay rate
         float rem = 0;
         if (type > 0) {
-            *(dis.synth_interface->pedal) = clamp_rem(*(dis.synth_interface->pedal) + adjust * (1.0f/16.0f), 0, 1.0f, &rem);
+            *(dis.synth_interface->pedal) = clamp_knob(*(dis.synth_interface->pedal), *(dis.synth_interface->pedal) + adjust * (1.0f/16.0f), 0, 1.0f, &rem);
             pedal.send(*(dis.synth_interface->pedal) * 128 * 4, 0);
         }
         led_updown_dial(*(dis.synth_interface->pedal) * 15 + 0.5f);
