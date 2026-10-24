@@ -54,6 +54,7 @@
 #define VOICE_WIND_H_
 
 #include <stdint.h>
+#include <type_traits>
 #include <math.h>
 #include "strisy.h"
 
@@ -549,13 +550,20 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 }
 
 // 3rd order Lagrange read at delay d (>= 2) behind write index w
+// (FAST: w is a plain index and no slot wraps: the same slots without the masks)
+template <bool FAST = false>
 [[nodiscard]] static inline real lagrange_read(const float* __restrict__ buf, uint32_t w, real dl) {
 	const int i0 = (int)dl - 1;
 	const real d = dl - (real)i0;
 	const real dm1 = d - 1.0f, dm2 = d - 2.0f, dm3 = d - 3.0f;
 	const real p01 = d * dm1, p23 = dm2 * dm3;
-	const uint32_t b0 = w - (uint32_t)i0;
-	return -(dm1 * p23) * (1.0f / 6.0f) * buf[b0 & (MAIN_LEN - 1)] + (d * p23) * 0.5f * buf[(b0 - 1u) & (MAIN_LEN - 1)] - (p01 * dm3) * 0.5f * buf[(b0 - 2u) & (MAIN_LEN - 1)] + (p01 * dm2) * (1.0f / 6.0f) * buf[(b0 - 3u) & (MAIN_LEN - 1)];
+	if constexpr (FAST) {
+		const float* t = buf + ((int)w - i0);
+		return -(dm1 * p23) * (1.0f / 6.0f) * t[0] + (d * p23) * 0.5f * t[-1] - (p01 * dm3) * 0.5f * t[-2] + (p01 * dm2) * (1.0f / 6.0f) * t[-3];
+	} else {
+		const uint32_t b0 = w - (uint32_t)i0;
+		return -(dm1 * p23) * (1.0f / 6.0f) * buf[b0 & (MAIN_LEN - 1)] + (d * p23) * 0.5f * buf[(b0 - 1u) & (MAIN_LEN - 1)] - (p01 * dm3) * 0.5f * buf[(b0 - 2u) & (MAIN_LEN - 1)] + (p01 * dm2) * (1.0f / 6.0f) * buf[(b0 - 3u) & (MAIN_LEN - 1)];
+	}
 }
 
 // per-block values of a voice, handed to the sample loops
@@ -584,82 +592,120 @@ template <int KIND>
 	const real zeta = c.zeta, rb = c.rb, r1 = c.r1, r2 = c.r2, turb = c.turb, ct = c.ct, body = c.body, bo = c.bo;
 	const real joff = c.joff, soff = c.soff, ja = c.ja, jn = c.jn, kb = c.kb;
 	real peak = 0.0f;
-	for (int n = 0; n < BLOCK; n++) {
-		d1 += c.dd1;
-		gam += c.dgam;
-		gm += c.dgm;
-		og += c.dog;
-		if (KIND != KIND_CYL) d2 += c.dd2;
-		rng = rng * 1664525u + 1013904223u;
-		const real wn = (real)(int32_t)rng * (1.0f / 2147483648.0f);
-		tn += ct * (wn - tn);
-		nmix[n] += bo * wn;
-		const real drv = gam * (gm + turb * tn);
-		const real bi = lagrange_read(mb, widx, d1);
-		real y;
-		if (KIND == KIND_JET) {
-			// bore: one-pole loss lowpass, DC blocker, reflection
-			lp += cbs * (bi - lp);
-			dcy = lp - dcx + gs * dcy;
-			dcx = lp;
-			const real tmp = g * dcy;
-			// jet: deflected by the acoustic flow at the mouth hole, the deflection travels with
-			// the jet to the edge (delay d2); the edge splits it (saturating, offset -> even
-			// harmonics). The gain grows with the breath (jet speed).
-			sb[widx & (SHORT_LEN - 1)] = tmp;
-			const int j0 = (int)d2;
-			const real fj = d2 - (real)j0;
-			const uint32_t c0 = widx - (uint32_t)j0;
-			const real s0 = sb[c0 & (SHORT_LEN - 1)], s1 = sb[(c0 - 1u) & (SHORT_LEN - 1)];
-			const real jx = clampr(drv * (jn * tn - JET_GAIN * (s0 + fj * (s1 - s0))) + joff, -1.5f, 1.5f);
-			const real jt = (jx * (1.0f - 0.148148148f * jx * jx) - soff) * ja;
-			mb[widx & (MAIN_LEN - 1)] = jt + tmp;
-			widx++;
-			y = bi + body * jt + JET_H2 * joff * bi * bi; // bore, jet sound at the mouth hole, jet asymmetry
-		} else {
-			// lattice / bell: 2-pole lowpass, reflection
-			const real yl = bb0 * bi + lp;
-			lp = 2.0f * bb0 * bi - ba1 * yl + lp2;
-			lp2 = bb0 * bi - ba2 * yl;
-			const real am = -g * yl;
-			real V, bm = 0.0f;
-			if (KIND == KIND_CONE) {
+	// The delay slots: writes at widx & mask, the Lagrange taps at (widx - i0 .. widx - i0 - 3) &
+	// (MAIN_LEN - 1) for i0 = (int)d1 - 1, the short line's at (widx - j0, widx - j0 - 1) &
+	// (SHORT_LEN - 1) for j0 = (int)d2; widx rises by one per sample and the delays ramp linearly
+	// (their integer parts stay within one of the block's start and end values). When no slot wraps
+	// around its buffer's end in this block (most blocks), the loop addresses the same slots as
+	// plain indices (the same reads and writes in the same order: identical results).
+	const int cm = (int)(widx & (MAIN_LEN - 1)), cs = (int)(widx & (SHORT_LEN - 1));
+	int om = 0, os = 0;
+	bool fast = cm + BLOCK <= MAIN_LEN;
+	{
+		const real e1 = c.d1 + (real)BLOCK * c.dd1;
+		const bool ok = rmin(c.d1, e1) >= 2.0f && rmax(c.d1, e1) <= (real)(MAIN_LEN - 5); // (false for NaN)
+		const int lo = ok ? (int)rmin(c.d1, e1) - 2 : 0, hi = ok ? (int)rmax(c.d1, e1) + 1 : 0; // (int)d1 - 1 range
+		const int y = (int)((widx - (uint32_t)(hi + 3)) & (MAIN_LEN - 1)); // lowest slot
+		fast &= ok & (y + (BLOCK - 1) + (hi - lo) + 3 < MAIN_LEN);
+		om = y + hi + 3 - cm; // fast: the Lagrange read's w = cm + n + om
+	}
+	if (KIND != KIND_CYL) {
+		const real e2 = c.d2 + (real)BLOCK * c.dd2;
+		const bool ok = rmin(c.d2, e2) >= 1.0f && rmax(c.d2, e2) <= (real)(SHORT_LEN - 2);
+		const int lo = ok ? (int)rmin(c.d2, e2) - 1 : 0, hi = ok ? (int)rmax(c.d2, e2) + 1 : 0;
+		const int y = (int)((widx - (uint32_t)(hi + 1)) & (SHORT_LEN - 1));
+		fast &= ok & (cs + BLOCK <= SHORT_LEN) & (y + (BLOCK - 1) + (hi - lo) + 1 < SHORT_LEN);
+		os = y + hi + 1 - cs; // fast: slot = cs + n + os - j0 (- 1)
+	}
+	auto run = [&](auto fast_tag) {
+		constexpr bool FAST = decltype(fast_tag)::value;
+		for (int n = 0; n < BLOCK; n++) {
+			d1 += c.dd1;
+			gam += c.dgam;
+			gm += c.dgm;
+			og += c.dog;
+			if (KIND != KIND_CYL) d2 += c.dd2;
+			rng = rng * 1664525u + 1013904223u;
+			const real wn = (real)(int32_t)rng * (1.0f / 2147483648.0f);
+			tn += ct * (wn - tn);
+			nmix[n] += bo * wn;
+			const real drv = gam * (gm + turb * tn);
+			const real bi = lagrange_read<FAST>(mb, FAST ? (uint32_t)(cm + n + om) : widx, d1);
+			real y;
+			if (KIND == KIND_JET) {
+				// bore: one-pole loss lowpass, DC blocker, reflection
+				lp += cbs * (bi - lp);
+				dcy = lp - dcx + gs * dcy;
+				dcx = lp;
+				const real tmp = g * dcy;
+				// jet: deflected by the acoustic flow at the mouth hole, the deflection travels with
+				// the jet to the edge (delay d2); the edge splits it (saturating, offset -> even
+				// harmonics). The gain grows with the breath (jet speed).
+				if constexpr (FAST) sb[cs + n] = tmp;
+				else sb[widx & (SHORT_LEN - 1)] = tmp;
 				const int j0 = (int)d2;
 				const real fj = d2 - (real)j0;
 				const uint32_t c0 = widx - (uint32_t)j0;
-				const real s0 = sb[c0 & (SHORT_LEN - 1)], s1 = sb[(c0 - 1u) & (SHORT_LEN - 1)];
-				ls += cbs * (s0 + fj * (s1 - s0) - ls);
-				bm = -gs * ls;
-				V = am + bm;
+				const real s0 = FAST ? sb[cs + n + os - j0] : sb[c0 & (SHORT_LEN - 1)], s1 = FAST ? sb[cs + n + os - j0 - 1] : sb[(c0 - 1u) & (SHORT_LEN - 1)];
+				const real jx = clampr(drv * (jn * tn - JET_GAIN * (s0 + fj * (s1 - s0))) + joff, -1.5f, 1.5f);
+				const real jt = (jx * (1.0f - 0.148148148f * jx * jx) - soff) * ja;
+				if constexpr (FAST) mb[cm + n] = jt + tmp;
+				else mb[widx & (MAIN_LEN - 1)] = jt + tmp;
+				widx++;
+				y = bi + body * jt + JET_H2 * joff * bi * bi; // bore, jet sound at the mouth hole, jet asymmetry
 			} else {
-				V = 2.0f * am;
+				// lattice / bell: 2-pole lowpass, reflection
+				const real yl = bb0 * bi + lp;
+				lp = 2.0f * bb0 * bi - ba1 * yl + lp2;
+				lp2 = bb0 * bi - ba2 * yl;
+				const real am = -g * yl;
+				real V, bm = 0.0f;
+				if (KIND == KIND_CONE) {
+					const int j0 = (int)d2;
+					const real fj = d2 - (real)j0;
+					const uint32_t c0 = widx - (uint32_t)j0;
+					const real s0 = FAST ? sb[cs + n + os - j0] : sb[c0 & (SHORT_LEN - 1)], s1 = FAST ? sb[cs + n + os - j0 - 1] : sb[(c0 - 1u) & (SHORT_LEN - 1)];
+					ls += cbs * (s0 + fj * (s1 - s0) - ls);
+					bm = -gs * ls;
+					V = am + bm;
+				} else {
+					V = 2.0f * am;
+				}
+				// reed displacement from the previous pressure difference, then the flow
+				const real x = rb * (pm1 - gm1) + r1 * x1 + r2 * x2;
+				x2 = x1;
+				x1 = x;
+				const real W = zeta * rmax(1.0f + x, 0.0f);
+				const real X = drv - V;
+				const real uabs = 0.5f * W * (fsqrt(W * W + 4.0f * fabsf(X)) - W);
+				const real u = X >= 0.0f ? uabs : -uabs;
+				const real p = V + u;
+				pm1 = p;
+				gm1 = drv;
+				if (KIND == KIND_CONE) {
+					if constexpr (FAST) {
+						mb[cm + n] = bm + u;
+						sb[cs + n] = am + u;
+					} else {
+						mb[widx & (MAIN_LEN - 1)] = bm + u;
+						sb[widx & (SHORT_LEN - 1)] = am + u;
+					}
+				} else {
+					if constexpr (FAST) mb[cm + n] = am + u;
+					else mb[widx & (MAIN_LEN - 1)] = am + u;
+				}
+				widx++;
+				y = (bi + am) + body * bi; // radiated through the lattice + some internal wave
 			}
-			// reed displacement from the previous pressure difference, then the flow
-			const real x = rb * (pm1 - gm1) + r1 * x1 + r2 * x2;
-			x2 = x1;
-			x1 = x;
-			const real W = zeta * rmax(1.0f + x, 0.0f);
-			const real X = drv - V;
-			const real uabs = 0.5f * W * (fsqrt(W * W + 4.0f * fabsf(X)) - W);
-			const real u = X >= 0.0f ? uabs : -uabs;
-			const real p = V + u;
-			pm1 = p;
-			gm1 = drv;
-			if (KIND == KIND_CONE) {
-				mb[widx & (MAIN_LEN - 1)] = bm + u;
-				sb[widx & (SHORT_LEN - 1)] = am + u;
-			} else {
-				mb[widx & (MAIN_LEN - 1)] = am + u;
-			}
-			widx++;
-			y = (bi + am) + body * bi; // radiated through the lattice + some internal wave
+			const real yo = og * (y + kb * (y - yp));
+			yp = y;
+			y = yo;
+			mix[n] += y;
+			peak = rmax(peak, fabsf(y));
 		}
-		const real yo = og * (y + kb * (y - yp));
-		yp = y;
-		y = yo;
-		mix[n] += y;
-		peak = rmax(peak, fabsf(y));
-	}
+	};
+	if (fast) run(std::true_type{});
+	else run(std::false_type{});
 	s.widx = widx;
 	s.rng = rng;
 	s.lp = lp;
