@@ -234,7 +234,10 @@ def flash(uf2_path, do_backup=True):
     with open(drive / Path(uf2_path).name, "wb") as f:
         f.write(data)
         f.flush()
-        os.fsync(f.fileno())
+        try:
+            os.fsync(f.fileno())
+        except OSError:
+            pass  # the bootloader can reboot (dropping the drive) as soon as the last block lands; the checks after the reboot tell
     wait_for(lambda: find_drive() is None and find_device() is not None, 60, "board to reboot")
     # health check: the console runs in the lowest priority thread, so a reply means the firmware isn't starved
     t0, got = time.time(), None
@@ -326,7 +329,10 @@ def config_update(updates, remove=()):
     with open(drive / "NEWCFG.UF2", "wb") as f:
         f.write(data)
         f.flush()
-        os.fsync(f.fileno())
+        try:
+            os.fsync(f.fileno())
+        except OSError:
+            pass  # the bootloader can reboot (dropping the drive) as soon as the last block lands; the checks after the reboot tell
     wait_for(lambda: find_drive() is None and find_device() is not None, 60, "board to reboot")
     wait_for(version, 15, "version reply")
 
