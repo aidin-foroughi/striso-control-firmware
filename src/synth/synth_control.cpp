@@ -296,8 +296,10 @@ class Button {
         float but_y;
         float vol0;
         float vol = 0.0;
+        float synth_vol = 0.0;  // the same estimate, for the internal synth voices (tick)
         button_state_t state = STATE_OFF;
-        int voice = -1;
+        int voice = -1;        // MIDI voice: the MPE channel slot (index into voices[])
+        int synth_voice = -1;  // internal synth voice (index into synth_voices[]), -1: none
 
         Button() {
         }
@@ -315,6 +317,8 @@ class Button {
                 vol0 = pres + vpres;
             if (vol < vol0)
                 vol = vol0;
+            if (synth_vol < vol0)
+                synth_vol = vol0;
         }
 };
 
@@ -322,6 +326,7 @@ class Instrument {
     public:
         Button buttons[BUTTONCOUNT];
         int voices[MAX_VOICECOUNT];
+        int synth_voices[VOICECOUNT];  // the key of each internal synth voice, -1: none yet
         int portamento_buttons[MAX_PORTAMENTO_BUTTONS];
         float notegen0 = 12.00;
         float notegen1 = 7.00;
@@ -365,6 +370,9 @@ class Instrument {
             }
             for (n = 0; n < MAX_VOICECOUNT; n++) {
                 voices[n] = -1;
+            }
+            for (n = 0; n < VOICECOUNT; n++) {
+                synth_voices[n] = -1;
             }
             for (n = 0; n < MAX_PORTAMENTO_BUTTONS; n++) {
                 portamento_buttons[n] = -1;
@@ -628,6 +636,7 @@ class Instrument {
                         buttons[but].state = STATE_ON;
                         buttons[but].midinote = buttons[but].midinote_base + (int)(start_note_offset + 0.5);
                         buttons[but].start_note_offset = start_note_offset;
+                        get_synth_voice(but);
                         // multiply velo by 2 to cover full midi range on note on
                         int velo = midi_velo_offset + buttons[but].vpres * velo_sensitivity * 128 * 2;
                         velo = clamp(velo, 1, 127);
@@ -639,6 +648,12 @@ class Instrument {
                     if (master_button == -1) {
                         master_button = but;
                     }
+                    // the internal synth plays every key with its own expression, as in MPE mode
+                    buttons[but].note = buttons[but].start_note_offset + buttons[but].tuning_note_offset +
+                                        notegen0 * buttons[but].coord0 +
+                                        notegen1 * buttons[but].coord1
+                                        + note_offset;
+                    update_synth_voice(but);
 
                     if (config.midi_pres == CFG_POLY_PRESSURE) {
                         float presf = buttons[but].pres * pres_sensitivity;
@@ -726,6 +741,9 @@ class Instrument {
                     }
 
                 } else { // Note off
+                    if (buttons[but].state == STATE_ON) {
+                        update_synth_voice(but);  // pres 0, the release velocity
+                    }
                     buttons[but].state = STATE_OFF;
                     int velo = 0 - buttons[but].vpres * velo_sensitivity * 128 * 2;
                     velo = clamp(velo, 0, 127);
@@ -879,6 +897,7 @@ class Instrument {
                                 buttons[portamento_buttons[n]].voice = buttons[but].voice;
                                 master_button = portamento_buttons[n];
                                 voices[buttons[master_button].voice] = master_button;
+                                hand_over_synth_voice(but, master_button);
                                 portamento_buttons[n] = -1;
                                 buttons[master_button].state = STATE_ON;
                                 buttons[but].state = STATE_OFF;
@@ -899,6 +918,7 @@ class Instrument {
                             buttons[transpose_button2].voice = buttons[transpose_button].voice;
                             buttons[transpose_button2].start_note_offset = start_note_offset;
                             voices[buttons[transpose_button2].voice] = transpose_button2;
+                            hand_over_synth_voice(transpose_button, transpose_button2);
                             buttons[transpose_button2].state = STATE_ON;
                             buttons[but].state = STATE_OFF;
                         }
@@ -922,6 +942,112 @@ class Instrument {
                     release_voice(but);
                 };
             }
+        }
+
+        /*
+         * Internal synth voices. The internal synth has VOICECOUNT voices, allocated apart from the
+         * MIDI channels and the same way in every MIDI mode, so every note sounds whatever the MPE
+         * channel count (SC-01), and Normal mode plays the internal synth too, each key with its
+         * own expression (SC-10). Mono mode keeps its one voice: its MIDI voice (0).
+         */
+        void take_synth_voice(int but, int v) {
+            int old = synth_voices[v];
+            if (old >= 0 && old != but) {
+                buttons[old].synth_voice = -1;  // one key drives a voice
+            }
+            int mine = buttons[but].synth_voice;
+            if (mine >= 0 && mine != v && synth_voices[mine] == but) {
+                synth_voices[mine] = -1;
+            }
+            synth_voices[v] = but;
+            buttons[but].synth_voice = v;
+        }
+
+        // the internal voice for a new note of but: its own voice (a repeated note), else an empty
+        // one, else the quietest released one (by the estimated volume), else the quietest held
+        // one if it is quieter than the new note (that key goes on on MIDI only); -1 if none
+        int get_synth_voice(int but) {
+#ifdef USE_INTERNAL_SYNTH
+            int voice = -1;
+            if (config.midi_mode == MIDI_MODE_MONO) {
+                if (buttons[but].voice >= 0 && buttons[but].voice < VOICECOUNT) {
+                    voice = buttons[but].voice;
+                }
+            } else if (buttons[but].synth_voice >= 0 && synth_voices[buttons[but].synth_voice] == but) {
+                voice = buttons[but].synth_voice;
+            } else {
+                int released = -1, held = -1;
+                float min_released = 0, min_held = buttons[but].synth_vol;
+                for (int n = 0; n < VOICECOUNT; n++) {
+                    if (synth_voices[n] == -1) {
+                        voice = n;
+                        break;
+                    }
+                    const Button& b = buttons[synth_voices[n]];
+                    if (b.state != STATE_ON) {
+                        if (released < 0 || b.synth_vol < min_released) {
+                            min_released = b.synth_vol;
+                            released = n;
+                        }
+                    } else if (b.synth_vol < min_held) {
+                        min_held = b.synth_vol;
+                        held = n;
+                    }
+                }
+                if (voice < 0) {
+                    voice = released >= 0 ? released : held;
+                }
+            }
+            if (voice >= 0) {
+                take_synth_voice(but, voice);
+            }
+            return voice;
+#else
+            (void)but;
+            return -1;
+#endif
+        }
+
+        // the note of but goes on with key to (portamento and free transpose hand-overs)
+        void hand_over_synth_voice(int but, int to) {
+            int v = buttons[but].synth_voice;
+            if (v >= 0 && synth_voices[v] == but) {
+                take_synth_voice(to, v);
+            }
+        }
+
+        // the internal synth controls of but's voice (if it still has one)
+        void update_synth_voice(int but) {
+#ifdef USE_INTERNAL_SYNTH
+            int voice = buttons[but].synth_voice;
+            if (voice < 0 || voice >= VOICECOUNT || synth_voices[voice] != but) {
+                return;
+            }
+            float pb = 0.0f;
+            if (config.mpe_x == CFG_PITCH_BEND) {
+                pb = bend_sensitivity * pow3(buttons[but].but_x);
+            }
+            *(synth_interface->note[voice])  = buttons[but].note + pb;
+            *(synth_interface->pres[voice])  = buttons[but].pres * pres_sensitivity;
+            *(synth_interface->vpres[voice]) = buttons[but].vpres * velo_sensitivity;
+            *(synth_interface->but_x[voice]) = buttons[but].but_x;
+            *(synth_interface->but_y[voice]) = clamp(buttons[but].but_y * y_sensitivity, -1.0f, 1.0f);
+#else
+            (void)but;
+#endif
+        }
+
+        // end the internal sound of but's note (its key is still held)
+        void silence_synth_voice(int but) {
+#ifdef USE_INTERNAL_SYNTH
+            int voice = buttons[but].synth_voice;
+            if (voice >= 0 && voice < VOICECOUNT && synth_voices[voice] == but) {
+                *(synth_interface->pres[voice])  = 0.0f;
+                *(synth_interface->vpres[voice]) = 0.0f;
+            }
+#else
+            (void)but;
+#endif
         }
 
         void release_voice(int but) {
@@ -957,6 +1083,9 @@ class Instrument {
             if (voice >= 0) {
                 // take over the voice
                 if (voices[voice] >= 0) {
+                    if (buttons[voices[voice]].state == STATE_ON) {
+                        silence_synth_voice(voices[voice]);  // a held note stolen
+                    }
                     release_voice(voices[voice]);
                 }
 
@@ -965,6 +1094,7 @@ class Instrument {
                 buttons[but].last_pitchbend = INT32_MAX;
                 voices[voice] = but;
                 last_button = but;
+                get_synth_voice(but);
 
 #ifdef USE_MIDI_OUT
                 // multiply velo by 2 to cover full midi range on note on
@@ -1004,14 +1134,7 @@ class Instrument {
             float presf = buttons[but].pres * pres_sensitivity;
             float velof = buttons[but].vpres * velo_sensitivity;
             float y = clamp(buttons[but].but_y * y_sensitivity, -1.0f, 1.0f);
-#ifdef USE_INTERNAL_SYNTH
-            int voice = buttons[but].voice;
-            *(synth_interface->note[voice])  = buttons[but].note + pb;
-            *(synth_interface->pres[voice])  = presf;
-            *(synth_interface->vpres[voice]) = velof;
-            *(synth_interface->but_x[voice]) = buttons[but].but_x;
-            *(synth_interface->but_y[voice]) = y;
-#endif
+            update_synth_voice(but);
 
 #ifdef USE_MIDI_OUT
             float d; // calculate direction for hysteresis
@@ -1106,6 +1229,15 @@ class Instrument {
                     buttons[voices[n]].vol -= VOL_TICK;
                     if (buttons[voices[n]].vol < buttons[voices[n]].vol0)
                         buttons[voices[n]].vol = buttons[voices[n]].vol0;
+                }
+            }
+            // the same for the keys of the internal synth voices
+            for (int n = 0; n < VOICECOUNT; n++) {
+                if (synth_voices[n] >= 0) {
+                    Button& b = buttons[synth_voices[n]];
+                    b.synth_vol = b.synth_vol * VOL_TICK_FACT - VOL_TICK;
+                    if (b.synth_vol < b.vol0)
+                        b.synth_vol = b.vol0;
                 }
             }
         }
