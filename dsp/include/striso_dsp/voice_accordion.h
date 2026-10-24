@@ -5,7 +5,7 @@
  *
  * Presets (level matched):
  *   0 clarinet   one 8' reed
- *   1 bassoon    one 16' reed (an octave down), in the cassotto
+ *   1 bassoon    one 16' reed (an octave down)
  *   2 piccolo    one 4' reed (an octave up)
  *   3 violin     two 8' reeds, the second slightly sharp: a light, slow tremolo
  *   4 musette    three 8' reeds (in tune, sharp, flat): the classic wet French musette
@@ -269,7 +269,7 @@ static constexpr const char* preset_names[NUM_PRESETS] = {
 		p.level = 1.05f;
 		p.r8a = 0.0f;
 		p.r16 = 1.0f;
-		p.cassotto = 1.0f;
+		p.cassotto = 0.0f; // (as the reference; cassotto on: darker)
 		break;
 	case 2: // piccolo
 		p.level = 1.45f;
@@ -307,15 +307,15 @@ static constexpr const char* preset_names[NUM_PRESETS] = {
 		p.r16 = 1.0f;
 		p.r8a = 0.9f;
 		p.speak_ms = 50.0f;
-		p.rest = 1.1f;
+		p.rest = 0.8f;
 		p.amp = 2.6f;
 		p.constrict = 1.2f;
 		p.down = 1.1f;
 		p.pump = 1.0f;
-		p.ch_hz = 1300.0f;
-		p.ch_db = 9.0f;
+		p.ch_hz = 1800.0f;
+		p.ch_db = 10.0f;
 		p.ch_q = 1.2f;
-		p.grille_hz = 4500.0f;
+		p.grille_hz = 6000.0f;
 		p.flat = 5.0f;
 		break;
 	case 8: // harmonium: 8' + 4' reed organ, no reed chambers, one wind supply
@@ -326,12 +326,12 @@ static constexpr const char* preset_names[NUM_PRESETS] = {
 		p.speak_ms = 70.0f;
 		p.chamber_ms = 25.0f;
 		p.release_ms = 30.0f;
-		p.rest = 1.0f;
+		p.rest = 0.8f;
 		p.amp = 2.4f;
-		p.ch_hz = 1500.0f;
-		p.ch_db = 3.0f;
+		p.ch_hz = 2200.0f;
+		p.ch_db = 6.0f;
 		p.ch_q = 0.8f;
-		p.grille_hz = 4200.0f;
+		p.grille_hz = 5500.0f;
 		p.rev_pedal = 0.0f;
 		p.rev_shake = 0.0f;
 		break;
