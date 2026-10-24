@@ -143,6 +143,25 @@ The host tests render every engine and preset on the PC: the default, stale-inpu
 
 `tools/format.sh` (clang-format) and `tools/tidy.sh` (clang-tidy) cover our C++. CI (`.github/workflows/firmware.yml`) runs all of it on every push and attaches the UF2s to a release for every `v*` tag.
 
+### Testing without the hardware: the virtual board
+
+`virtual/` builds the firmware's logic as a library for the PC, **striso_virtual** (`.dll`, `.dylib`, `.so`), from the board's own source files: `synth_control.cpp`, `synth_strisy.cpp` with every engine (as `VOICE=all`), the USB console and its protocol (`pconnection.c`), `messaging.c`, `config_store.c`, `led.c`. They run on a small ChibiOS/HAL stand-in (`virtual/hal`): the firmware's threads run one at a time by priority, in virtual time (the 2 kHz tick, the codec's 32-frame block interrupt, the 1 ms USB frame), so a run is deterministic. What only the hardware has is replaced (`virtual/board`): key and control messages are injected where the key scanner sends them, so the firmware's own `synth_message` path runs; motion where the sensor thread reads it; the USB bulk console is a pair of byte queues with exactly the board's protocol (`Stc` commands, Q writes, the S/s binary stream). StcB opens the bootloader's drive as a directory, and a UF2 written there is flashed into the virtual board's config. No firmware file is changed for it; the board build is the same.
+
+```sh
+tools/virtual.sh            # build and test natively (Windows: clang with Visual Studio's libraries; macOS: Xcode's clang)
+cmake --preset host-virtual && cmake --build --preset host-virtual && ctest --preset host-virtual
+```
+
+The library is `build/host-virtual/virtual/striso_virtual.*`; its API is `virtual/include/striso_virtual.h` (boards, render and taps, real time, the console and USB MIDI, key/control/motion injection, LEDs and state, the flash). Its tests (`ctest -L virtual`, also part of `tools/test.sh`):
+
+- every golden render of the firmware's 56 voices (default, stale and recorded performances, the effects) through the board's synth thread, bit for bit with `tests/golden/renders.txt` (Windows x64, macOS arm64 and Linux);
+- recorded key streams through the firmware's message path, replayed on the straight engine: bit for bit;
+- voice switches leave nothing behind (an engine renders its golden after another ran);
+- console transcripts (`virtual/tests/transcripts`) and the real board's replies to the read-only commands, field for field (`transcripts/board`, recorded from a Striso);
+- the API: sound, LEDs, resets, the bootloader drive and its config, determinism, real time.
+
+Striso Live uses it as its **Virtual** Striso, and to audition a build with a real Striso as the controller (`--virtual-lib=<build>/virtual/striso_virtual.dll`): see its README. `test_mirror.py` keeps the virtual board's copies of `main.c`'s and `motionsensor.c`'s loops equal to the firmware's.
+
 ### Layout
 
 | Path | What |
@@ -155,6 +174,7 @@ The host tests render every engine and preset on the PC: the default, stale-inpu
 | `board`, `cfg`, `ld` | board definition, ChibiOS configuration, linker script |
 | `cmake` | toolchain file, ChibiOS integration (from its own make fragments), version, post-build checks |
 | `tests` | host tests and golden checksums |
+| `virtual` | the virtual board: the firmware's logic as a PC library (striso_virtual), its HAL stand-in and tests |
 | `tools` | PC tools, the Docker build environment, the renderers |
 | `third_party` | ChibiOS and uf2 (submodules), doctest |
 
@@ -171,6 +191,7 @@ In a checkout from before this layout, `git submodule update --init` puts the su
   - flash safely (`flash`). It backs up first, refuses blocks outside the app region and health-checks the board after the reboot.
 - `tools/harness/`: renders the voice engines on the PC from scripted or recorded performances (`VOICE=<name> tools/harness/render_strisy.sh <name> "" --preset 2 --rec /src/tools/harness/rec/<take>.csv`). It has stress and stale-input tests and a test of the master effects (`fx_test.sh`, `fx_suite.sh`). `cmake --build --preset host --target render_wavs` writes a WAV of every engine. `tools/harness/rec/` has real key-stream recordings for replay.
 - `tools/target_render/`: the engines compiled for the board's CPU and run under QEMU (see Tests).
+- `tools/virtual.sh`: builds and tests the virtual board natively (see Testing without the hardware).
 - `tools/build.sh`, `tools/test.sh`, `tools/update_goldens.sh`, `tools/format.sh`, `tools/tidy.sh`: run in Docker (see Building).
 - `tools/record_keys.py`: records the key stream from the board to CSV.
 - `tools/review_voice.sh`: builds and checks a voice engine before it may be flashed.

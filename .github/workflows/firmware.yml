@@ -110,10 +110,33 @@ jobs:
           IMAGE: ${{ needs.image.outputs.image }}
         run: docker run --rm -v "$PWD:/src" -w /src "$IMAGE" bash -c 'tools/format.sh --check && tools/tidy.sh'
 
+  virtual:
+    # the virtual board (striso_virtual) is built for the machine that loads it: natively on the
+    # OSes Striso Live runs on, and its tests run there (the goldens through the board, the
+    # protocol transcripts, the API)
+    name: virtual board (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0 # the version string is git describe --tags
+      - name: ninja (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja
+      - name: build and test (tools/virtual.sh)
+        run: tools/virtual.sh all
+
   release:
     name: release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [firmware, host]
+    needs: [firmware, host, virtual]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
