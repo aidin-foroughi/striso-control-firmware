@@ -80,10 +80,6 @@ struct MsgSink {
 		if (cap_state == Cap::running) rec.send(msg, rc);
 		return rc;
 	}
-	void wait() {
-		scan_stats.off_waits = scan_stats.off_waits + 1;
-		chThdSleep(1);
-	}
 };
 MsgSink sink;
 
@@ -237,7 +233,10 @@ void ks_column(const ScanFrame* f, int col) {
 		}
 	}
 	scanner.process_column(work, col, sink);
-	if (col == ks::kColumns - 1) frame_end();
+	if (col == ks::kColumns - 1) {
+		scan_stats.off_retries = scanner.off_retries;
+		frame_end();
+	}
 }
 
 void ks_key_state(int b, int* status, int32_t* c_force, int32_t* zero_offset, int32_t* pres) {

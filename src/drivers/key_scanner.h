@@ -13,7 +13,7 @@
  *   lost_wakeups the interrupt published new columns between the thread's last check and its
  *                sleep: the thread slept with work waiting, until the next wakeup
  *   queue_full   key messages the message queue refused (msgSend failed)
- *   off_waits    of those, retries of a note-off: each one stalls the scanner thread for a tick
+ *   off_retries  retries of refused note-offs, at the key's next scans (the scanner never waits)
  *   cycles       DWT cycles from one scan's start to the next: min, max, sum and a histogram
  *   callbacks    ADC callbacks per scan: a histogram (17 detection + 7 per measured column +
  *                the delay phase)
@@ -68,7 +68,7 @@ typedef struct {
 	uint32_t overruns;
 	uint32_t lost_wakeups;
 	uint32_t queue_full;
-	uint32_t off_waits;
+	uint32_t off_retries;
 	uint32_t cycles_min;
 	uint32_t cycles_max;
 	uint64_t cycles_sum;

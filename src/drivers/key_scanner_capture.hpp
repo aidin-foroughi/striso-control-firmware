@@ -10,7 +10,8 @@
  *   u32 seq and u32 t_start of the first scan, u32 noise statistics bytes, u32 0,
  *   the KeyScanner's state before the first scan: Config (2 x i32), i32 buttons_pressed,
  *   17 x i32 col_pressed, 68 x key: i32 pres velo c_force c_breakpoint c_force2 zero_offset
- *   zero_time zero_max key_detect3, u32 fact (float bits), i32 timer, u8 status, 3 x u8 0.
+ *   zero_time zero_max key_detect3, u32 fact (float bits), i32 timer, u8 status, u8 a note-off
+ *   is pending, i16 its velocity value.
  *
  * Record of a scan (varint: 7 bits per byte, low first; zz: zigzag signed varint):
  *   u8 flags: bit 0 the scan number is not the previous + 1: varint seq follows,
@@ -148,7 +149,7 @@ inline void write_snapshot(ByteWriter& w, const KeyScanner& s) {
 		std::memcpy(&fb, &k.fact, 4);
 		w.u32(fb);
 		w.u32(static_cast<uint32_t>(k.timer));
-		w.u32(static_cast<uint32_t>(k.status));
+		w.u32(static_cast<uint32_t>(k.status) | (k.off_pending ? 0x100U : 0U) | (static_cast<uint32_t>(static_cast<uint16_t>(k.off_velo)) << 16));
 	}
 }
 
@@ -165,7 +166,10 @@ inline void read_snapshot(ByteReader& r, KeyScanner& s) {
 		const uint32_t fb = r.u32();
 		std::memcpy(&k.fact, &fb, 4);
 		k.timer = static_cast<int32_t>(r.u32());
-		k.status = static_cast<Status>(r.u32() & 0xff);
+		const uint32_t st = r.u32();
+		k.status = static_cast<Status>(st & 0xff);
+		k.off_pending = (st & 0x100U) != 0;
+		k.off_velo = static_cast<int16_t>(st >> 16);
 	}
 }
 

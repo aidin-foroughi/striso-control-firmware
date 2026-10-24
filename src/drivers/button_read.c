@@ -989,8 +989,8 @@ void buttonPrintStats(BaseSequentialStream *out) {
   const scan_stats_t *st = &stats_copy;
   chprintf(out, "scan scans %lu frames %lu seq_gaps %lu overruns %lu lost_wakeups %lu\r\n",
            st->scans, st->frames, st->seq_gaps, st->overruns, st->lost_wakeups);
-  chprintf(out, "scan queue_full %lu off_waits %lu msg_underruns %d\r\n",
-           st->queue_full, st->off_waits, msg_underruns);
+  chprintf(out, "scan queue_full %lu off_retries %lu msg_underruns %d\r\n",
+           st->queue_full, st->off_retries, msg_underruns);
   chprintf(out, "scan cycles n %lu min %lu max %lu mean %lu (%lu cycles/us)\r\n", st->cycles_n,
            st->cycles_min, st->cycles_max,
            st->cycles_n ? (uint32_t)(st->cycles_sum / st->cycles_n) : 0, STM32_SYS_CK / 1000000U);

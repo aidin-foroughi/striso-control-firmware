@@ -114,6 +114,9 @@ struct KeyState {
 	float fact = 1.0f;       // cross talk correction factor for the next update
 	Status status = Status::off;
 	int32_t timer = 0; // integration timer, then scans until the next message
+	// a note-off the message queue refused, sent before anything else of this key (S4)
+	bool off_pending = false;
+	int16_t off_velo = 0; // its velocity value
 };
 
 struct Config {
@@ -123,13 +126,15 @@ struct Config {
 
 // The key processing state. process(frame, sink) per scan; Sink is any type with
 //   int send(const int (&msg)[6])  0: queued (msgSend), else refused
-//   void wait()                    a tick's sleep before a note-off is retried
+// A refused note-off is retried at the key's next scans, first (S4: the scanner used to sleep a
+// tick and retry until the queue took it); until it is sent the key sends nothing else.
 class KeyScanner {
 public:
 	std::array<KeyState, kButtons> keys{};
 	std::array<int32_t, kColumns> col_pressed{}; // keys not off per column
 	int32_t buttons_pressed = 0;                 // keys on
 	Config cfg{};
+	uint32_t off_retries = 0; // retries of refused note-offs (a counter, not state)
 
 	// ButtonReadStart's initial state: every position kCalibForce, the ones without a key 0
 	void init() {
@@ -213,16 +218,32 @@ public:
 private:
 	template <class Sink>
 	void send_off(int b, int32_t velo, Sink& sink) {
+		KeyState& but = keys[b];
 		const int msg[6] = {kSrcId, b, 0, cmin<int32_t>(velo, 0) / kMsgFactVelo, 0, 0};
-		while (sink.send(msg)) { // note off messages are more important so keep trying
-			sink.wait();
+		// note off messages are more important: if the queue is full, keep it for the next scan
+		if (but.off_pending || sink.send(msg)) {
+			but.off_pending = true;
+			but.off_velo = static_cast<int16_t>(msg[3]);
 		}
+	}
+
+	// the key's refused note-off, before anything else of it; true: nothing is pending
+	template <class Sink>
+	bool retry_off(int b, Sink& sink) {
+		KeyState& but = keys[b];
+		if (!but.off_pending) return true;
+		off_retries++;
+		const int msg[6] = {kSrcId, b, 0, but.off_velo, 0, 0};
+		if (sink.send(msg)) return false;
+		but.off_pending = false;
+		return true;
 	}
 
 	template <class Sink>
 	void update_button(int b, Sink& sink) {
 		KeyState& but = keys[b];
 		const int col = b % kColumns;
+		(void)retry_off(b, sink);
 		const int32_t key_detect2 = kKeyDetect2 * ((col_pressed[col] - (but.status != Status::off)) >= 1);
 
 		if (but.on > kKeyDetect + key_detect2 + but.key_detect3) {
@@ -297,7 +318,7 @@ private:
 					but_y = f2i(static_cast<float>(wsub(wadd(s0, s2) / 2, s1)) * fact);
 				}
 				const int msg[6] = {kSrcId, b, but.pres / kMsgFact, but.velo / kMsgFactVelo, but_x / kMsgFact, but_y / kMsgFact};
-				(void)sink.send(msg);
+				if (!but.off_pending) (void)sink.send(msg); // not before a refused note-off
 				but.timer = buttons_pressed * cfg.message_interval;
 			}
 		} else if (but.status != Status::off) {

@@ -108,10 +108,12 @@ struct Scenario {
 	std::function<void(int frame, std::array<int32_t, ks::kButtons>& c_force)> calibration;
 	Refusals refusals;
 	float noise = 3.0f;
+	bool compare_ref = true; // false: the KeyScanner alone (where it differs from the original on purpose)
 };
 
 struct Outcome {
 	std::vector<Msg6> msgs;
+	std::vector<bool> queued; // per attempt: the queue took it
 	int waits = 0;
 	int notes = 0; // note starts (pres > 0 after a 0 or the first message of a key)
 	std::string error;
@@ -190,12 +192,12 @@ Outcome run(const Scenario& sc, ks::KeyScanner& s, ks::RecordWriter* rec = nullp
 			head.frames++;
 			sink.rec = nullptr;
 		}
-		const std::string d = diff_state(s);
+		const std::string d = sc.compare_ref ? diff_state(s) : std::string();
 		if (!d.empty()) {
 			out.error = "scan " + std::to_string(frame) + ": " + d;
 			break;
 		}
-		if (sink.msgs != g_ref.msgs) {
+		if (sc.compare_ref && sink.msgs != g_ref.msgs) {
 			out.error = "scan " + std::to_string(frame) + ": messages differ";
 			break;
 		}
@@ -207,7 +209,8 @@ Outcome run(const Scenario& sc, ks::KeyScanner& s, ks::RecordWriter* rec = nullp
 	}
 	out.msgs = sink.msgs;
 	out.waits = sink.waits;
-	if (out.error.empty() && g_ref.waits != sink.waits) out.error = "waits differ";
+	for (uint32_t a = 0; a < sink.attempts; a++) out.queued.push_back(!sc.refusals.refuse(a));
+	if (sc.compare_ref && out.error.empty() && g_ref.waits != sink.waits) out.error = "waits differ";
 	std::array<bool, ks::kButtons> down{};
 	for (const Msg6& m : out.msgs) {
 		if (m[2] > 0 && !down[m[1]]) out.notes++;
@@ -304,7 +307,7 @@ TEST_CASE("key scanner: three and four corners, as the original") {
 	CHECK(o.notes >= 6);
 }
 
-TEST_CASE("key scanner: chords, configuration and calibration changes, a full queue, as the original") {
+TEST_CASE("key scanner: chords, configuration and calibration changes, as the original") {
 	for (uint32_t seed = 21; seed < 33; seed++) {
 		CAPTURE(seed);
 		std::mt19937 rng(seed);
@@ -335,10 +338,9 @@ TEST_CASE("key scanner: chords, configuration and calibration changes, a full qu
 				}
 			}
 		};
-		sc.refusals.every = seed % 3 ? 0 : 23;
+		// (with a full queue the KeyScanner differs from the original on purpose: S4)
 		const Outcome o = run(sc, scanner);
 		CHECK_MESSAGE(o.error.empty(), o.error);
-		if (sc.refusals.every) CHECK(o.waits > 0);
 	}
 }
 
@@ -358,6 +360,7 @@ TEST_CASE("key scanner: a raw recording replays to the board's messages") {
 		if (frame == 1500) c[20] = c[20] * 2; // a live key factor
 	};
 	sc.refusals.every = 31;
+	sc.compare_ref = false; // a full queue: S4
 	ks::RecordWriter rec;
 	std::vector<uint8_t> blob;
 	const int from = 700;
@@ -393,9 +396,45 @@ TEST_CASE("key scanner: a raw recording replays to the board's messages") {
 	CHECK(scanreplay::find_in_stream(r.msgs, stream, &matches) >= 0);
 	CHECK(matches == 1);
 
-	// a corrupted recording is noticed
+	// a corrupted recording is noticed (a flipped byte may hit a value no message depends on: many)
 	std::vector<uint8_t> bad = blob;
-	bad[ks::kHeaderBytes + bad.size() / 3] ^= 0x55;
+	for (size_t i = ks::kHeaderBytes + 50; i < bad.size(); i += 997) bad[i] ^= 0x55;
 	const scanreplay::Result rb = scanreplay::replay(bad);
 	CHECK((!rb.error.empty() || rb.mismatched > 0));
+}
+
+TEST_CASE("key scanner S4: a full message queue never blocks the scanner, and no note-off is lost") {
+	Scenario sc;
+	sc.seed = 51;
+	sc.frames = 3000;
+	std::mt19937 rng(51);
+	for (int i = 0; i < 40; i++) {
+		const int b = static_cast<int>(rng() % ks::kButtons);
+		sc.presses.push_back({b, scansim::ramp(static_cast<int>(rng() % 2500), 1 + static_cast<int>(rng() % 20), static_cast<int>(rng() % 200), 1 + static_cast<int>(rng() % 10), 0.1f + static_cast<float>(rng() % 1200) / 1000.0f)});
+	}
+	sc.config = [](int frame, ks::Config& cfg) {
+		if (frame == 0) cfg.message_interval = 0; // every key every scan: the queue overflows (B1)
+	};
+	sc.refusals.every = 7; // 3 of every 7 sends refused
+	sc.compare_ref = false;
+	const Outcome o = run(sc, scanner);
+	REQUIRE_MESSAGE(o.error.empty(), o.error);
+	CHECK(o.waits == 0); // the scanner never sleeps waiting for the queue
+	// every key was released by the end: the last message the queue took for it is a note-off,
+	// and between a key's note-off and its next press the queue took no update of it
+	std::array<int, ks::kButtons> last{};
+	last.fill(-1);
+	int offs = 0;
+	for (size_t i = 0; i < o.msgs.size(); i++) {
+		if (!o.queued[i]) continue;
+		const Msg6& m = o.msgs[i];
+		last[m[1]] = m[2];
+		offs += m[2] == 0;
+	}
+	for (int b = 0; b < ks::kButtons; b++) {
+		CAPTURE(b);
+		CHECK((last[b] == -1 || last[b] == 0));
+		CHECK(scanner.keys[b].status == ks::Status::off);
+	}
+	CHECK(offs >= 20);
 }
