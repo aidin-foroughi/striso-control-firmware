@@ -448,6 +448,13 @@ class Instrument {
             set_volume(volume_linear);
         }
 
+        // the internal synth's pedal control; without an internal synth (synth_interface NULL) a
+        // stand-in, so the pedal, decay and CC64 code doesn't dereference NULL (SC-38)
+        float* synth_pedal(void) {
+            static float none = 3.0f / 16;
+            return synth_interface ? synth_interface->pedal : &none;
+        }
+
         // the channel of the instrument-wide controls (sustain/decay CC64, volume CC7): channel 1
         // in MPE (the master channel), else the mode's one channel (SC-18)
         uint8_t control_channel(void) const {
@@ -514,7 +521,7 @@ class Instrument {
             }
 #endif
 #ifdef USE_INTERNAL_SYNTH
-            for (int v = 0; v < VOICECOUNT; v++) {
+            for (int v = 0; v < VOICECOUNT && synth_interface; v++) {
                 *(synth_interface->pres[v])  = 0.0f;
                 *(synth_interface->vpres[v]) = 0.0f;
             }
@@ -1174,7 +1181,7 @@ class Instrument {
         void update_synth_voice(int but) {
 #ifdef USE_INTERNAL_SYNTH
             int voice = buttons[but].synth_voice;
-            if (voice < 0 || voice >= VOICECOUNT || synth_voices[voice] != but) {
+            if (voice < 0 || voice >= VOICECOUNT || synth_voices[voice] != but || !synth_interface) {
                 return;
             }
             float pb = 0.0f;
@@ -1195,7 +1202,7 @@ class Instrument {
         void silence_synth_voice(int but) {
 #ifdef USE_INTERNAL_SYNTH
             int voice = buttons[but].synth_voice;
-            if (voice >= 0 && voice < VOICECOUNT && synth_voices[voice] == but) {
+            if (voice >= 0 && voice < VOICECOUNT && synth_voices[voice] == but && synth_interface) {
                 *(synth_interface->pres[voice])  = 0.0f;
                 *(synth_interface->vpres[voice]) = 0.0f;
             }
@@ -1520,13 +1527,13 @@ int synth_message(int size, int* msg) {
         else if (id == IDC_PEDAL_EXP) {
             // Pedal
             int2float(msg, fmsg, size);
-            *(dis.synth_interface->pedal) = fmsg[0];
+            *dis.synth_pedal() = fmsg[0];
             pedal.send(msg[0]>>4, dis.control_channel());
         }
         else if (id == IDC_PEDAL_1) {
             // Switch pedal 1 (tip)
             int val = config.pedal_sw1_values[msg[0]>0];
-            *(dis.synth_interface->pedal) = (float)val/127;
+            *dis.synth_pedal() = (float)val/127;
             pedal.send(val*4, dis.control_channel());
         }
         else if (id == IDC_PEDAL_2) {
@@ -1778,7 +1785,7 @@ void load_preset(int n) {
     if (f >= 0.0f && f < 255.0f) {
         f = min(f, 127.0f);
         config.pedal_sw1_values[0] = f;
-        *(dis.synth_interface->pedal) = f * (1.0f/127.0f);
+        *dis.synth_pedal() = f * (1.0f/127.0f);
     }
 
     strset(key, 3, "decaP");
@@ -2360,11 +2367,11 @@ float config_but(int but, int type, float adjust) {
     case (53): { // knob: sustain/decay rate
         float rem = 0;
         if (type > 0) {
-            *(dis.synth_interface->pedal) = clamp_knob(*(dis.synth_interface->pedal), *(dis.synth_interface->pedal) + adjust * (1.0f/16.0f), 0, 1.0f, &rem);
-            pedal.send(*(dis.synth_interface->pedal) * 128 * 4, dis.control_channel());
+            *dis.synth_pedal() = clamp_knob(*dis.synth_pedal(), *dis.synth_pedal() + adjust * (1.0f/16.0f), 0, 1.0f, &rem);
+            pedal.send(*dis.synth_pedal() * 128 * 4, dis.control_channel());
         }
-        led_updown_dial(*(dis.synth_interface->pedal) * 15 + 0.5f);
-        led_rgb3(*(dis.synth_interface->pedal) * 64.0f, 0, *(dis.synth_interface->pedal) * 64.0f);
+        led_updown_dial(*dis.synth_pedal() * 15 + 0.5f);
+        led_rgb3(*dis.synth_pedal() * 64.0f, 0, *dis.synth_pedal() * 64.0f);
         return rem * 16;
         }
     // row 8:       56 58 60 62 47 49
@@ -2567,7 +2574,7 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
                 update_leds();
             } break;
             case 64: {
-                *(dis.synth_interface->pedal) = (float)data2 * (1.0f/127.0f);
+                *dis.synth_pedal() = (float)data2 * (1.0f/127.0f);
             } break;
             case 65: { // portamento (glissando): on at >= 64, as MIDI's switches (SC-29)
                 dis.set_portamento(data2 >= 64);
