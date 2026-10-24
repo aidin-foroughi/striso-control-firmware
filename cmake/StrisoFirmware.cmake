@@ -202,6 +202,10 @@ add_custom_command(TARGET striso_control POST_BUILD
 add_test(NAME usb_descriptors
   COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/usbaudio/check_descriptors.py"
           --elf "$<TARGET_FILE:striso_control>")
+# every USB string descriptor is handed out with exactly its bLength (D6)
+add_test(NAME usb_string_sizes
+  COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tests/test_usb_strings.py"
+          "$<TARGET_FILE:striso_control>")
 # the USB descriptors (with the MS OS descriptors) and default_config byte for byte against
 # tests/golden/firmware_bytes.txt (tools/firmware_goldens.py --update after an intended change)
 if(STRISO_USB_AUDIO_UAC1)

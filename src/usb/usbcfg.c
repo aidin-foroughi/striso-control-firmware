@@ -298,15 +298,18 @@ static const uint8_t descriptor_manufacturer_string[] = {
 
 /*
  * Product string.
- * modified on initialization!
+ * modified on initialization: init_usb_descriptor() adds the board number (up to 4 characters)
+ * and sets bLength and the size in vcom_strings[] together.
  */
 static uint8_t descriptor_product_string[] = {
   USB_DESC_BYTE(26),                    /* bLength.                         */
   USB_DESC_BYTE(USB_DESCRIPTOR_STRING), /* bDescriptorType.                 */
   'S', 0, 't', 0, 'r', 0, 'i', 0, 's', 0, 'o', 0, ' ', 0,
   'b', 0, 'o', 0, 'a', 0, 'r', 0, 'd', 0, ' ', 0,
-  ' ', 0, ' ', 0, ' ', 0, ' ', 0, ' ', 0,
+  ' ', 0, ' ', 0, ' ', 0, ' ', 0,
 };
+_Static_assert(sizeof descriptor_product_string == 28 + 2 * 4,
+               "the product string has room for a board number of 4 characters, no more");
 
 static uint8_t descriptor_serial_string[] = {
   USB_DESC_BYTE(50),                    /* bLength.                         */
@@ -351,12 +354,13 @@ static const uint8_t wcid_string[] = {
 };
 
 /*
- * Strings wrappers array.
+ * Strings wrappers array. The size is what get_descriptor() hands out: the descriptor's bLength
+ * (the product string's changes at boot, init_usb_descriptor).
  */
-static const USBDescriptor vcom_strings[] = {
+static USBDescriptor vcom_strings[] = {
   {sizeof vcom_string0, vcom_string0},
   {sizeof descriptor_manufacturer_string, descriptor_manufacturer_string},
-  {sizeof descriptor_product_string, descriptor_product_string},
+  {26, descriptor_product_string},
   {sizeof descriptor_serial_string, descriptor_serial_string},
   {sizeof vcom_string4, vcom_string4},
   {sizeof vcom_string5, vcom_string5}
@@ -395,6 +399,7 @@ void init_usb_descriptor(void) {
       descriptor_product_string[28 + 2*n] = devspec_id->id[n];
     }
     descriptor_product_string[0] = USB_DESC_BYTE(28 + 2*n);
+    vcom_strings[2].ud_size = 28 + 2*n;
   }
 }
 
