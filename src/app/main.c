@@ -144,8 +144,8 @@ static void ThreadSend(void *arg) {
 #endif
 #ifdef USE_USB
       if (config.send_usb_bulk) {
-        //chSequentialStreamWrite((BaseSequentialStream *)&BDU1,cmsg, 2+(size-2)*2);
-        obqWriteTimeout(&BDU1.obqueue, cmsg, 2+(size-2)*2, TIME_IMMEDIATE);
+        // whole frames only, never mixed into a console write (bulk_usb.c bduWriteFrame)
+        (void)bduWriteFrame(&BDU1, cmsg, 2+(size-2)*2);
       }
 #endif
     }

@@ -40,4 +40,23 @@ static inline void obq_discard_pendingI(output_buffers_queue_t *obqp, bool in_fl
   osalThreadDequeueAllI(&obqp->waiting, MSG_RESET);
 }
 
+/*
+ * Whether n bytes fit in obqp now: the rest of the buffer being written, plus every free buffer.
+ * A write of n bytes with TIME_IMMEDIATE then never stops part way.
+ *
+ * @iclass
+ */
+static inline bool obq_fitsI(output_buffers_queue_t *obqp, size_t n) {
+  const size_t payload = obqp->bsize - sizeof (size_t);
+  size_t room;
+  if (obqp->ptr != NULL) {
+    /* the current buffer (not posted yet) is one of the bcounter free ones */
+    room = (size_t)(obqp->top - obqp->ptr) + (bqSpaceI(obqp) - 1U) * payload;
+  }
+  else {
+    room = bqSpaceI(obqp) * payload;
+  }
+  return room >= n;
+}
+
 #endif

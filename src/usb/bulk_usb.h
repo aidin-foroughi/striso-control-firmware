@@ -60,6 +60,13 @@
  * @brief   Bulk USB number of buffers.
  * @note    The default is 2 buffers.
  */
+/**
+ * @brief   Bytes of frames bduWriteFrame holds back while a stream write is in progress.
+ */
+#if !defined(BULK_USB_FRAME_PENDING) || defined(__DOXYGEN__)
+#define BULK_USB_FRAME_PENDING    64
+#endif
+
 #if !defined(BULK_USB_BUFFERS_NUMBER) || defined(__DOXYGEN__)
 #define BULK_USB_BUFFERS_NUMBER   2
 #endif
@@ -130,7 +137,14 @@ typedef struct {
                                               BULK_USB_BUFFERS_SIZE)];    \
   /* End of the mandatory fields.*/                                         \
   /* Current configuration data.*/                                          \
-  const BulkUSBConfig     *config;
+  const BulkUSBConfig     *config;                                          \
+  /* Stream writes in progress (the console's chprintf etc.).*/             \
+  volatile int              writers;                                        \
+  /* Frames held back during a stream write (bduWriteFrame).*/              \
+  uint8_t                   frame_pend[BULK_USB_FRAME_PENDING];             \
+  size_t                    frame_pend_n;                                   \
+  /* Frames dropped: the queue was full, or the held-back space was.*/      \
+  volatile uint32_t         frames_dropped;
 
 /**
  * @brief   @p BulkUSBDriver specific methods.
@@ -179,6 +193,7 @@ extern "C" {
   void bduWakeupHookI(BulkUSBDriver *bdup);
   void bduConfigureHookI(BulkUSBDriver *bdup);
   void bduDiscardOutputI(BulkUSBDriver *bdup);
+  bool bduWriteFrame(BulkUSBDriver *bdup, const uint8_t *frame, size_t n);
   bool bduRequestsHook(USBDriver *usbp);
   void bduSOFHookI(BulkUSBDriver *bdup);
   void bduDataTransmitted(USBDriver *usbp, usbep_t ep);
