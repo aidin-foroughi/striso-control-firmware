@@ -33,6 +33,7 @@
 #ifdef USE_LSM6DSL
 #include "lsm6dsl.h"
 #endif
+#include "i2c_recover.h"
 
 /* I2C interface #1 */
 #if defined(STM32F4XX)
@@ -79,7 +80,23 @@ static const I2CConfig i2ccfg_motion = {
 
 #define pow2(x) ((x)*(x))
 
+#define MOTION_I2C_PIN_MODE (PAL_MODE_ALTERNATE(4) | PAL_STM32_OTYPE_OPENDRAIN | PAL_STM32_OSPEED_HIGHEST)
+
 #ifdef USE_LSM6DSL
+// I2C failures since boot (timeouts, bus errors, no acknowledge); each one restarted the bus
+volatile uint32_t motion_i2c_errors;
+
+static msg_t motion_transfer(const uint8_t *tx, size_t ntx, uint8_t *rx, size_t nrx) {
+  msg_t status = i2cMasterTransmitTimeout(&I2CD_MOTION, LSM6DSL_SAD_GND, tx, ntx, rx, nrx,
+                                          I2C_TRANSFER_TIMEOUT);
+  if (status != MSG_OK) {
+    motion_i2c_errors++;
+    i2c_recover(&I2CD_MOTION, &i2ccfg_motion, LINE_MOTION_I2C_SCL, LINE_MOTION_I2C_SDA,
+                MOTION_I2C_PIN_MODE);
+  }
+  return status;
+}
+
 /*
  * I2C TX and RX buffers.
  */
@@ -95,10 +112,9 @@ uint8_t lsm6dslReadRegister(uint8_t RegisterAddr) {
 
   txbuf[0] = RegisterAddr;
   cacheBufferFlush(&txbuf[0], sizeof txbuf);
-  status = i2cMasterTransmit(&I2CD_MOTION, LSM6DSL_SAD_GND, txbuf, 1,
-                             rxbuf, 1);
+  status = motion_transfer(txbuf, 1, rxbuf, 1);
   cacheBufferInvalidate(&rxbuf[0], sizeof rxbuf);
-  return (rxbuf[0]);
+  return status == MSG_OK ? rxbuf[0] : 0;
 }
 
 uint8_t lsm6dslReadMotion(int16_t* motion) {
@@ -110,8 +126,7 @@ uint8_t lsm6dslReadMotion(int16_t* motion) {
 
   txbuf[0] = LSM6DSL_AD_OUTX_L_G;
   cacheBufferFlush(&txbuf[0], sizeof txbuf);
-  status = i2cMasterTransmit(&I2CD_MOTION, LSM6DSL_SAD_GND, txbuf, 1,
-                             rxbuf, 12);
+  status = motion_transfer(txbuf, 1, rxbuf, 12);
   cacheBufferInvalidate(&rxbuf[0], sizeof rxbuf);
   for (int i = 0; i<6; i++) {
     motion[i] = ((int16_t*)rxbuf)[i];
@@ -123,8 +138,8 @@ float lsm6dslReadTemp(void) {
   msg_t status;
   txbuf[0] = LSM6DSL_AD_OUT_TEMP_L;
   cacheBufferFlush(&txbuf[0], sizeof txbuf);
-  status = i2cMasterTransmit(&I2CD_MOTION, LSM6DSL_SAD_GND, txbuf, 1,
-                             rxbuf, 2);
+  status = motion_transfer(txbuf, 1, rxbuf, 2);
+  (void)status;
   cacheBufferInvalidate(&rxbuf[0], sizeof rxbuf);
   return (float)(((int16_t*)rxbuf)[0])/256.0f + 25.0f;
 }
@@ -140,8 +155,8 @@ void lsm6dslWriteRegister(uint8_t RegisterAddr, uint8_t RegisterValue) {
   txbuf[1] = RegisterValue;
 
   cacheBufferFlush(&txbuf[0], sizeof txbuf);
-  status = i2cMasterTransmit(&I2CD_MOTION, LSM6DSL_SAD_GND, txbuf, 2,
-                             rxbuf, 0);
+  status = motion_transfer(txbuf, 2, rxbuf, 0);
+  (void)status;
 
   static uint8_t rd;
   rd = lsm6dslReadRegister(RegisterAddr);
@@ -155,7 +170,7 @@ void lsm6dslWriteRegister(uint8_t RegisterAddr, uint8_t RegisterValue) {
 /*
  * This is a periodic thread that reads accelerometer and sends messages
  */
-static THD_WORKING_AREA(waThreadAccel, 256);
+static THD_WORKING_AREA(waThreadAccel, 320); // I2C with timeouts and recovery
 static void ThreadAccel(void *arg) {
   chRegSetThreadName("motion");
 
@@ -273,7 +288,11 @@ static void ThreadAccel(void *arg) {
   int16_t motion[6];
   int stream_count = 0;
   while (TRUE) {
-    lsm6dslReadMotion(motion);
+    if (lsm6dslReadMotion(motion) != MSG_OK) {
+      // the bus was restarted (motion_transfer); no new reading this time
+      chThdSleepMilliseconds(3);
+      continue;
+    }
 
     ax = -motion[3]; gx = -motion[0];
     ay = -motion[4]; gy = -motion[1];
@@ -351,24 +370,7 @@ void MotionSensorStart(void) {
   // see no daughterboard until a power cycle. With SCL high (pullups present) but SDA low, clock
   // SCL up to 9 times until the sensor releases SDA, then send a STOP condition.
   if (palReadLine(LINE_MOTION_I2C_SCL) && !palReadLine(LINE_MOTION_I2C_SDA)) {
-    palSetLine(LINE_MOTION_I2C_SCL);
-    palSetLineMode(LINE_MOTION_I2C_SCL, PAL_MODE_OUTPUT_OPENDRAIN);
-    palSetLineMode(LINE_MOTION_I2C_SDA, PAL_MODE_INPUT);
-    for (int i = 0; i < 9 && !palReadLine(LINE_MOTION_I2C_SDA); i++) {
-      palClearLine(LINE_MOTION_I2C_SCL);
-      chThdSleepMilliseconds(1);
-      palSetLine(LINE_MOTION_I2C_SCL);
-      chThdSleepMilliseconds(1);
-    }
-    // STOP: SDA low to high while SCL is high
-    palClearLine(LINE_MOTION_I2C_SCL);
-    palClearLine(LINE_MOTION_I2C_SDA);
-    palSetLineMode(LINE_MOTION_I2C_SDA, PAL_MODE_OUTPUT_OPENDRAIN);
-    chThdSleepMilliseconds(1);
-    palSetLine(LINE_MOTION_I2C_SCL);
-    chThdSleepMilliseconds(1);
-    palSetLine(LINE_MOTION_I2C_SDA);
-    chThdSleepMilliseconds(1);
+    i2c_bus_clear(LINE_MOTION_I2C_SCL, LINE_MOTION_I2C_SDA);
     palSetLineMode(LINE_MOTION_I2C_SCL, PAL_MODE_INPUT_PULLDOWN);
     palSetLineMode(LINE_MOTION_I2C_SDA, PAL_MODE_INPUT_PULLDOWN);
     chThdSleepMilliseconds(1);
@@ -381,8 +383,8 @@ void MotionSensorStart(void) {
     return;
   }
 
-  palSetLineMode(LINE_MOTION_I2C_SCL, PAL_MODE_ALTERNATE(4) | PAL_STM32_OTYPE_OPENDRAIN | PAL_STM32_OSPEED_HIGHEST);
-  palSetLineMode(LINE_MOTION_I2C_SDA, PAL_MODE_ALTERNATE(4) | PAL_STM32_OTYPE_OPENDRAIN | PAL_STM32_OSPEED_HIGHEST);
+  palSetLineMode(LINE_MOTION_I2C_SCL, MOTION_I2C_PIN_MODE);
+  palSetLineMode(LINE_MOTION_I2C_SDA, MOTION_I2C_PIN_MODE);
 
   /* I2C interface for MPU-6050 */
   i2cStart(&I2CD_MOTION, &i2ccfg_motion);

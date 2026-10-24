@@ -22,6 +22,7 @@
 #include "hal_sai_lld.h"
 #include "codec_tlv320aic3x.h"
 #include "codec_aic3x_linein.h"
+#include "i2c_recover.h"
 #include "codec.h"
 #include "usb_audio.h"
 
@@ -83,16 +84,28 @@ CC_ALIGN(CACHE_LINE_SIZE) static uint8_t i2crxbuf[32];
 CC_ALIGN(CACHE_LINE_SIZE) static uint8_t i2ctxbuf[32];
 
 #define I2CD_CODEC      I2CD2
+#define CODEC_I2C_PIN_MODE (PAL_MODE_ALTERNATE(4) | PAL_STM32_OTYPE_OPENDRAIN)
 
+// I2C failures since boot (timeouts, bus errors, no acknowledge); each one restarted the bus
+volatile uint32_t codec_i2c_errors;
+
+static msg_t codec_transfer(size_t ntx, size_t nrx) {
+  msg_t status = i2cMasterTransmitTimeout(&I2CD_CODEC, AIC3X_I2C_ADDR, i2ctxbuf, ntx, i2crxbuf, nrx,
+                                          I2C_TRANSFER_TIMEOUT);
+  if (status != MSG_OK) {
+    codec_i2c_errors++;
+    i2c_recover(&I2CD_CODEC, &i2ccfg, LINE_I2C2_SCL, LINE_I2C2_SDA, CODEC_I2C_PIN_MODE);
+  }
+  return status;
+}
 
 uint8_t aic3xReadRegister(uint8_t RegisterAddr) {
   msg_t status;
   i2ctxbuf[0] = RegisterAddr;
   cacheBufferFlush(&i2ctxbuf[0], sizeof i2ctxbuf);
-  status = i2cMasterTransmit(&I2CD_CODEC, AIC3X_I2C_ADDR, i2ctxbuf, 1,
-                             i2crxbuf, 1);
+  status = codec_transfer(1, 1);
   cacheBufferInvalidate(&i2crxbuf[0], sizeof i2crxbuf);
-  return (i2crxbuf[0]);
+  return status == MSG_OK ? i2crxbuf[0] : 0;
 }
 
 static msg_t aic3x_write(uint8_t RegisterAddr, uint8_t RegisterValue) {
@@ -100,8 +113,7 @@ static msg_t aic3x_write(uint8_t RegisterAddr, uint8_t RegisterValue) {
   i2ctxbuf[1] = RegisterValue;
 
   cacheBufferFlush(&i2ctxbuf[0], sizeof i2ctxbuf);
-  return i2cMasterTransmit(&I2CD_CODEC, AIC3X_I2C_ADDR, i2ctxbuf, 2,
-                           i2crxbuf, 0);
+  return codec_transfer(2, 0);
 }
 
 void aic3xWriteRegister(uint8_t RegisterAddr, uint8_t RegisterValue) {
@@ -117,8 +129,8 @@ void aic3xWriteRegister(uint8_t RegisterAddr, uint8_t RegisterValue) {
 
 void codec_aic3x_init(uint16_t samplerate) {
 
-  palSetLineMode(LINE_I2C2_SDA, PAL_MODE_ALTERNATE(4) | PAL_STM32_OTYPE_OPENDRAIN);
-  palSetLineMode(LINE_I2C2_SCL, PAL_MODE_ALTERNATE(4) | PAL_STM32_OTYPE_OPENDRAIN);
+  palSetLineMode(LINE_I2C2_SDA, CODEC_I2C_PIN_MODE);
+  palSetLineMode(LINE_I2C2_SCL, CODEC_I2C_PIN_MODE);
   i2cStart(&I2CD_CODEC, &i2ccfg);
 
   palSetLine(LINE_CODEC_EN);
