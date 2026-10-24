@@ -844,8 +844,7 @@ static void t_sc20_bend_range_key() {
 	EXPECT(dis.midi_bend_range == 96, "one nudge up from 96 -> %g", dis.midi_bend_range);
 }
 
-// SC-21: motion CC rounding and hysteresis (only with SYNTHCTL_MOTION_CC_FIX)
-#if defined(SYNTHCTL_MOTION_CC_FIX) && SYNTHCTL_MOTION_CC_FIX
+// SC-21: motion CC rounding and hysteresis
 static void t_sc21_motion_hyst() {
 	config.send_motion_interval = 1;
 	auto acc = [](int ax) {
@@ -861,7 +860,6 @@ static void t_sc21_motion_hyst() {
 	for (int i = 0; i < 40; i++) acc(i & 1 ? 57 : 55); // +-1 LSB of 32 per step
 	EXPECT(count_midi(m0, 0xff, 0xb0, 16) <= 2, "acc_x jitter 55/57: CC16 msgs %d of 40", count_midi(m0, 0xff, 0xb0, 16));
 }
-#endif
 
 // SC-22: free transpose beyond the transposition range: the second key continues the first's pitch
 static void t_sc22_free_transpose_range() {
@@ -1235,9 +1233,7 @@ static const Scenario scenarios[] = {
     {"sc18_pedal_channel", t_sc18_pedal_channel},
     {"sc19_poly_pgm", t_sc19_poly_pgm},
     {"sc20_bend_range_key", t_sc20_bend_range_key},
-#if defined(SYNTHCTL_MOTION_CC_FIX) && SYNTHCTL_MOTION_CC_FIX
     {"sc21_motion_hyst", t_sc21_motion_hyst},
-#endif
     {"sc22_free_transpose_range", t_sc22_free_transpose_range},
     {"sc22_octave_release", t_sc22_octave_release},
     {"sc23_panic", t_sc23_panic},

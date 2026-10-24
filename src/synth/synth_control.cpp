@@ -48,15 +48,6 @@ extern "C" {
 #define ws2812_write_led(n,r,g,b) led_rgb3(14*r,14*g,14*b)
 #endif
 
-// Behaviour changes a player would notice, off by default (the fix of a review finding that also
-// changes how the instrument plays; research/review_synth_control.md). Build with -D<flag>=1.
-// The motion CCs 16, 17, 18 (acceleration) and 19 (its magnitude) rounded to the nearest step
-// with a quarter step of hysteresis. Off: the rounding adds half a step too much (a bias of +1/2
-// step) and the hysteresis compares at twice the scale (none: jitter sends on every reading) (SC-21).
-#ifndef SYNTHCTL_MOTION_CC_FIX
-#define SYNTHCTL_MOTION_CC_FIX 0
-#endif
-
 #define BUTTONCOUNT 68
 #define MAX_PORTAMENTO_BUTTONS 8
 static constexpr uint8_t MIDI_C_ALL_SOUND_OFF = 0x78;  // (midi.h has All Notes Off, 0x7b)
@@ -253,8 +244,9 @@ class MotionSensor {
                     // for binary protocol the max is +/-8g, for MIDI max 2g feels better
                     // -(1<<3) for rounding correctly
                     int d; // calculate direction for hysteresis
-#if SYNTHCTL_MOTION_CC_FIX
-                    // steps of 32 (acc) and 16 (abs): compare at the step's scale, round by half a step
+                    // steps of 32 (acc) and 16 (abs): round to the nearest, a quarter step of
+                    // hysteresis (the rounding added a full step, a +1/2 step bias, and the
+                    // direction compared at twice the scale: no hysteresis, SC-21)
                     d = ((((last_acc_x-64)<<5) > acc_x)<<4)-(1<<3);
                     acc_x = __USAT(64+((acc_x+(1<<4)+d)>>5), 7)&0x7F;
                     d = ((((last_acc_y-64)<<5) > acc_y)<<4)-(1<<3);
@@ -263,16 +255,6 @@ class MotionSensor {
                     acc_z = __USAT(64+((acc_z+(1<<4)+d)>>5), 7)&0x7F;
                     d = (((last_acc_abs<<4) > acc_abs)<<3)-(1<<2);
                     acc_abs = __USAT((acc_abs+(1<<3)+d)>>4, 7)&0x7F;
-#else
-                    d = ((((last_acc_x-64)<<6) > acc_x)<<4)-(1<<3);
-                    acc_x = __USAT(64+((acc_x+(1<<5)+d)>>5), 7)&0x7F;
-                    d = ((((last_acc_y-64)<<6) > acc_y)<<4)-(1<<3);
-                    acc_y = __USAT(64+((acc_y+(1<<5)+d)>>5), 7)&0x7F;
-                    d = ((((last_acc_z-64)<<6) > acc_z)<<4)-(1<<3);
-                    acc_z = __USAT(64+((acc_z+(1<<5)+d)>>5), 7)&0x7F;
-                    d = (((last_acc_abs<<5) > acc_abs)<<3)-(1<<2);
-                    acc_abs = __USAT((acc_abs+(1<<4)+d)>>4, 7)&0x7F;
-#endif
                     d = ((((last_rot_x-64)<<6) > rot_x)<<5)-(1<<4);
                     rot_x = __USAT(64+((rot_x+(1<<5)+d)>>6), 7)&0x7F;
                     d = ((((last_rot_y-64)<<6) > rot_y)<<5)-(1<<4);
