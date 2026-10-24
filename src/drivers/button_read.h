@@ -19,6 +19,7 @@
 #define _BUTTON_READ_H_
 
 #include "ch.h"
+#include "hal.h"
 
 void ButtonReadStart(void);
 void buttonSetCalibration(void);
@@ -26,5 +27,8 @@ void buttonSetCalibration(void);
 int buttonKeyCount(void);
 float buttonGetKeyFactor(int n);
 int buttonSetKeyFactor(int n, float f);
+// console (read only): StcE the scanner's counters, StcZ every button's calibration state
+void buttonPrintStats(BaseSequentialStream *out);
+void buttonPrintKeys(BaseSequentialStream *out);
 
 #endif

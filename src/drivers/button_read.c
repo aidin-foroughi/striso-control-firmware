@@ -29,6 +29,7 @@
 #include "led.h"
 
 #include "messaging.h"
+#include "key_scanner.h"
 #ifdef STM32F4XX
 #include "adc_multi.h"
 #endif
@@ -245,11 +246,68 @@ static int *measure_get = measure;
 
 static thread_t *tpReadButtons = NULL;
 
+/*
+ * Diagnostics (key_scanner.h, console StcE). The interrupt numbers the scans (isr_seq: the scan it
+ * is writing) and counts its wakeups of the thread (isr_wakes); the thread publishes how far it
+ * got (thread_pos = frame * 17 + the next column it processes), so the interrupt can tell when it
+ * overwrites a column the thread has not processed yet.
+ */
+volatile scan_stats_t scan_stats;
+static uint32_t isr_scan_t0;
+static uint32_t isr_callbacks;
+static uint32_t isr_overrun_seq;
+static volatile uint32_t isr_seq;
+static volatile uint32_t isr_wakes;
+static volatile uint32_t thread_pos;
+
+static void scan_isr_start(void) {
+  const uint32_t now = DWT->CYCCNT;
+  if (scan_stats.scans) {
+    const uint32_t dt = now - isr_scan_t0;
+    if (dt < scan_stats.cycles_min || scan_stats.cycles_n == 0) scan_stats.cycles_min = dt;
+    if (dt > scan_stats.cycles_max) scan_stats.cycles_max = dt;
+    scan_stats.cycles_sum += dt;
+    scan_stats.cycles_n++;
+    int bin = dt < SCAN_HIST_BASE ? 0 : (int)((dt - SCAN_HIST_BASE) / SCAN_HIST_STEP);
+    scan_stats.cycles_hist[bin < SCAN_HIST_BINS ? bin : SCAN_HIST_BINS - 1]++;
+    int cb = (int)isr_callbacks - SCAN_CB_BASE;
+    scan_stats.callbacks_hist[cb < 0 ? 0 : cb < SCAN_CB_BINS ? cb : SCAN_CB_BINS - 1]++;
+  }
+  isr_scan_t0 = now;
+  isr_callbacks = 0;
+  isr_seq = scan_stats.scans;
+  scan_stats.scans++;
+}
+
+// about to overwrite column col: has the thread processed it in the previous scan?
+static void scan_isr_check_overrun(int col) {
+  if (isr_seq != 0 && isr_overrun_seq != isr_seq &&
+      (int32_t)(thread_pos - ((isr_seq - 1) * 17 + col)) <= 0) {
+    scan_stats.overruns++;
+    isr_overrun_seq = isr_seq;
+  }
+}
+
+// the thread finished a frame (column 16): count the scans it fell behind, if any
+static void scan_frame_done(uint32_t *frame) {
+  const uint32_t seq = isr_seq;
+  uint32_t next = *frame + 1;
+  if ((int32_t)(seq - next) > 0) {
+    scan_stats.seq_gaps += seq - next;
+    next = seq;
+  }
+  *frame = next;
+  scan_stats.frames++;
+}
+
 static void adccallback(ADCDriver *adcp) {
   // invalidate buffer after DMA transfer
   cacheBufferInvalidate(adc_samples, sizeof (adc_samples) / sizeof (adcsample_t));
 
+  isr_callbacks++;
   if (cur_conversion < 17) { // key press detection phase
+    if (cur_conversion == 0) scan_isr_start();
+    scan_isr_check_overrun(cur_conversion);
     int next_conversion = cur_conversion + 1;
     /* Open old channels */
     palSetPort(out_channels_port[cur_channel+0], out_channels_portmask[cur_channel+0]);
@@ -380,6 +438,7 @@ static void adccallback(ADCDriver *adcp) {
       cur_phase = 0;
 
       // Wake up processing thread
+      isr_wakes++;
       chSysLockFromISR();
       if (tpReadButtons != NULL) {
         chSchReadyI(tpReadButtons);
@@ -400,6 +459,7 @@ static void adccallback(ADCDriver *adcp) {
       next_note_id = 0;
 
       // Wake up processing thread
+      isr_wakes++;
       chSysLockFromISR();
       if (tpReadButtons != NULL) {
         chSchReadyI(tpReadButtons);
@@ -697,6 +757,8 @@ void update_button(button_t* but) {
       msg[4] = 0;
       msg[5] = 0;
       while (msgSend(6, msg)) { // note off messages are more important so keep trying
+        scan_stats.queue_full++;
+        scan_stats.off_waits++;
         chThdSleep(1);
       }
     }
@@ -732,7 +794,7 @@ void update_button(button_t* but) {
       msg[3] = but->velo / MSGFACT_VELO; // but->on;// s_new / MSGFACT; //
       msg[4] = but_x / MSGFACT;
       msg[5] = but_y / MSGFACT;
-      msgSend(6, msg);
+      if (msgSend(6, msg)) scan_stats.queue_full++;
       but->timer = (buttons_pressed[0] + buttons_pressed[1]) * SENDFACT;
     }
   }
@@ -744,6 +806,8 @@ void update_button(button_t* but) {
       msg[4] = 0;
       msg[5] = 0;
       while (msgSend(6, msg)) { // note off messages are more important so keep trying
+        scan_stats.queue_full++;
+        scan_stats.off_waits++;
         chThdSleep(1);
       }
       buttons_pressed[but->src_id]--;
@@ -965,11 +1029,14 @@ static void ThreadReadButtons(void *arg) {
 
   chRegSetThreadName("read_buttons");
   int note_id = 0;
+  uint32_t frame = isr_seq;
+  uint32_t wakes;
+  thread_pos = frame * 17;
 
 #ifdef DETECT_STUCK_NOTES
   int count = 0;
   while (count < 100) {
-    while (count < 100 && note_id != next_note_id) {
+    while ((wakes = isr_wakes), count < 100 && note_id != next_note_id) {
       for (int n = 0; n < 4; n++) {
         button_t* but = &buttons[note_id + n * 17];
         if (but->on > KEY_DETECT) {
@@ -986,9 +1053,12 @@ static void ThreadReadButtons(void *arg) {
         count++;
       }
       note_id = (note_id + 1) % 17;
+      if (note_id == 0) scan_frame_done(&frame);
+      thread_pos = frame * 17 + note_id;
     }
 
     chSysLock();
+    if (isr_wakes != wakes) scan_stats.lost_wakeups++;
     tpReadButtons = chThdGetSelfX();
     chSchGoSleepS(CH_STATE_SUSPENDED);
     chSysUnlock();
@@ -996,7 +1066,7 @@ static void ThreadReadButtons(void *arg) {
 #endif // DETECT_STUCK_NOTES
 
   while (TRUE) {
-    while (note_id != next_note_id) {
+    while ((wakes = isr_wakes), note_id != next_note_id) {
         // Update button in each octave/adc-channel
         for (int n = 0; n < 4; n++) {
           update_button(&buttons[note_id + n * 17]);
@@ -1075,9 +1145,12 @@ static void ThreadReadButtons(void *arg) {
         }
 
       note_id = (note_id + 1) % 17;
+      if (note_id == 0) scan_frame_done(&frame);
+      thread_pos = frame * 17 + note_id;
     }
 
     chSysLock();
+    if (isr_wakes != wakes) scan_stats.lost_wakeups++;
     tpReadButtons = chThdGetSelfX();
     chSchGoSleepS(CH_STATE_SUSPENDED);
     chSysUnlock();
@@ -1151,6 +1224,59 @@ void buttonSetCalibration(void) {
     buttons[n].c_breakpoint = INT32_MAX;
   }
   chprintf((BaseSequentialStream *)&BDU1, "c_force: %d\r\n", base_calib_force);
+}
+
+/*
+ * StcE: the scanner's counters since boot (key_scanner.h), and the message queue's (messaging.c).
+ * Read only. Lines: "scan <name> <value>..."; histograms list their non-empty bins as <bin>:<count>.
+ */
+static scan_stats_t stats_copy;  // static: the console runs on main's 1 KB stack
+
+void buttonPrintStats(BaseSequentialStream *out) {
+  chSysLock();
+  stats_copy = *(scan_stats_t *)&scan_stats;
+  const int msg_underruns = underruns;
+  chSysUnlock();
+  const scan_stats_t *st = &stats_copy;
+  chprintf(out, "scan scans %lu frames %lu seq_gaps %lu overruns %lu lost_wakeups %lu\r\n",
+           st->scans, st->frames, st->seq_gaps, st->overruns, st->lost_wakeups);
+  chprintf(out, "scan queue_full %lu off_waits %lu msg_underruns %d\r\n",
+           st->queue_full, st->off_waits, msg_underruns);
+  chprintf(out, "scan cycles n %lu min %lu max %lu mean %lu (%lu cycles/us)\r\n", st->cycles_n,
+           st->cycles_min, st->cycles_max,
+           st->cycles_n ? (uint32_t)(st->cycles_sum / st->cycles_n) : 0, STM32_SYS_CK / 1000000U);
+  chprintf(out, "scan cycles_hist base %d step %d:", SCAN_HIST_BASE, SCAN_HIST_STEP);
+  for (int i = 0; i < SCAN_HIST_BINS; i++) {
+    if (st->cycles_hist[i]) chprintf(out, " %d:%lu", i, st->cycles_hist[i]);
+  }
+  chprintf(out, "\r\nscan callbacks_hist base %d:", SCAN_CB_BASE);
+  for (int i = 0; i < SCAN_CB_BINS; i++) {
+    if (st->callbacks_hist[i]) chprintf(out, " %d:%lu", SCAN_CB_BASE + i, st->callbacks_hist[i]);
+  }
+  chprintf(out, "\r\n");
+}
+
+/*
+ * StcZ: every button's calibration state, read only (StcC, by contrast, resets c_force).
+ * One line per button: index, key name (--- for the 7 positions without a key), status (0 off,
+ * 1 starting, 2 on), c_force, the factory c_force, the key's sensitivity factor (x1000),
+ * zero_offset (the learned zero level, 1<<24 = full scale) and the filtered pressure.
+ */
+void buttonPrintKeys(BaseSequentialStream *out) {
+  chprintf(out, "keys %d: but key status c_force factory factor_milli zero_offset pres\r\n", N_BUTTONS);
+  for (int b = 0; b < N_BUTTONS; b++) {
+    char name[4] = "---";
+    int factor = 0;
+    for (int n = 0; n < 61; n++) {
+      if (button_number_map[n] == b) {
+        put_button_name(n, name);
+        name[3] = 0;
+        factor = (int)(key_factor[n] * 1000.0f + 0.5f);
+      }
+    }
+    chprintf(out, "%d %s %d %ld %ld %d %ld %ld\r\n", b, name, (int)buttons[b].status, buttons[b].c_force,
+             c_force_factory[b], factor, buttons[b].zero_offset, buttons[b].pres);
+  }
 }
 
 void ButtonReadStart(void) {

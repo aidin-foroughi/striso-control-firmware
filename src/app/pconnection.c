@@ -353,6 +353,13 @@ void PExReceiveByte(unsigned char c) {
       else if (c == 'C') { // Calibration mode
         buttonSetCalibration();
       }
+      else if (c == 'E') { // key scanner counters since boot (read only): scan sequence gaps,
+        // overruns, lost wakeups, queue full, cycles and ADC callbacks per scan
+        buttonPrintStats((BaseSequentialStream *)&BDU1);
+      }
+      else if (c == 'Z') { // every button's zero_offset, c_force and factor (read only)
+        buttonPrintKeys((BaseSequentialStream *)&BDU1);
+      }
       break;
     }
   }
