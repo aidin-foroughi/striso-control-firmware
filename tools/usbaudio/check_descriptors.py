@@ -66,7 +66,7 @@ def from_elf(path):
     clock = {k: s.get(name) for k, name in [("cur", "ua2_freq_cur"), ("range", "ua2_freq_range"),
                                             ("valid", "ua2_valid")]}
     return (s["vcom_device_descriptor_data"], s["vcom_configuration_descriptor_data"], strings,
-            s.get("mscompatid"), clock)
+            s.get("mscompatid"), clock, s.get("midi2_gtb_data"))
 
 
 def from_live():
@@ -96,7 +96,7 @@ def from_live():
         except Exception as e:  # noqa: BLE001
             clock[k] = None
             clock.setdefault("error", str(e))
-    return dev, cfg, strings, compat, clock
+    return dev, cfg, strings, compat, clock, None  # (the Group Terminal Block: from the ELF only)
 
 
 # --- decoding ---------------------------------------------------------------------------------
@@ -119,7 +119,7 @@ def main():
     g.add_argument("--elf")
     g.add_argument("--live", action="store_true")
     a = ap.parse_args()
-    dev, cfg, strings, compat, clock = from_elf(a.elf) if a.elf else from_live()
+    dev, cfg, strings, compat, clock, gtb = from_elf(a.elf) if a.elf else from_live()
 
     print("device descriptor")
     (bl, bt, bcdusb, cls, sub, proto, mps0, vid, pid, bcddev, im, ip, isn, ncfg) = struct.unpack("<BBHBBBBHHHBBBB", dev)
@@ -208,6 +208,7 @@ def main():
           "interface 2 must be vendor specific with bulk 0x02/0x82, 64 bytes")
     ac0 = by[(0, 0)]["cs"][0]
     check(ac0[2] == 1 and list(ac0[8:8 + ac0[7]]) == [1], "MIDI AC header must list interface 1 only")
+    check_midi2(by, gtb, strings)
 
     if compat is not None:
         n = compat[8]
@@ -222,6 +223,37 @@ def main():
     if check(bool(ac) and ac["proto"] == 0x20, "interface 3 must be a USB Audio Class 2.0 AudioControl (IP 2.0)"):
         check_uac2(by, iads, ac, clock)
     return report()
+
+
+def check_midi2(by, gtb, strings):
+    """Interface 1 alt 1, USB MIDI 2.0 (USB MIDI 2.0 1.0, 5.2-5.4), and its Group Terminal Block."""
+    m2 = by.get((1, 1))
+    if not check(bool(m2), "interface 1 must have alt 1 (USB MIDI 2.0)"):
+        return
+    print("  MIDIStreaming alt 1: USB MIDI 2.0")
+    check(m2["cls"] == 1 and m2["sub"] == 3 and len(m2["eps"]) == 2, "interface 1 alt 1 must be MIDIStreaming, 2 endpoints")
+    hdr = m2["cs"][0] if m2["cs"] else b""
+    check(len(hdr) == 7 and hdr[2] == 1 and struct.unpack_from("<H", hdr, 3)[0] == 0x0200 and
+          struct.unpack_from("<H", hdr, 5)[0] == 7, "alt 1 MS header: bcdMSC 2.00, wTotalLength 7")
+    alt0 = sorted((e["d"][2], e["d"][3], struct.unpack_from("<H", e["d"], 4)[0]) for e in by[(1, 0)]["eps"])
+    alt1 = sorted((e["d"][2], e["d"][3], struct.unpack_from("<H", e["d"], 4)[0]) for e in m2["eps"])
+    check(alt1 == alt0, f"alt 1 endpoints {alt1} must be alt 0's {alt0}")
+    for e in m2["eps"]:
+        check(len(e["d"]) == 7, f"alt 1 endpoint {e['d'][2]:02x}: a standard 7-byte descriptor")
+        cs = e["cs"][0] if e["cs"] else b""
+        check(len(cs) == 5 and cs[1] == 0x25 and cs[2] == 0x02 and cs[3] == 1 and cs[4] == 1,
+              f"alt 1 endpoint {e['d'][2]:02x}: MS_GENERAL_2_0 with Group Terminal Block 1")
+    if gtb is None:
+        print("  (Group Terminal Block: not read)")
+        return
+    check(len(gtb) >= 5 and gtb[:3] == bytes([5, 0x26, 1]) and struct.unpack_from("<H", gtb, 3)[0] == len(gtb),
+          "Group Terminal Block header: wTotalLength")
+    b = gtb[5:]
+    if check(len(b) == 13 and b[0] == 13 and b[1] == 0x26 and b[2] == 2, "one Group Terminal Block descriptor"):
+        print(f"  Group Terminal Block {b[3]}: type {b[4]} groups {b[5] + 1}..{b[5] + b[6]} string {b[7]} protocol {b[8]:02x}")
+        check(b[3] == 1 and b[4] == 0 and b[5] == 0 and b[6] == 1, "block 1: bidirectional, group 1 only")
+        check(b[8] == 0x11, "block 1: MIDI 2.0 protocol")
+        check(b[7] == 0 or b[7] in strings, "block 1: its string exists")
 
 
 def check_uac2(by, iads, ac, clock):

@@ -22,7 +22,8 @@ from check_descriptors import elf_symbols  # noqa: E402
 
 USB = ["vcom_device_descriptor_data", "vcom_configuration_descriptor_data", "vcom_string0",
        "descriptor_manufacturer_string", "descriptor_product_string", "descriptor_serial_string",
-       "vcom_string4", "vcom_string5", "wcid_string", "mscompatid", "msdescriptor0", "msdescriptor1"]
+       "vcom_string4", "vcom_string5", "wcid_string", "mscompatid", "msdescriptor0", "msdescriptor1",
+       "midi2_gtb_data"]
 CONFIG = ["default_config"]
 WIDTH = 32  # bytes per hex line
 
