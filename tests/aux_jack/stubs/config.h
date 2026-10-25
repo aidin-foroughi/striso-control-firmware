@@ -1,5 +1,5 @@
 #pragma once
-/* Host stand-in for src/app/config.h: the jack modes and settings aux_jack.c uses. */
+/* Host stand-in for src/app/config.h: the jack modes and settings aux_jack.cpp and the old aux_jack.c use. */
 #include <stdbool.h>
 #include <stdint.h>
 typedef enum {

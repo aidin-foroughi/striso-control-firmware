@@ -169,16 +169,39 @@ else()
   message(WARNING "ChibiOS not found (git submodule update --init): tests usb_obq_discard, console_sim, console_fuzz skipped")
 endif()
 
-# aux_jack: src/drivers/aux_jack.c's detection state machine against an electrical model of the
-# jack (D3: a TS switch pedal is detected in autodetect); tests/aux_jack/stubs stand in for the HAL
-add_executable(test_aux_jack aux_jack/test_aux_jack.c)
-target_include_directories(test_aux_jack PRIVATE
+# jack.*: the aux jack (src/drivers/aux_jack.cpp, its JackDetector) against the old aux_jack.c
+# (tests/ref/aux_jack_ref.c), call for call on a stand-in HAL (tests/aux_jack/stubs): an electrical
+# model of the jack (D3, D9), every mode's transitions, the autodetect thresholds, random runs
+add_executable(test_jack_detector main.cpp aux_jack/test_jack_detector.cpp aux_jack/ref_wrap.c)
+target_include_directories(test_jack_detector PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/aux_jack/stubs"
+  "${PROJECT_SOURCE_DIR}/third_party/doctest"
   "${PROJECT_SOURCE_DIR}/src/drivers")
-target_link_libraries(test_aux_jack PRIVATE striso_host_options)
-target_compile_options(test_aux_jack PRIVATE -O1 -Wno-unused-parameter -Wno-unused-variable -Wno-switch)
-add_test(NAME aux_jack COMMAND test_aux_jack)
-set_tests_properties(aux_jack PROPERTIES LABELS unit)
+target_link_libraries(test_jack_detector PRIVATE striso_host_options)
+target_compile_options(test_jack_detector PRIVATE -O1 -Wno-unused-parameter -Wno-unused-variable -Wno-switch)
+doctest_discover_tests(test_jack_detector TEST_PREFIX "jack." PROPERTIES LABELS unit)
+
+# led.*: the LEDs (src/drivers/led.cpp over its presenter) against the old led.c (tests/ref/led_ref.c),
+# call for call on a stand-in HAL (tests/led/stubs): every gamma input, up/down state and dial
+# angle, blinks around their end and the time's wrap, random calls
+add_executable(test_led main.cpp led/test_led.cpp led/ref_wrap.c "${PROJECT_SOURCE_DIR}/src/drivers/led.cpp")
+target_include_directories(test_led PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/led/stubs"
+  "${PROJECT_SOURCE_DIR}/third_party/doctest"
+  "${PROJECT_SOURCE_DIR}/src/drivers")
+target_link_libraries(test_led PRIVATE striso_host_options)
+doctest_discover_tests(test_led TEST_PREFIX "led." PROPERTIES LABELS unit)
+
+# motion.*: the MotionFilter (src/drivers/motion_filter.hpp) against the old motion math
+# (tests/ref/motion_ref.c), bit for bit (on the board's CPU too: tools/target_render, target.motion)
+add_executable(test_motion_filter main.cpp motion/test_motion_filter.cpp ref/motion_ref.c)
+target_include_directories(test_motion_filter PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/motion"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ref"
+  "${PROJECT_SOURCE_DIR}/third_party/doctest"
+  "${PROJECT_SOURCE_DIR}/src/drivers")
+target_link_libraries(test_motion_filter PRIVATE striso_host_options m)
+doctest_discover_tests(test_motion_filter TEST_PREFIX "motion." PROPERTIES LABELS unit)
 
 # messaging_model[_small], messaging_threads: src/app/inbox.hpp (the control thread's event queue)
 # never loses, corrupts or reorders an accepted event, never misses a wakeup, refuses only from a

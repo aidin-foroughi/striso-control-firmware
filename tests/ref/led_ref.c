@@ -1,3 +1,8 @@
+/*
+ * led.c as it was at cc47a4d, before the LED presenter (src/drivers/led_presenter.hpp): the
+ * reference that tests/led/test_led.cpp compares the new led.cpp with, call for call. Unchanged;
+ * tests/led/ref_wrap.c compiles it.
+ */
 #include <ch.h>
 #include <hal.h>
 

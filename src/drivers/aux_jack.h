@@ -4,8 +4,9 @@
 
 #include "config.h"
 
+/* the jack's pins, ADC and thread (aux_jack.cpp; the detection is jack_detector.hpp) */
 void aux_jack_init(void);
-void aux_jack_switch_mode(jack2_mode_t mode);
+/* a new jack setting (config.jack2_mode_setting): the jack thread takes it at its next pass */
 void aux_jack_switch_mode_setting(jack2_mode_t mode);
 
 void aux_power_enable(void);
