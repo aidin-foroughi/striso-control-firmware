@@ -93,13 +93,20 @@ const char* getConfigSetting(const char* k) {
 }
 int cmp8(const char* a, const char* b) { return memcmp(a, b, 8) == 0; }
 static int pedal_msgs, last_pedal1_msg = -1;
-int msgSend(int size, int* msg) {
-	(void)size;
-	if (msg[1] == IDC_PEDAL_1) {
+bool event_send1(int src, int id, int a) {
+	(void)src;
+	if (id == IDC_PEDAL_1) {
 		pedal_msgs++;
-		last_pedal1_msg = msg[2];
+		last_pedal1_msg = a;
 	}
-	return 0;
+	return true;
+}
+bool event_send2(int src, int id, int a, int b) {
+	(void)src;
+	(void)id;
+	(void)a;
+	(void)b;
+	return true;
 }
 void led_rgb3_blink(int r, int g, int b, sysinterval_t t) {
 	(void)r;

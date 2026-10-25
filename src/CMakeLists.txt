@@ -14,7 +14,6 @@ set(STRISO_FW_C_SOURCES
   usb/midi_usb.c
   drivers/midi_serial.c
   drivers/button_read.c
-  app/messaging.c
   drivers/motionsensor.c
   drivers/codec_tlv320aic3x_SAI.c
   drivers/led.c
@@ -22,7 +21,7 @@ set(STRISO_FW_C_SOURCES
   drivers/aux_jack.c
   app/main.c
   drivers/key_calibration.c)
-set(STRISO_FW_CXX_SOURCES synth/synth_control.cpp drivers/key_scanner.cpp app/console.cpp)
+set(STRISO_FW_CXX_SOURCES synth/synth_control.cpp drivers/key_scanner.cpp app/messaging.cpp app/control_thread.cpp app/console.cpp)
 set(STRISO_SYNTH_STRISY_SRC synth/synth_strisy.cpp)
 set(STRISO_FAUST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/synth/faust")
 set(STRISO_CONFIG_EDITOR_DIR "${CMAKE_CURRENT_SOURCE_DIR}/app/config_editor")

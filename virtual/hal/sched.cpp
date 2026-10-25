@@ -350,6 +350,12 @@ extern "C" void chThdResumeI(thread_reference_t* trp, msg_t msg) {
 	ready_insert(t);
 }
 
+// as ChibiOS': chSchWakeupS, so a higher priority thread runs at once
+extern "C" void chThdResumeS(thread_reference_t* trp, msg_t msg) {
+	chThdResumeI(trp, msg);
+	reschedule();
+}
+
 extern "C" void chThdResume(thread_reference_t* trp, msg_t msg) {
 	chThdResumeI(trp, msg);
 	reschedule();

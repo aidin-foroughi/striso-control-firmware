@@ -239,7 +239,7 @@ static void ThreadAccel(void *arg) {
         msg[6] = gx>>2;
         msg[7] = gy>>2;
         msg[8] = gz>>2;
-        msgSend(9,msg);
+        event_send(msg[0], msg[1], 7, &msg[2]);
       }
 
 #ifdef USE_INTERNAL_SYNTH
@@ -319,7 +319,7 @@ static void ThreadAccel(void *arg) {
         msg[6] = gx>>2;
         msg[7] = gy>>2;
         msg[8] = gz>>2;
-        msgSend(9,msg);
+        event_send(msg[0], msg[1], 7, &msg[2]);
       }
       else if (config.send_usb_bulk && ++stream_count >= 4) {
         // internal synth only, but the USB stream is on (e.g. the Striso Live app): send every
@@ -333,7 +333,7 @@ static void ThreadAccel(void *arg) {
         msg[6] = gx>>2;
         msg[7] = gy>>2;
         msg[8] = gz>>2;
-        msgSend(9,msg);
+        event_send(msg[0], msg[1], 7, &msg[2]);
         msg[0] = ID_ACCEL;
       }
 

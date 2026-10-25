@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Sourced by the tools that build or run code in Docker (build.sh, harness/*.sh, usbaudio/*.sh).
 # Needs HERE (the directory of the sourcing script). Sets:
 #   TOOLS     this tools/ directory
@@ -11,7 +12,8 @@
 # Inside the image itself (STRISO_IN_IMAGE, set by the Dockerfile: CI, or a shell in the
 # container) the commands run directly in the checkout instead.
 _STRISO_TOOLS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_winpath() { (cd "$1" && pwd -W 2>/dev/null || pwd); }
+_winpath() { (cd "$1" && { pwd -W 2>/dev/null || pwd; }); }
+# shellcheck disable=SC2034 # for the sourcing scripts
 TOOLS="$(_winpath "$_STRISO_TOOLS_DIR")"
 FW="$(_winpath "${FW_DIR:-$_STRISO_TOOLS_DIR/..}")"
 

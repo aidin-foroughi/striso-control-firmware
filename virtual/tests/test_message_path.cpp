@@ -1,5 +1,5 @@
 // The firmware's message path: recorded key streams (tools/harness/rec) injected where the key
-// scanner sends them (sv_inject_key: msgSend, the send thread, synth_message, synth_control's
+// scanner sends them (sv_inject_key: event_send, the control thread, synth_message, synth_control's
 // voice allocation, pitch, sensitivities), rendered by the board's synth thread. The controls the
 // engine got each block (the board's controls tap) are then replayed on the same engine compiled
 // here, straight, as the host renderers drive it: its output must be the board's, bit for bit.

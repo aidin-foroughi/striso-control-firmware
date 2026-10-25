@@ -181,6 +181,7 @@ void chSchRescheduleS(void);
 msg_t chThdSuspendS(thread_reference_t* trp);
 msg_t chThdSuspendTimeoutS(thread_reference_t* trp, sysinterval_t timeout);
 void chThdResumeI(thread_reference_t* trp, msg_t msg);
+void chThdResumeS(thread_reference_t* trp, msg_t msg);
 void chThdResume(thread_reference_t* trp, msg_t msg);
 void chThdQueueObjectInit(threads_queue_t* tqp);
 msg_t chThdEnqueueTimeoutS(threads_queue_t* tqp, sysinterval_t timeout);

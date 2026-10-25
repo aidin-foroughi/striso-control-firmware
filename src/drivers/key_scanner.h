@@ -12,7 +12,7 @@
  *                (the thread then reads a mix of two scans)
  *   lost_wakeups the interrupt published new columns between the thread's last check and its
  *                sleep: the thread slept with work waiting, until the next wakeup
- *   queue_full   key messages the message queue refused (msgSend failed)
+ *   queue_full   key messages the message queue refused (its lane was full)
  *   off_retries  retries of refused note-offs, at the key's next scans (the scanner never waits)
  *   cycles       DWT cycles from one scan's start to the next: min, max, sum and a histogram
  *   callbacks    ADC callbacks per scan: a histogram (17 detection + 7 per measured column +
