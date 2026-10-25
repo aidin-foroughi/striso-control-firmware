@@ -363,5 +363,6 @@ TEST_CASE("state: every switch StcK may press changes what StcY shows (or is pan
 		if (k.id == 4) CHECK(after["midi"] == "mono");
 		pressed++;
 	}
-	CHECK(pressed == 3 + 8 + 9 + 8); // MIDI modes, voices, tunings, presets
+	// MIDI modes, one voice key per engine of this firmware (StcX lists only those), tunings, presets
+	CHECK(pressed == 3 + STRISO_VOICE_ENGINES + 9 + 8);
 }
