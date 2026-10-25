@@ -212,6 +212,10 @@ set_tests_properties(striso_py PROPERTIES LABELS unit)
 add_test(NAME stackcheck COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_stackcheck.py")
 set_tests_properties(stackcheck PROPERTIES LABELS unit)
 
+# tools/check_scan_board.py (the board check: every scan processed exactly once) on StcE replies
+add_test(NAME check_scan_board COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_check_scan_board.py")
+set_tests_properties(check_scan_board PROPERTIES LABELS unit)
+
 # button_read.c source checks (the ADC interrupt can't run on the PC): S12 cache invalidate size
 add_test(NAME button_read_src COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_button_read_src.py")
 set_tests_properties(button_read_src PROPERTIES LABELS unit)

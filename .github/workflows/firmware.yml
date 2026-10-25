@@ -1,7 +1,21 @@
-# Firmware CI: builds the firmware (VOICE=all and the default strisy) and runs every test in the
-# project's Docker image (tools/build-env/Dockerfile: Arm GNU Toolchain 14.2.rel1, CMake, QEMU),
-# with the same scripts as on a PC (inside the image they run their commands directly). A tag v*
-# makes a GitHub release with the UF2s and their SHA256SUMS. Actions are pinned to commit SHAs.
+# Firmware CI: lints the workflows and scripts, builds the firmware (VOICE=all and the default
+# strisy) and runs every test in the project's Docker image (tools/build-env/Dockerfile: Arm GNU
+# Toolchain 14.2.rel1, CMake, QEMU), with the same scripts as on a PC (inside the image they run
+# their commands directly), and builds and tests the virtual board (striso_virtual) natively on
+# Windows and macOS (universal: arm64 + x86_64, the x86_64 slice's tests under Rosetta).
+#
+# A tag v* publishes a GitHub release (tools/release_dryrun.sh makes the Windows parts on a PC):
+#   striso_control_<fw version>.uf2, striso_control_<fw version>_all.uf2
+#   striso_virtual-<tag>-windows-x64.zip, striso_virtual-<tag>-macos-universal.zip
+#     (the library, striso_virtual.h, COPYING, manifest.json: tools/package.sh)
+#   SHA256SUMS
+# Striso Live loads striso_virtual at run time; it does not ship it.
+#
+# Speed: the build image is cached by the Dockerfile's hash; compiles go through ccache (a pinned
+# release, tools/ci_ccache.sh; in the image: tools/ci_docker.sh), its cache kept per job. Build
+# directories are not cached: a fresh checkout's files are all newer than any cached object, so
+# Ninja would rebuild everything. A tag builds without ccache, from scratch. Actions are pinned to
+# commit SHAs, the lint images to digests.
 name: firmware
 
 on:
@@ -19,65 +33,99 @@ concurrency:
 
 env:
   IMAGE_TAR: /tmp/striso-build-image.tar
+  CCACHE_MAXSIZE: 500M
 
 jobs:
+  lint:
+    name: lint (actionlint, shellcheck)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: actionlint (shellcheck on every run step)
+        run: >
+          docker run --rm -v "$PWD:/repo" -w /repo
+          rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+          -color
+      - name: shellcheck tools/
+        run: >
+          find tools -name '*.sh' -print0 | xargs -0 docker run --rm -v "$PWD:/mnt" -w /mnt
+          koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d
+          -x -P SCRIPTDIR
+
   image:
     name: build image
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     outputs:
       image: ${{ steps.tag.outputs.image }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: tools/build-env
       - id: tag
         run: echo "image=striso-fw:$(sha256sum tools/build-env/Dockerfile | cut -c1-12)" >> "$GITHUB_OUTPUT"
       - id: cache
-        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.IMAGE_TAR }}
           key: build-image-${{ hashFiles('tools/build-env/Dockerfile') }}
+          lookup-only: true
       - if: steps.cache.outputs.cache-hit != 'true'
         env:
           IMAGE: ${{ steps.tag.outputs.image }}
         run: |
           docker build -t "$IMAGE" tools/build-env
           docker save -o "$IMAGE_TAR" "$IMAGE"
+      - if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.IMAGE_TAR }}
+          key: build-image-${{ hashFiles('tools/build-env/Dockerfile') }}
 
   firmware:
     name: firmware (VOICE=${{ matrix.voice }})
     needs: image
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         voice: [all, strisy]
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive
           fetch-depth: 0 # the version string is git describe --tags
-      - uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.IMAGE_TAR }}
           key: build-image-${{ hashFiles('tools/build-env/Dockerfile') }}
           fail-on-cache-miss: true
       - run: docker load -i "$IMAGE_TAR"
+      - name: ccache (not for a tag, built from scratch)
+        if: github.ref_type != 'tag'
+        run: tools/ci_ccache.sh "$RUNNER_TEMP/ccache"
+      - if: github.ref_type != 'tag'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ccache
+          key: ccache-fw-${{ matrix.voice }}-${{ hashFiles('tools/build-env/Dockerfile') }}-${{ github.sha }}
+          restore-keys: ccache-fw-${{ matrix.voice }}-${{ hashFiles('tools/build-env/Dockerfile') }}-
       - name: "build (guards: soft-float, synth stack, load address) and test"
         env:
           IMAGE: ${{ needs.image.outputs.image }}
           VOICE: ${{ matrix.voice }}
         run: |
-          docker run --rm -v "$PWD:/src" -w /src -e VOICE "$IMAGE" bash -c '
+          # shellcheck disable=SC2016 # expanded in the container
+          tools/ci_docker.sh bash -c '
             set -e
             tools/build.sh VOICE="$VOICE"
             cmake --build --preset firmware --target target_renders
             ctest --preset firmware -j"$(nproc)"'
-      - name: name the UF2 after its version
-        run: |
-          version="$(sed -n 's/.*"\(.*\)".*/\1/p' build/firmware/generated/fwversion.h)"
-          mkdir -p dist
-          cp build/firmware/striso_control.uf2 "dist/striso_control_${version}.uf2"
-          echo "firmware version: $version"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - name: the UF2, named by its version
+        run: tools/package.sh uf2 dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: uf2-${{ matrix.voice }}
           path: dist/*.uf2
@@ -86,76 +134,139 @@ jobs:
   host:
     name: host tests (${{ matrix.preset }})
     needs: image
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         preset: [host, host-asan]
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive # ChibiOS: the virtual board and the USB tests build its HAL code
-      - uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ env.IMAGE_TAR }}
           key: build-image-${{ hashFiles('tools/build-env/Dockerfile') }}
           fail-on-cache-miss: true
       - run: docker load -i "$IMAGE_TAR"
+      - name: ccache (not for a tag, built from scratch)
+        if: github.ref_type != 'tag'
+        run: tools/ci_ccache.sh "$RUNNER_TEMP/ccache"
+      - if: github.ref_type != 'tag'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ccache
+          key: ccache-${{ matrix.preset }}-${{ hashFiles('tools/build-env/Dockerfile') }}-${{ github.sha }}
+          restore-keys: ccache-${{ matrix.preset }}-${{ hashFiles('tools/build-env/Dockerfile') }}-
       - name: ctest
         env:
           IMAGE: ${{ needs.image.outputs.image }}
           PRESET: ${{ matrix.preset }}
-        run: docker run --rm -v "$PWD:/src" -w /src -e PRESET "$IMAGE" bash -c 'tools/test.sh "$PRESET"'
+        run: |
+          # shellcheck disable=SC2016 # expanded in the container
+          tools/ci_docker.sh bash -c 'tools/test.sh "$PRESET"'
       - name: clang-format and clang-tidy
         if: matrix.preset == 'host'
         env:
           IMAGE: ${{ needs.image.outputs.image }}
-        run: docker run --rm -v "$PWD:/src" -w /src "$IMAGE" bash -c 'tools/format.sh --check && tools/tidy.sh'
+        # build/host's configuration names the compiler launcher, which tools/ci_docker.sh mounts
+        run: tools/ci_docker.sh bash -c 'tools/format.sh --check && tools/tidy.sh'
 
   virtual:
     # the virtual board (striso_virtual) is built for the machine that loads it: natively on the
     # OSes Striso Live runs on, and its tests run there (the goldens through the board, the
-    # protocol transcripts, the API)
-    name: virtual board (${{ matrix.os }})
+    # protocol transcripts, the API); the zip it makes is the one a tag publishes
+    name: virtual board (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        include:
+          - os: windows-latest
+            platform: windows-x64
+            universal: 0
+            build: build/host-virtual
+          - os: macos-latest
+            platform: macos-universal
+            universal: 1 # arm64 + x86_64
+            build: build/host-virtual-universal
     defaults:
       run:
         shell: bash
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_BASEDIR: ${{ github.workspace }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: recursive # ChibiOS: the virtual board builds its HAL code
           fetch-depth: 0 # the version string is git describe --tags
-      - name: ninja (macOS)
+      - name: ninja and Rosetta (macOS; Rosetta runs the x86_64 slice's tests)
         if: runner.os == 'macOS'
-        run: brew install ninja
+        run: |
+          brew install ninja
+          arch -x86_64 /usr/bin/true 2>/dev/null || softwareupdate --install-rosetta --agree-to-license
+      - name: ccache (not for a tag, built from scratch)
+        if: github.ref_type != 'tag'
+        run: |
+          exe="$(tools/ci_ccache.sh "$RUNNER_TEMP/ccache")"
+          if [ "$RUNNER_OS" = Windows ]; then exe="$(cygpath -m "$exe")"; fi
+          { echo "CMAKE_C_COMPILER_LAUNCHER=$exe"; echo "CMAKE_CXX_COMPILER_LAUNCHER=$exe"; echo "CCACHE=$exe"; } >> "$GITHUB_ENV"
+      - if: github.ref_type != 'tag'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .ccache
+          key: ccache-virtual-${{ matrix.platform }}-${{ github.sha }}
+          restore-keys: ccache-virtual-${{ matrix.platform }}-
       - name: build and test (tools/virtual.sh)
-        run: tools/virtual.sh all
+        env:
+          UNIVERSAL: ${{ matrix.universal }}
+        run: |
+          tools/virtual.sh all
+          if [ -n "${CCACHE:-}" ]; then "$CCACHE" --show-stats; fi
+      - name: the x86_64 slice's tests, under Rosetta
+        if: runner.os == 'macOS'
+        run: python3 tools/ctest_arch.py "${{ matrix.build }}" arch -x86_64
+      - name: package (tools/package.sh)
+        env:
+          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: tools/package.sh virtual "${{ matrix.build }}" dist ${VERSION:+"$VERSION"}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: virtual-${{ matrix.platform }}
+          path: dist/*.zip
+          if-no-files-found: error
 
   release:
     name: release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [firmware, host, virtual]
-    runs-on: ubuntu-22.04
+    needs: [lint, firmware, host, virtual]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          pattern: uf2-*
+          sparse-checkout: tools
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with: # every artifact: uf2-all, uf2-strisy, virtual-windows-x64, virtual-macos-universal
           path: dist
           merge-multiple: true
-      - name: SHA256SUMS
-        working-directory: dist
-        run: sha256sum -- *.uf2 > SHA256SUMS && cat SHA256SUMS
+      - name: SHA256SUMS and the checks (tools/package.sh)
+        run: |
+          tools/package.sh sums dist
+          tools/package.sh check dist windows-x64 macos-universal
       - name: GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$TAG" dist/*.uf2 dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" \
-            --title "Striso firmware $TAG" --generate-notes
+          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "Striso firmware $TAG" --generate-notes --notes "Firmware: striso_control_*.uf2 (the default firmware; _all: every voice engine), flashed with tools/striso.py flash.
+          The virtual board for Striso Live (loaded at run time, not shipped with the app): striso_virtual-$TAG-windows-x64.zip, striso_virtual-$TAG-macos-universal.zip (macOS 11 or later, Apple silicon and Intel); manifest.json in each gives the firmware and C API versions.
+          SHA256SUMS: sha256sum -c SHA256SUMS."
