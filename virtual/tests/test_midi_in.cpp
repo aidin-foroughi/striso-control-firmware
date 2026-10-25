@@ -48,7 +48,7 @@ int notes_out(Board& bd) {
 
 } // namespace
 
-TEST_CASE("midi in: MPE and one-channel notes through sv_midi_write sound, then fall silent; nothing goes out") {
+TEST_CASE("midi in: MPE and one-channel notes through sv_midi_write sound, then fall silent, nothing goes out") {
 	Board bd;
 	REQUIRE(sv_select_voice(bd.b, 0) == 0); // strisy
 	render(bd, 0.2);

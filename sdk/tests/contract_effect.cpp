@@ -132,7 +132,7 @@ TEST_CASE("effect: random parameter writes over noise and silence stay finite an
 	MESSAGE("fx: fuzz peak " << peak);
 }
 
-TEST_CASE("effect: silence in, silence out; reset keeps the parameters") {
+TEST_CASE("effect: silence in, silence out, reset keeps the parameters") {
 	sdk::Effect f(sdk::fx_effect());
 	f.init(SR);
 	for (int i = 0; i < f.num_params(); i++) // every stage on: the longest tails
