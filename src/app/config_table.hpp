@@ -128,8 +128,12 @@ constexpr std::string_view trimmed(std::string_view v) {
 
 // --- key names -----------------------------------------------------------------------------------
 
-// key number n (0..60): its 3-character name, F_1 .. B_4
+// key number n (0..60): its 3-character name, F_1 .. B_4; any other n: "---"
 constexpr void write_key_name(int n, char* out) {
+	if (n < 0 || n >= config_schema::kKeys) { // no key (R15: n < -7 read before the names)
+		out[0] = out[1] = out[2] = '-';
+		return;
+	}
 	const int note = (n + 7) % 17;
 	const int octave = (n + 7) / 17;
 	out[0] = config_schema::kNoteNames[note * 2];

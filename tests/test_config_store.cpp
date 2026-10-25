@@ -4,6 +4,7 @@
 // CONFIG.UF2) overrides the firmware's defaults; a key neither has is nullopt. The default records
 // are built from the schema and must stay byte for byte what tests/golden/firmware_bytes.txt has.
 #include <array>
+#include <climits>
 #include <cstring>
 #include <fstream>
 #include <set>
@@ -148,6 +149,15 @@ TEST_CASE("key names: put_button_name, the 61 keys F_1 .. B_4, each once") {
 	CHECK(std::string(k, 3) == "F_1");
 	put_button_name(60, k);
 	CHECK(std::string(k, 3) == "B_4");
+}
+
+TEST_CASE("key names: a number that is no key gives \"---\", never a read outside the names (R15)") {
+	for (int n : {-1, -7, -8, -100, INT_MIN, 61, 62, 1000, INT_MAX}) {
+		CAPTURE(n);
+		char k[3] = {'?', '?', '?'};
+		put_button_name(n, k);
+		CHECK(std::string(k, 3) == "---");
+	}
 }
 
 TEST_CASE("value parsing: integers, decimals, hexadecimal") {
