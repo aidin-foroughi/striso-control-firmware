@@ -57,7 +57,7 @@
  * about 114k instructions per block on average; engine + master effects (every stage on) 140k in the
  * worst block (all ten notes starting in the same block). The brass engine: 92k on the same test.
  * Per voice-sample: three divisions, one square root, ~110 FP operations; per block a few complex
- * impedance evaluations for the loop delay and threshold. Memory: bore delay lines 80 KB (AXI SRAM),
+ * impedance evaluations for the loop delay and threshold. Memory: bore delay lines 80 KB (64 KB FastMemory, 16 KB LargeMemory),
  * Engine ~7 KB.
  */
 #ifndef VOICE_TRUMPET_H_
@@ -100,8 +100,16 @@ static constexpr real DC_HZ = TRUMPET_DC_HZ;
 static constexpr real DC_HZ = 2.0f;
 #endif
 
-// the bore delay lines: normal static arrays (AXI SRAM), 8 KB per voice
-static float bore_buf[MAX_VOICES][2][BLEN];
+// the bore delay lines, 8 KB per voice, placed by the host (engine SDK): the first NFAST voices' in
+// FastMemory (AHB SRAM1/2 on the board), the others' in LargeMemory (AXI SRAM); with VOICE=all
+// neither region has room for all 80 KB
+static constexpr int NFAST = 8;
+struct FastMemory {
+	alignas(32) float bore[NFAST][2][BLEN];
+};
+struct LargeMemory {
+	alignas(32) float bore[MAX_VOICES - NFAST][2][BLEN];
+};
 
 // ---------------------------------------------------------------------------------------------
 // Parameters (all floats: the live parameters)
@@ -270,6 +278,8 @@ struct Engine {
 	int preset;
 	Params p;  // as set (preset, live edits)
 	Params ps; // smoothed copy used by the DSP
+	FastMemory* fast;   // the host's (init): bore delay lines of voices 0 .. NFAST - 1
+	LargeMemory* large; // the host's (init): the others'
 	real sr, inv_sr, pi_sr, dt, ctrl_dt, block_dt;
 	strisy::SvfCoef lv_c, ty_c;
 	real shake_pk, shake;
@@ -364,6 +374,11 @@ struct Cx {
 	return {a.re * d, -a.im * d};
 }
 
+// a voice's bore delay line h (0: towards the bell, 1: back)
+[[nodiscard]] static inline float* bore_line(Engine& e, int v, int h) {
+	return v < NFAST ? e.fast->bore[v][h] : e.large->bore[v - NFAST][h];
+}
+
 // ---------------------------------------------------------------------------------------------
 // setup
 
@@ -389,10 +404,9 @@ static inline void reset_voice(Engine& e, VoiceState& s, int v) {
 	s.tlast = -1e4f;
 	s.pprev = 0.0f;
 	s.trim = s.xamp = 0.0f;
-	(void)e;
 	if (v >= 0 && v < MAX_VOICES)
 		for (int h = 0; h < 2; h++)
-			for (int i = 0; i < BLEN; i++) bore_buf[v][h][i] = 0.0f;
+			for (int i = 0; i < BLEN; i++) bore_line(e, v, h)[i] = 0.0f;
 }
 
 static inline void update_derived(Engine& e) {
@@ -723,8 +737,8 @@ static inline void process_voice(Engine& e, int vi) {
 	}
 
 	// ---- audio rate: lips, mouthpiece, bore, steepening, bell ------------------------------------
-	float* __restrict__ B1 = bore_buf[vi][0];
-	float* __restrict__ B2 = bore_buf[vi][1];
+	float* __restrict__ B1 = bore_line(e, vi, 0);
+	float* __restrict__ B2 = bore_line(e, vi, 1);
 	// a tongued start: while the strike rises (the first ~16 ms of a note from silence) the tongue
 	// holds the lips closed, more for a harder strike; at its peak it lets them go
 	if (start) {
