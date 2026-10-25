@@ -178,6 +178,42 @@ Two things MIDI 1.0 says differently from its closest MIDI 2.0 value:
 
 **The strike.** A Note On with the strike bit gets its vpres faded by the decoder: ×0.6 every 2 ms (`tick()`) while above 0.01, then 0. This is what MIDI in always did. The keys send their measured vpres and no strike bit.
 
+**MIDI 2.0 out.** The MIDI mode setting (`Mmode`) has four values: `mpe`, `normal`, `mono` and `midi2`.
+- **mpe, normal, mono.** These are the same bytes as before on DIN and on USB (every MIDI-out test and control_replay golden is unchanged).
+- **midi2.** It is MPE on MIDI 1.0, plus the keys as standard MIDI 2.0 (`striso_dsp/ump_out.h`, `StandardOut`) on USB MIDI 2.0.
+- **The MIDI 1.0 out is not a down-conversion of the internal UMP.** The MIDI out has its own logic: channels per voice, `message_interval`, change detection on 7/14-bit values, the configurable CCs, continuous velocity. The internal packets don't carry any of it, so a down-conversion would be a second copy of the MIDI out. The MIDI out stays as it was.
+
+The MIDI 2.0 messages of a key (group 1, channel 1):
+- Note On: velocity 16, with attribute 3 (Pitch 7.9).
+- Registered Per-Note Controller 3 (Pitch 7.25), right after the Note On.
+- Poly Pressure (1.0 = 0xffffffff).
+- Registered Per-Note Controller 74 (brightness: MPE's CC74, from y).
+- Assignable Per-Note Controllers 3 (x) and 2 (vpres).
+- Note Off with the release velocity.
+
+How the output edge converts:
+- Values are clamped to the standard ranges: pres and the velocities 0..1, the bipolar ones −1..1, the pitch to 0..128.
+- The exact values are converted too.
+- Only a changed 32-bit value is sent again.
+- A note's number is the nearest free one to its pitch. The Striso's C♯ and D♭ are two keys of one 12-TET note; the real pitch is the per-note pitch.
+
+**USB.** Interface 1 has two alternate settings:
+- **alt 0:** USB MIDI 1.0, as before.
+- **alt 1:** USB MIDI 2.0. It uses the same endpoints and one Group Terminal Block: bidirectional, group 1, MIDI 2.0 protocol.
+
+A host with a MIDI 2.0 driver selects alt 1: macOS 14+, Windows MIDI Services, Linux 6.5+. Any other host keeps alt 0.
+
+The rule when the setting and the alt setting disagree: **the setting picks what is said, the alt setting only how it travels.**
+
+| | USB alt 0 (MIDI 1.0) | USB alt 1 (MIDI 2.0) | DIN |
+|---|---|---|---|
+| `mpe`, `normal`, `mono` | the MIDI 1.0 stream | the same bytes as MIDI 1.0 in UMP (types 1, 2) | the MIDI 1.0 stream |
+| `midi2` | MPE | the keys in MIDI 2.0. The rest of MPE's stream (motion CCs, program changes, the MCM) is MIDI 1.0 in UMP; its note data is not. | MPE |
+
+In every case the board says something useful, and nothing is said twice. MIDI in on alt 1 takes UMP (`UmpInMsgHandler`, as `sv_ump_write`).
+
+`virtual.usb midi2: ...` covers the rule, the descriptors and the input. `target.key_path` measures the MIDI 2.0 out: 3594 extra instructions per block for 10 moving keys.
+
 **Not in it yet.** The globals have numbers (the pedal CC64; the accelerometer and gyroscope, Assignable Controllers 0x10..0x16), but the board still writes them directly.
 
 ### On the PC (`sdk/`)
