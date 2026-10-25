@@ -30,7 +30,7 @@ inline constexpr int KEY_COUNT = 61;    // playing keys (n = 0..60)
 inline constexpr int BUTTON_COUNT = 68; // + the aux buttons, in the key scanner's order
 
 // The isomorphic layout: a button's pitch is octave * coord0 + fifth * coord1 from the centre D.
-// In key numbers (config_store.c): n = 17 * coord0 + 10 * coord1 + 30.
+// In key numbers (config_store.cpp): n = 17 * coord0 + 10 * coord1 + 30.
 inline constexpr int coord0[BUTTON_COUNT] = {
     6, 5, 5, 4, 4, 3, 2, 2, 1, 1, 0, 0, -1, -2, -2, -3, -3,
     5, 4, 4, 3, 3, 2, 1, 1, 0, 0, -1, -1, -2, -3, -3, -4, -4,

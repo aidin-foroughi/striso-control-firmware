@@ -35,7 +35,7 @@ enum {
 	SCAN_COLUMNS = 17,
 	SCAN_ROWS = 4,
 	SCAN_BUTTONS = SCAN_COLUMNS * SCAN_ROWS, // button = column + 17 * row
-	SCAN_KEYS = 61,                          // keys (config_store.c button_number_map)
+	SCAN_KEYS = 61,                          // keys (config_store.cpp button_number_map)
 	// cycles per scan histogram: bin i counts scans of SCAN_HIST_BASE + i * SCAN_HIST_STEP cycles
 	// and up (the first and last bins also take what is below and above)
 	SCAN_HIST_BINS = 64,

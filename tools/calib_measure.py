@@ -21,7 +21,7 @@ import striso
 
 OUT = Path(__file__).resolve().parent / "calib"
 
-# firmware config_store.c: key number n (0..60) -> button id, names from put_button_name
+# firmware config_store.cpp: key number n (0..60) -> button id, names from put_button_name
 BUTTON_NUMBER_MAP = [
     56, 51, 63, 58, 53, 65, 60, 55, 67, 62, 40, 35, 47, 42, 37, 49, 44,
     39, 34, 46, 41, 36, 48, 43, 38, 50, 45, 23, 18, 30, 25, 20, 32, 27,
