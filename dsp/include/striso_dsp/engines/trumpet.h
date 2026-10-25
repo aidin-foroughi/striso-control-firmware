@@ -19,7 +19,7 @@ struct trumpet {
 	static constexpr const char* summary = "physical trumpet: lips, mouthpiece and bore, played like the brass trumpet (1 preset)";
 	// pres the breath, vpres the attack, but_y the lips (lip_tilt); acc_abs and the pedal
 	static constexpr uint32_t inputs = in_pressure | in_velocity | in_tilt_y | in_shake | in_pedal;
-	static constexpr Budget budget = {::trumpet::MAX_VOICES, 44000, 2.0f}; // profile.sh 43740; silent 0.25 s after the release
+	static constexpr Budget budget = {::trumpet::MAX_VOICES, 44000, 2.0f}; // profile.sh 42288; silent 0.25 s after the release
 	// the hero parameters (seeded from Striso Live's hero.dart; the contract suite checks the names)
 	// the new model's: brassiness, the bell and the radiation's brightness, the tongue, the loudest
 	// breath, the breath noise, the lips under tilt, the release (no presets to override them)
