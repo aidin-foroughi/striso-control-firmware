@@ -25,7 +25,7 @@
 
 #include <initializer_list>
 
-#include "ump.h"
+#include "striso_dsp/ump.h"
 
 namespace striso::ump {
 

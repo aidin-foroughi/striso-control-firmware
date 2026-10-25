@@ -4,3 +4,6 @@
 [submodule "ChibiOS"]
 	path = third_party/ChibiOS
 	url = https://github.com/ChibiOS/ChibiOS
+[submodule "engines"]
+	path = engines
+	url = https://github.com/sorbet-ai/awva.git

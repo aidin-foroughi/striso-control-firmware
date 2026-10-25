@@ -17,6 +17,14 @@
 
 include("${PROJECT_SOURCE_DIR}/third_party/doctest/cmake/doctest.cmake")
 
+# --- the SDK's tests of what stays in the firmware (the engines repo has the rest) ---------------------
+# the board's VOICE=all engine set in its memory, the board's MIDI 2.0 output edge (ump_out.h);
+# named sdk.* as when they were in sdk/
+add_executable(striso_board_sdk_tests "${STRISO_ENGINES_DIR}/sdk/tests/main.cpp" test_engine_memory.cpp test_ump_out.cpp)
+target_include_directories(striso_board_sdk_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party/doctest")
+target_link_libraries(striso_board_sdk_tests PRIVATE striso_sdk striso_engines striso_performances)
+doctest_discover_tests(striso_board_sdk_tests TEST_PREFIX "sdk." PROPERTIES LABELS unit)
+
 # --- doctest unit tests ----------------------------------------------------------------------------
 find_package(Threads REQUIRED)
 add_executable(striso_tests
@@ -38,11 +46,11 @@ add_executable(striso_tests
   "${PROJECT_SOURCE_DIR}/src/drivers/key_calibration.c")
 target_include_directories(striso_tests PRIVATE
   "${PROJECT_SOURCE_DIR}/third_party/doctest"
-  "${PROJECT_SOURCE_DIR}/tools/harness"
+  "${STRISO_HARNESS_DIR}"
   "${PROJECT_SOURCE_DIR}/src/app"
   "${PROJECT_SOURCE_DIR}/src/drivers"
   "${PROJECT_SOURCE_DIR}/src/synth")
-target_compile_definitions(striso_tests PRIVATE "STRISO_REC_DIR=\"${PROJECT_SOURCE_DIR}/tools/harness/rec\""
+target_compile_definitions(striso_tests PRIVATE "STRISO_REC_DIR=\"${STRISO_HARNESS_DIR}/rec\""
   "STRISO_GOLDEN_DIR=\"${PROJECT_SOURCE_DIR}/tests/golden\"")
 target_link_libraries(striso_tests PRIVATE striso::dsp striso_host_options Threads::Threads)
 # the DSP as the renderers build it (reproducible float results)
@@ -50,8 +58,11 @@ target_compile_options(striso_tests PRIVATE -O2 -ffp-contract=off)
 doctest_discover_tests(striso_tests TEST_PREFIX "unit." PROPERTIES LABELS unit)
 
 # every DSP header compiles on its own (voice_wind_tune.h is a fragment of voice_wind.h)
-file(GLOB _dsp_headers RELATIVE "${STRISO_DSP_INCLUDE_DIR}" "${STRISO_DSP_INCLUDE_DIR}/striso_dsp/*.h"
-  "${STRISO_DSP_INCLUDE_DIR}/striso_dsp/engines/*.h" "${STRISO_DSP_INCLUDE_DIR}/striso_dsp/effects/*.h")
+set(_dsp_headers "")
+foreach(d IN LISTS STRISO_DSP_INCLUDE_DIRS) # the firmware's and the engines repo's
+  file(GLOB _h RELATIVE "${d}" "${d}/striso_dsp/*.h" "${d}/striso_dsp/engines/*.h" "${d}/striso_dsp/effects/*.h")
+  list(APPEND _dsp_headers ${_h})
+endforeach()
 list(REMOVE_ITEM _dsp_headers striso_dsp/voice_wind_tune.h)
 set(_hdr_srcs "")
 foreach(h IN LISTS _dsp_headers)
@@ -290,7 +301,7 @@ foreach(l IN LISTS _golden_lines)
     set("_golden_${CMAKE_MATCH_1}" "${CMAKE_MATCH_2}")
   endif()
 endforeach()
-file(GLOB _recordings "${PROJECT_SOURCE_DIR}/tools/harness/rec/*.csv")
+file(GLOB _recordings "${STRISO_HARNESS_DIR}/rec/*.csv")
 list(SORT _recordings)
 
 # a released voice's stale positive vpres must not keep it sounding (synth_control leaves it):

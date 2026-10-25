@@ -22,10 +22,10 @@
 #include <stdint.h>
 #include <math.h>
 
-#include "controls.h"
-#include "dspmath.h"
-#include "params.h"
-#include "svf.h"
+#include "striso_dsp/controls.h"
+#include "striso_dsp/dspmath.h"
+#include "striso_dsp/params.h"
+#include "striso_dsp/svf.h"
 
 // optional profiling hooks (the firmware maps them to the cycle counter)
 #ifndef STRISY_PROF_START

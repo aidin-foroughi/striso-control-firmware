@@ -5,7 +5,7 @@
 # Usage: [FW_DIR=<checkout>] tools/build.sh [VOICE=<v>] [SYNTH_ENGINE=strisy|faust] [PRESET=<p>]
 #                                           [SYNTH_OPT="<flags>"] [SYNTH_LTO=yes|no]
 #                                           [-D<CMAKE_OPTION>=<value>...] [clean] [verbose]
-#   VOICE         strisy (default), all, or <name> for dsp/include/striso_dsp/voice_<name>.h
+#   VOICE         strisy (default), all, or <name> for engines/dsp/include/striso_dsp/voice_<name>.h
 #   SYNTH_ENGINE  strisy (default: the C++ engines) or faust (synth.dsp)
 #   PRESET        firmware (default, Release) or firmware-debug
 #   FW_DIR        firmware checkout, relative to the current directory or absolute (default: the

@@ -14,10 +14,6 @@ board/cfg/board.chcfg                    -text
 cfg/chconf.h                             -text
 cfg/halconf.h                            -text
 cfg/mcuconf.h                            -text
-dsp/include/striso_dsp/voice_brass.h     -text
-dsp/include/striso_dsp/voice_ep.h        -text
-dsp/include/striso_dsp/voice_wind.h      -text
-dsp/include/striso_dsp/voice_wind_tune.h -text
 ld/STM32H743xI_uf2.ld                    -text
 src/app/main.c                           -text
 src/drivers/lsm6dsl.h                    -text

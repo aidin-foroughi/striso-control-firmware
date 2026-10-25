@@ -3,7 +3,7 @@
 #define STRISO_DSP_ENGINES_STRISY_H_
 
 #include "../strisy.h"
-#include "../adapter.h"
+#include "striso_dsp/adapter.h"
 
 namespace striso::dsp {
 namespace traits {

@@ -9,10 +9,10 @@ include("${PROJECT_SOURCE_DIR}/third_party/doctest/cmake/doctest.cmake")
 add_executable(striso_virtual_tests main.cpp test_api.cpp test_message_path.cpp test_protocol.cpp test_midi_in.cpp test_midi_shell.cpp test_state.cpp test_ump_in.cpp test_usb_midi2.cpp)
 target_include_directories(striso_virtual_tests PRIVATE
   "${PROJECT_SOURCE_DIR}/third_party/doctest"
-  "${PROJECT_SOURCE_DIR}/tools/harness")
+  "${STRISO_HARNESS_DIR}")
 target_compile_definitions(striso_virtual_tests PRIVATE
   "STRISO_GOLDEN_FILE=\"${PROJECT_SOURCE_DIR}/tests/golden/renders.txt\""
-  "STRISO_REC_DIR=\"${PROJECT_SOURCE_DIR}/tools/harness/rec\""
+  "STRISO_REC_DIR=\"${STRISO_HARNESS_DIR}/rec\""
   "STRISO_TRANSCRIPTS=\"${CMAKE_CURRENT_SOURCE_DIR}/transcripts\"")
 target_link_libraries(striso_virtual_tests PRIVATE striso_virtual striso::dsp striso_sdk striso_engine_strisy striso_host_options)
 target_compile_options(striso_virtual_tests PRIVATE -O2 -ffp-contract=off)
@@ -29,7 +29,7 @@ doctest_discover_tests(striso_virtual_tests TEST_PREFIX "virtual." PROPERTIES LA
 # renders) through the firmware's synth thread, each bit for bit against its host golden. The
 # firmware's engines: SYNTH_ENGINES_ALL, the all-voices build's list in src/synth/synth_strisy.cpp.
 add_executable(virtual_render virtual_render.cpp perf_default.cpp perf_stale.cpp)
-target_include_directories(virtual_render PRIVATE "${PROJECT_SOURCE_DIR}/tools/harness")
+target_include_directories(virtual_render PRIVATE "${STRISO_HARNESS_DIR}")
 target_link_libraries(virtual_render PRIVATE striso_virtual striso::dsp striso_host_options)
 target_compile_options(virtual_render PRIVATE -O2 -ffp-contract=off)
 target_compile_definitions(virtual_render PRIVATE _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS)
@@ -51,7 +51,7 @@ foreach(l IN LISTS _golden_lines)
     set("_vgolden_${CMAKE_MATCH_1}" "${CMAKE_MATCH_2}")
   endif()
 endforeach()
-file(GLOB _recordings "${PROJECT_SOURCE_DIR}/tools/harness/rec/*.csv")
+file(GLOB _recordings "${STRISO_HARNESS_DIR}/rec/*.csv")
 list(SORT _recordings)
 
 function(_virtual_render name)

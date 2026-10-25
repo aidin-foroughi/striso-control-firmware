@@ -34,7 +34,7 @@ set(STRISO_LOAD_ADDRESS "0x08040000" CACHE STRING "expected load address: the ap
 if(NOT STRISO_SYNTH_ENGINE MATCHES "^(strisy|faust)$")
   message(FATAL_ERROR "STRISO_SYNTH_ENGINE must be strisy or faust, not '${STRISO_SYNTH_ENGINE}'")
 endif()
-if(NOT STRISO_VOICE MATCHES "^(strisy|all)$" AND NOT EXISTS "${STRISO_DSP_INCLUDE_DIR}/striso_dsp/engines/${STRISO_VOICE}.h")
+if(NOT STRISO_VOICE MATCHES "^(strisy|all)$" AND NOT EXISTS "${STRISO_ENGINES_INCLUDE_DIR}/striso_dsp/engines/${STRISO_VOICE}.h")
   message(FATAL_ERROR "STRISO_VOICE=${STRISO_VOICE}: no dsp/include/striso_dsp/engines/${STRISO_VOICE}.h")
 endif()
 
@@ -142,7 +142,7 @@ if(STRISO_KERNEL_STATS)
   set(_kernel_stats_src "${STRISO_CHIBIOS_DIR}/os/rt/src/chstats.c")
 endif()
 
-set(_inc ${STRISO_FW_INCLUDE_DIRS} "${STRISO_DSP_INCLUDE_DIR}" "${_gen}" "${STRISO_CONF_DIR}" ${CHIBIOS_INC})
+set(_inc ${STRISO_FW_INCLUDE_DIRS} ${STRISO_DSP_INCLUDE_DIRS} "${_gen}" "${STRISO_CONF_DIR}" ${CHIBIOS_INC})
 
 # --- object libraries in link order ---------------------------------------------------------------
 function(_fw_objects name)
@@ -165,7 +165,7 @@ _fw_objects(fw_app_cxx SOURCES ${CHIBIOS_CPPSRC} ${STRISO_FW_CXX_SOURCES}
 # the Faust synth includes fastpow.h without the striso_dsp/ prefix
 _fw_objects(fw_synth SOURCES "${_synth_src}"
   OPTIONS ${_mcflags} ${_opt_synth} ${_cppopt} ${_cppwarn} DEFINES ${_defs}
-  INCLUDES "${STRISO_DSP_INCLUDE_DIR}/striso_dsp")
+  INCLUDES "${STRISO_DSP_INCLUDE_DIR}/striso_dsp" "${STRISO_ENGINES_INCLUDE_DIR}/striso_dsp")
 
 # --- the firmware ---------------------------------------------------------------------------------
 add_executable(striso_control

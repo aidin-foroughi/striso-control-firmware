@@ -1,5 +1,7 @@
 # Sound engines: the contract
 
+The engines, the effects, the engine contract and the SDK are in the engines repository: the `engines/` git submodule, pinned by commit (engines/README.md, engines/PROVENANCE.md). Paths below such as `dsp/`, `sdk/` and `tools/harness/` are in it. Exceptions stay in this repository: `strisy.h` (the port of the upstream `synth.dsp`), `fastpow.h` and `ump_out.h`.
+
 Every sound engine of the Striso (strisy, va, modal, bowed, wind, ep, brass, trumpet, reed, sine) and the master effects keep one contract. The firmware is one host of it, a program on the PC another. An engine can be built, tested, rendered and played without the firmware.
 
 - **The contract:** `dsp/include/striso_dsp/engine.h`. It has the `striso::dsp::VoiceEngine` and `striso::dsp::Effect` concepts, `VoiceControls`, `EngineInfo` and the memory placements.

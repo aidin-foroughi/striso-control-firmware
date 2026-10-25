@@ -72,7 +72,7 @@ target_include_directories(striso_virtual
     "${CMAKE_CURRENT_SOURCE_DIR}/board"
     "${_fw}/app" "${_fw}/drivers" "${_fw}/usb" "${_fw}/synth"
     "${PROJECT_SOURCE_DIR}/board"
-    "${STRISO_DSP_INCLUDE_DIR}"
+    ${STRISO_DSP_INCLUDE_DIRS}
     "${_gen}")
 # as the firmware build (cmake/StrisoFirmware.cmake) for VOICE=all with the C++ engines
 target_compile_definitions(striso_virtual PRIVATE STRISO_VIRTUAL_BUILD SYNTH_ENGINE_STRISY SYNTH_VOICE_ALL

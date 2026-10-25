@@ -17,7 +17,7 @@ foreach(v IN LISTS STRISO_VOICES)
   add_executable(target_render_${v} "${_dir}/render_target.cpp" "${_dir}/startup.c")
   striso_voice_defines(defs ${v})
   target_compile_definitions(target_render_${v} PRIVATE ${defs})
-  target_include_directories(target_render_${v} PRIVATE "${STRISO_DSP_INCLUDE_DIR}" "${PROJECT_SOURCE_DIR}/tools/harness")
+  target_include_directories(target_render_${v} PRIVATE ${STRISO_DSP_INCLUDE_DIRS} "${STRISO_HARNESS_DIR}" "${PROJECT_SOURCE_DIR}/tools/harness")
   target_compile_options(target_render_${v} PRIVATE ${_tr_flags})
   target_link_options(target_render_${v} PRIVATE ${_mcflags} ${_opt_synth} --specs=rdimon.specs -nostartfiles
     "-T${_dir}/target.ld" -Wl,--gc-sections
@@ -57,7 +57,7 @@ list(APPEND _targets target_scan_seq)
 # the key path's instructions per block, before and after the UMP profile (key_path.cpp), with
 # synth_control.cpp's flags; ctest target.key_path checks both give the same controls
 add_executable(target_key_path "${_dir}/key_path.cpp" "${_dir}/startup.c")
-target_include_directories(target_key_path PRIVATE "${STRISO_DSP_INCLUDE_DIR}" "${PROJECT_SOURCE_DIR}/tools/harness")
+target_include_directories(target_key_path PRIVATE ${STRISO_DSP_INCLUDE_DIRS} "${STRISO_HARNESS_DIR}" "${PROJECT_SOURCE_DIR}/tools/harness")
 target_compile_options(target_key_path PRIVATE ${_mcflags} ${_opt}
   "$<$<COMPILE_LANGUAGE:CXX>:-std=gnu++20;-fno-exceptions;-fno-rtti>" "$<$<COMPILE_LANGUAGE:C>:${_copt}>")
 target_link_options(target_key_path PRIVATE ${_mcflags} ${_opt} --specs=rdimon.specs -nostartfiles
@@ -70,7 +70,7 @@ list(APPEND _targets target_key_path)
 # the voice-switch block's instructions per engine (switch_block.cpp): EngineSet::start and the
 # first block, with the synth DSP's flags; ctest target.switch_block prints them
 add_executable(target_switch_block "${_dir}/switch_block.cpp" "${_dir}/startup.c")
-target_include_directories(target_switch_block PRIVATE "${STRISO_DSP_INCLUDE_DIR}")
+target_include_directories(target_switch_block PRIVATE ${STRISO_DSP_INCLUDE_DIRS})
 target_compile_options(target_switch_block PRIVATE ${_tr_flags})
 target_link_options(target_switch_block PRIVATE ${_mcflags} ${_opt_synth} --specs=rdimon.specs -nostartfiles
   "-T${_dir}/target.ld" -Wl,--gc-sections
@@ -89,7 +89,7 @@ foreach(v IN LISTS STRISO_VOICES)
   add_executable(target_profile_${v} "${_dir}/render_target.cpp" "${_dir}/startup.c")
   striso_voice_defines(defs ${v})
   target_compile_definitions(target_profile_${v} PRIVATE ${defs} TARGET_PROFILE TARGET_FX)
-  target_include_directories(target_profile_${v} PRIVATE "${STRISO_DSP_INCLUDE_DIR}" "${PROJECT_SOURCE_DIR}/tools/harness")
+  target_include_directories(target_profile_${v} PRIVATE ${STRISO_DSP_INCLUDE_DIRS} "${STRISO_HARNESS_DIR}" "${PROJECT_SOURCE_DIR}/tools/harness")
   target_compile_options(target_profile_${v} PRIVATE ${_tr_flags})
   target_link_options(target_profile_${v} PRIVATE ${_mcflags} ${_opt_synth} --specs=rdimon.specs -nostartfiles
     "-T${_dir}/target.ld" -Wl,--gc-sections

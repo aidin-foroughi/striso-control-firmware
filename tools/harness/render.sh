@@ -17,7 +17,7 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$FW:/fw:ro" -v "$TOOLS:/tools" -v "$DSP_D
 set -e
 python3 -c \"import sys; sys.path.insert(0, '/fw/src/synth/faust'); from faust2striso import faust_replace_fixed_sliders as f; open('/tmp/s.dsp','w').write(f(open('/dsp/$DSP').read()))\"
 faust ${FAUST_FLAGS:-} -I /fw/src/synth/faust -I /dsp -a /tools/harness/host_arch.cpp /tmp/s.dsp -lang ocpp -o /tmp/s.cpp
-g++ -O2 -ffp-contract=off ${3:-} -std=c++14 -w -I /fw/dsp/include/striso_dsp -I /tools/harness /tmp/s.cpp -o /tmp/render
+g++ -O2 -ffp-contract=off ${3:-} -std=c++14 -w -I /fw/dsp/include/striso_dsp -I /tools/harness -I /fw/engines/tools/harness /tmp/s.cpp -o /tmp/render
 cp /tmp/s.cpp /tools/harness/out/$2.cpp
 /tmp/render /tools/harness/out/$2.f32
 "
