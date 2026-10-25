@@ -27,7 +27,7 @@ namespace striso::voices {
 inline constexpr double LEVEL_DECAY = 0.998, LEVEL_STEP = 0.0005;
 
 template <int Notes, int Voices> class VoiceAllocator {
-	static_assert(Notes <= 127 && Voices <= 127, "note and voice numbers are int8_t");
+	static_assert(Notes <= 32767 && Voices <= 32767, "note and voice numbers are int16_t");
 
 public:
 	static constexpr int NOTES = Notes, VOICES = Voices;
@@ -87,8 +87,8 @@ public:
 		if (old >= 0 && old != note) voice_[old] = -1;
 		const int mine = voice_[note];
 		if (mine >= 0 && mine != v && owner_[mine] == note) owner_[mine] = -1;
-		owner_[v] = (int8_t)note;
-		voice_[note] = (int8_t)v;
+		owner_[v] = (int16_t)note;
+		voice_[note] = (int16_t)v;
 	}
 
 	// the note `from` goes on as `to` (the board's portamento and free transpose hand-overs)
@@ -109,16 +109,16 @@ public:
 	}
 
 private:
-	int8_t voice_[Notes] = {};
-	int8_t owner_[Voices] = {};
+	int16_t voice_[Notes] = {};
+	int16_t owner_[Voices] = {};
 	float level_[Notes] = {};
 	int voices_ = Voices;
 
 public:
 	// (all -1: no note has a voice, no voice a note)
 	constexpr VoiceAllocator() {
-		for (int8_t& x : voice_) x = -1;
-		for (int8_t& x : owner_) x = -1;
+		for (int16_t& x : voice_) x = -1;
+		for (int16_t& x : owner_) x = -1;
 	}
 };
 
