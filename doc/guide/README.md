@@ -11,8 +11,9 @@
 
 Everything is generated from the tables at the top of `build.py`: the board geometry (from
 `synth_control.cpp` and `button_read.c`, the same numbers striso-live uses to draw the board), the
-settings keys (`config_but()` and `config_voice()` in `synth_control.cpp`), the voices and their
-presets (`voice_*.h`) and the factory tunings and preset colours (`config.h`). Before it builds, the
+settings keys (`settings_key_table` in `src/synth/synth_control.cpp`, `led_view.hpp`), the voices
+and their presets (awva's `voice_*.h`, the `awva` submodule) and the factory tunings
+(`config_schema.hpp`). Before it builds, the
 script checks those tables against the firmware source and stops if they differ, so when a key or a
 preset changes, update the table and the guide follows.
 
@@ -55,7 +56,7 @@ at once; the script then waits for the file to appear (it can take half a minute
 
 1. Cover: the board with note names and the control buttons.
 2. Thank you, Piers; about this fork; getting started.
-3. The sounds: the seven engines, the voice and preset table.
+3. The sounds: the nine engines, the voice and preset table.
 4. Settings: switch and dial keys, the LED value scale, nudge and circle, choosing voices and presets.
 5. The settings card.
 6. Presets, tuning, transposing, reset and factory settings.

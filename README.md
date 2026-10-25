@@ -18,11 +18,13 @@ This is an **unofficial fork**, not supported by Striso.
 
 ### Modelled instruments on the board
 
-The internal synth now has seven voice engines, several of them physical models that react to the Striso's touch the way the real instruments react to a player:
+The internal synth now has nine voice engines, several of them physical models that react to the Striso's touch the way the real instruments react to a player:
 
 - **Bowed strings:** a digital waveguide string driven by a friction bow with a modelled body. Pressure is the bow, tilt moves the bow from fingerboard to bridge, and a hard strike gives a short bite. Includes pizzicato.
 - **Woodwinds:** physically modelled reeds and flute (clarinets, saxophones, oboe, bassoon). Pressure is breath.
 - **Brass:** a lip-reed model with a physical bore (trumpet, flugelhorn, trombone, horn, euphonium, tuba, with harmon and plunger mutes).
+- **Trumpet:** a physical model of the trumpet: nothing sets the pitch but the lips and the bore together.
+- **Accordion:** modelled free reeds in registers (clarinet, musette, master, bandoneon, harmonium and more), with reed chambers, cassotto and one shared bellows.
 - **Electric pianos:** physically inspired tines and reeds (Rhodes, Wurlitzer, Pianet and more): beautiful harmonics, a bit of grit and lots of presets.
 - **Tuned percussion:** modal synthesis of real partials (vibraphone, marimba, glockenspiel, bell, kalimba, wine glass); pressure after the strike rubs and sustains.
 - **Virtual analog:** saws, sync, a ladder filter and expressive envelopes.

@@ -85,7 +85,8 @@ DOWN_LED_Y = (-27.5, -23.5)   # DOWN2 (outer), DOWN
 PLATE = dict(x0=-104.0, x1=79.0, y0=-80.0, y1=80.0, r=9.0)
 
 # ----------------------------------------------------------------------------------------------
-# Settings keys: synth_control.cpp config_but() and config_voice() (the current, non OLD layout).
+# Settings keys: settings_key_table in src/synth/synth_control.cpp (every key, its led colour for a
+# voice key); led_view.hpp for the other keys' led colours.
 # led: the indicator led colour the key lights, as drawn; knob: what nudging/circling changes.
 # Tuning names 1..8 and their colours are the factory settings of config.h (sT<n>name, hT<n>color);
 # the configuration editor can change them. Preset colours are config.h hP<n>color.
@@ -112,7 +113,7 @@ def led_hex(r, g, b):
     return '#%02x%02x%02x' % tuple(int(round(v / m * 255)) for v in (r, g, b))
 
 
-# config_voice(engine, r, g, b): key id -> (engine, led rgb)
+# settings_key_table's voice rows: key id -> (engine, led rgb)
 VOICE_KEYS = [
     (18, 'strisy', (40, 40, 40)),
     (20, 'va', (64, 20, 0)),
@@ -121,8 +122,12 @@ VOICE_KEYS = [
     (26, 'wind', (0, 64, 0)),
     (28, 'ep', (40, 0, 64)),
     (13, 'brass', (64, 40, 0)),
+    (15, 'trumpet', (0, 48, 48)),
+    (16, 'accordion', (64, 16, 36)),
 ]
-# voice_*.h NUM_PRESETS / preset_name(); strisy has no presets
+# the card's label where the name is too long for one line
+VOICE_CARD_LINES = {'accordion': ['accor-', 'dion']}
+# awva's voice_*.h NUM_PRESETS / preset names; strisy has no presets
 VOICES = {
     'strisy': ('strisy', 'the original Striso sound', ['the original sound (no presets)']),
     'va': ('VA', 'virtual analog synth', ['classic', 'pad', 'lead', 'bass', 'brass', 'keys', 'acid', 'strings']),
@@ -131,10 +136,12 @@ VOICES = {
     'wind': ('wind', 'woodwinds', ['clarinet', 'bass clarinet', 'soprano sax', 'alto sax', 'tenor sax', 'baritone sax', 'oboe', 'bassoon', 'flute']),
     'ep': ('EP', 'electric pianos', ['stage', 'suitcase', 'mk2', 'dyno', 'ballad', 'bark', 'neosoul', 'fm80s', 'lofi', 'wurli', 'wurlibark', 'pianet', 'felt', 'celesta']),
     'brass': ('brass', 'brass', ['trumpet', 'flugelhorn', 'trombone', 'horn', 'euphonium', 'tuba', 'harmon', 'plunger', 'section']),
+    'trumpet': ('trumpet', 'a physical trumpet', ['trumpet']),
+    'accordion': ('accordion', 'free reeds and bellows', ['clarinet', 'bassoon', 'piccolo', 'violin', 'musette', 'organ', 'master', 'bandoneon', 'harmonium']),
 }
 VOICE_LED = {eng: led_hex(*rgb) for _, eng, rgb in VOICE_KEYS}
 VOICE_LED_NAME = {'strisy': 'white', 'va': 'orange', 'modal': 'blue', 'bowed': 'red',
-                  'wind': 'green', 'ep': 'purple', 'brass': 'amber'}
+                  'wind': 'green', 'ep': 'purple', 'brass': 'amber', 'trumpet': 'cyan', 'accordion': 'pink'}
 
 TUNINGS = [  # key id, label lines, led colour (config.h hT<n>color at full brightness)
     (34, ['12TET'], '#00ff00'),
@@ -175,9 +182,11 @@ SETTINGS = [
     SKey(21, G_SENS, ['velo-', 'city'], led='#ff00ff', knob='velocity, 0 to 2'),
     SKey(6, G_SENS, ['bend', '(x)'], led='#ff0000', knob='pitch bend, 0 to 4'),
     SKey(8, G_SENS, ['tilt', '(y)'], led='#8000ff', knob='tilt, 0 to 3'),
+    # 9: mono legato on/off (led_view.hpp kLegatoOn)
+    SKey(9, G_SYSTEM, ['legato'], led=led_hex(0, 0x40, 0x20)),
 ] + [
-    # row 4: 18 20 22 24 26 28 13 ("future use" on the official v2.2 card)
-    SKey(bid, G_VOICE, [VOICES[eng][0]], led=led_hex(*rgb), knob='preset', bold=(eng == 'strisy'))
+    # 18 20 22 24 26 28 13 15 16 ("future use" on the official v2.2 card)
+    SKey(bid, G_VOICE, VOICE_CARD_LINES.get(eng, [VOICES[eng][0]]), led=led_hex(*rgb), knob='preset', bold=(eng == 'strisy'))
     for bid, eng, rgb in VOICE_KEYS
 ] + [
     # row 5: 34 36 38 23 25 27 29 31 33
@@ -516,8 +525,9 @@ def page_cover():
   </div>
 </div>
 <p class="lead">The Striso board is a standalone instrument: plug in headphones or a speaker and play.
-With this firmware it carries seven sound engines (bowed strings, woodwinds, brass, electric pianos,
-tuned percussion, a virtual analog synth and the original strisy sound), plays over USB as a sound card,
+With this firmware it carries nine sound engines (bowed strings, woodwinds, brass, a physical trumpet, an
+accordion, electric pianos, tuned percussion, a virtual analog synth and the original strisy sound), plays over
+USB as a sound card,
 and still works as an MPE MIDI controller.</p>
 %s
 <p class="caption"><b>61 keys, 4 buttons.</b> Every key senses pressure, strike velocity and tilt in two
@@ -571,7 +581,7 @@ def page_sounds():
             swatch(VOICE_LED[eng]), name, what, ', '.join(presets)))
     return '''
 <h2>The sounds</h2>
-<p>The on-board synth has seven voice engines. Several are physical models that react to the Striso&rsquo;s
+<p>The on-board synth has nine voice engines. Several are physical models that react to the Striso&rsquo;s
 touch the way the real instrument reacts to a player.</p>
 <ul class="tight">
 <li><b>Bowed strings:</b> a waveguide string driven by a friction bow, with a modelled body. Pressure is the bow,
@@ -579,6 +589,7 @@ tilt moves it from fingerboard to bridge, a hard strike gives a short bite; pizz
 <li><b>Woodwinds:</b> modelled reeds and flute (clarinets, saxophones, oboe, bassoon). Pressure is breath; a fast
 strike tongues the note.</li>
 <li><b>Brass:</b> a lip-reed model with a physical bore, from trumpet to tuba, with harmon and plunger mutes.</li>
+<li><b>Trumpet, accordion:</b> a physical trumpet; free reeds with registers and one bellows.</li>
 <li><b>Electric pianos:</b> physically inspired tines and reeds (Rhodes, Wurlitzer, Pianet and more).</li>
 <li><b>Tuned percussion:</b> modal synthesis of real partials (vibraphone, marimba, glockenspiel, bell, kalimba,
 wine glass); pressure after the strike rubs and sustains.</li>
@@ -592,7 +603,7 @@ voice and a preset on the board; the table lists them in the order the up/down L
 <tr><th>LED</th><th>Voice</th><th>Presets</th></tr>
 %s
 </table>
-<p class="caption" style="margin-top:2.5mm">Striso Live (page 7) can shape every parameter of these engines and save your own sounds.</p>
+<p class="caption" style="margin-top:1.2mm">Striso Live (page 7) can shape every parameter of these engines and save your own sounds.</p>
 ''' % '\n'.join(rows)
 
 
@@ -639,7 +650,9 @@ the preset. Tuning keys: a fine tuning offset, also for 12TET. Volume: 0 to 127.
 MPE bend: 12, 24, 48 or 96 semitones. Msg rate: the MIDI message interval, 1 to 15 ms.</p>
 <p class="caption"><b>Switches.</b> Presets 1 to 8 load stored settings. Tunings 1 to 8 are named as the factory sets
 them. Panic sends all notes off. Send cfg sends the MPE configuration again. <b>Flip 180&deg;</b> turns the layout
-around. <b>Reset</b> restarts the board: hold settings, press Reset (red LED), then release settings. Blank keys do
+around. <b>Legato</b> switches mono legato on the internal synth on or off: one voice, a key pressed while another
+is held slurs to it, and its release returns to the held one. <b>Reset</b> restarts the board: hold settings, press
+Reset (red LED), then release settings. Blank keys do
 nothing yet.</p>
 ''' % (card_svg(126), ''.join(
         '<span class="lg"><i style="background:%s;border-color:%s"></i>%s</span>' % (GROUP_FILL[g], GROUP_STROKE[g], g)
@@ -792,9 +805,9 @@ ul.tight li, ol.tight li { margin: 0 0 0.9mm; }
 .note { background: #fdf6dc; border-left: 0.6mm solid var(--accent); padding: 1.5mm 2.5mm; border-radius: 0.6mm; }
 .fig { text-align: center; margin: 1.5mm 0 2.5mm; }
 .fig svg { display: inline-block; }
-table.voices { width: 100%; border-collapse: collapse; font-size: 7.7pt; margin-top: 1mm; }
+table.voices { width: 100%; border-collapse: collapse; font-size: 7.2pt; margin-top: 1mm; }
 table.voices th { text-align: left; font-weight: 600; color: var(--dim); border-bottom: 0.3mm solid var(--rule); padding: 0.6mm 1.2mm 0.8mm; font-size: 7.2pt; }
-table.voices td { vertical-align: top; padding: 1.1mm 1.2mm; border-bottom: 0.2mm solid #ece7da; }
+table.voices td { vertical-align: top; padding: 0.4mm 1.2mm; border-bottom: 0.2mm solid #ece7da; }
 table.voices td:first-child { width: 6mm; }
 table.voices td:nth-child(2) { width: 24mm; white-space: nowrap; }
 .sw { display: inline-block; width: 3.4mm; height: 3.4mm; border-radius: 50%; border: 0.3mm solid #4a4a4a; vertical-align: -0.7mm; }
@@ -875,23 +888,34 @@ def build_html():
 
 
 def verify_against_firmware():
-    """Checks the tables above against synth_control.cpp and voice_*.h, so the guide can't drift."""
+    """Checks the tables above against the settings-key table, led_view.hpp, awva's voice_*.h and
+    config_schema.hpp, so the guide can't drift."""
     def read(name):
-        return open(os.path.join(REPO, name), encoding='utf-8', errors='replace').read()
-    src = read('synth_control.cpp')
-    new = src[src.index('#else // !OLD_CONFIG_LAYOUT'):src.index('#endif // !OLD_CONFIG_LAYOUT')]
-    body = new[new.index('float config_but('):]
-    cases = set(int(m) for m in re.findall(r'^\s*case \((\d+)\):', body, re.M))
-    if cases != set(SETTINGS_BY_ID):
-        sys.exit('settings keys differ from config_but(): %s' % sorted(cases ^ set(SETTINGS_BY_ID)))
+        path = os.path.join(REPO, name)
+        if not os.path.exists(path):
+            sys.exit('%s not found (the awva submodule: git submodule update --init awva)' % name)
+        return open(path, encoding='utf-8', errors='replace').read()
+    src = read('src/synth/synth_control.cpp')
+    table = src[src.index('settings_key_table[] = {'):src.index('static_assert(settings_keys::well_formed(settings_key_table))')]
+    keys = set(int(m) for m in re.findall(r'^\s*\{(\d+), k', table, re.M))
+    if keys != set(SETTINGS_BY_ID):
+        sys.exit('settings keys differ from settings_key_table: %s' % sorted(keys ^ set(SETTINGS_BY_ID)))
     for bid, eng, rgb in VOICE_KEYS:
-        m = re.search(r'case \(%d\): return config_voice\("%s", (\d+), (\d+), (\d+),' % (bid, eng), new)
-        if not m or tuple(map(int, m.groups())) != tuple(rgb):
-            sys.exit('voice key %d (%s) differs from config_voice()' % (bid, eng))
+        m = re.search(r'\{%d, kSwitch, kVoice, [^,]+, -1, "%s", 0x([0-9a-fA-F]{6}),' % (bid, eng), table)
+        if not m or tuple(int(m.group(1)[i:i + 2], 16) for i in (0, 2, 4)) != tuple(rgb):
+            sys.exit('voice key %d (%s) differs from settings_key_table' % (bid, eng))
+    m = re.search(r'kLegatoOn = 0x([0-9a-fA-F]{6})', read('src/synth/led_view.hpp'))
+    if not m or led_hex(*(int(m.group(1)[i:i + 2], 16) for i in (0, 2, 4))) != SETTINGS_BY_ID[9].led:
+        sys.exit('the legato key led differs from led_view.hpp kLegatoOn')
+    awva = 'awva/dsp/include/awva/'
+    trumpet = read(awva + 'voice_trumpet.h')
+    if 'NUM_PRESETS = 1;' not in trumpet or 'preset_name(int) { return "%s"; }' % VOICES['trumpet'][2][0] not in trumpet:
+        sys.exit('the trumpet presets differ from voice_trumpet.h')
     for eng, hdr, array in (('va', 'voice_va.h', 'names'), ('bowed', 'voice_bowed.h', 'names'),
                             ('brass', 'voice_brass.h', 'names'), ('ep', 'voice_ep.h', 'names'),
-                            ('modal', 'voice_modal.h', 'presets'), ('wind', 'voice_wind.h', 'preset_info')):
-        h = read(hdr)
+                            ('modal', 'voice_modal.h', 'presets'), ('wind', 'voice_wind.h', 'preset_info'),
+                            ('accordion', 'voice_accordion.h', 'preset_names')):
+        h = read(awva + hdr)
         n = int(re.search(r'NUM_PRESETS = (\d+)', h).group(1))
         start = h.index(array + '[NUM_PRESETS] = {') + len(array + '[NUM_PRESETS] = ')
         depth, end = 0, start
@@ -902,12 +926,16 @@ def verify_against_firmware():
         names = re.findall(r'"([^"]+)"', h[start:end])
         if names != VOICES[eng][2] or len(names) != n:
             sys.exit('presets of %s differ from %s: %s' % (eng, hdr, names))
-    for n in range(1, 9):
-        if ('"sT%dname "' % n) not in read('config.h'):
-            sys.exit('tuning %d missing from config.h' % n)
+    # tunings 1 to 8 (keys 36 .. 33): their factory colours in config_schema.hpp kTuningValues
+    schema = read('src/app/config_schema.hpp')
+    values = schema[schema.index('kTuningValues[kTunings][5] = {'):]
+    colors = re.findall(r'^\s*\{"[^"]*", "#([0-9a-fA-F]{6})"', values[:values.index('};')], re.M)
+    want = [led for _, _, led in TUNINGS[1:]]
+    if [led_hex(*(int(c[i:i + 2], 16) for i in (0, 2, 4))) for c in colors] != want:
+        sys.exit('tuning colours differ from config_schema.hpp kTuningValues: %s' % colors)
     assert spell(C1[25]) == ('D', 0) and key_octave(25) == 3 and pitch(25) == 0
     assert led_state(0) == [0, 0, 0, 0] and led_state(8) == [15, 15, 15, 15] and led_state(15) == [3, 0, 0, 0]
-    print('tables verified against synth_control.cpp, voice_*.h and config.h')
+    print('tables verified against settings_key_table, led_view.hpp, awva voice_*.h and config_schema.hpp')
 
 
 def find_edge():
