@@ -41,8 +41,11 @@ ALLOWED_EMAILS = {
 ALLOWED_EMAIL_RE = re.compile(r"@users\.noreply\.github\.com$")
 
 PATTERNS = [
-    # a drive and a folder name (not a shell variable: "$v:\$p" is no path)
-    ("Windows drive path", re.compile(rb"(?<![A-Za-z0-9$_{])[A-Za-z]:[\\/]{1,2}[A-Za-z0-9_][A-Za-z0-9 ._()-]*[\\/]")),
+    # a drive and a folder name (not a shell variable: "$v:\$p" is no path); the system's own folders
+    # (Program Files, Windows) name no one
+    ("Windows drive path", re.compile(
+        rb"(?<![A-Za-z0-9$_{])[A-Za-z]:[\\/]{1,2}(?!Program Files(?: \(x86\))?[\\/]|Windows[\\/])"
+        rb"[A-Za-z0-9_][A-Za-z0-9 ._()-]*[\\/]")),
     ("user home path", re.compile(rb"/(?:Users|home)/(?!Shared/|runner/)[A-Za-z0-9._-]+/")),
     ("AppData path", re.compile(rb"AppData[\\/]", re.I)),
     ("private key", re.compile(rb"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----")),
