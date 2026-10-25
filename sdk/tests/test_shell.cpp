@@ -15,6 +15,7 @@ namespace sdk = striso::sdk;
 namespace {
 
 // frames of the shell in calls of the given sizes (cycled), MIDI note 60 on at 0, off at 0.5 s
+// (with its offset in the call that frame is in, as a plugin host gives it)
 std::vector<float> render(const std::vector<int>& sizes, int frames) {
 	const sdk::EngineEntry* va = sdk::find_engine("va");
 	REQUIRE(va != nullptr);
@@ -23,11 +24,11 @@ std::vector<float> render(const std::vector<int>& sizes, int frames) {
 	std::vector<float> l(static_cast<size_t>(frames)), r(static_cast<size_t>(frames));
 	bool off = false;
 	for (int n = 0, k = 0; n < frames; k++) {
-		if (!off && n >= 24000) {
-			s.midi(0x80, 60, 64);
+		const int m = std::min(sizes[static_cast<size_t>(k) % sizes.size()], frames - n);
+		if (!off && n + m > 24000) {
+			s.midi(0x80, 60, 64, 24000 - n);
 			off = true;
 		}
-		const int m = std::min(sizes[static_cast<size_t>(k) % sizes.size()], frames - n);
 		s.process(&l[static_cast<size_t>(n)], &r[static_cast<size_t>(n)], m);
 		n += m;
 	}
@@ -37,11 +38,7 @@ std::vector<float> render(const std::vector<int>& sizes, int frames) {
 
 } // namespace
 
-// Expected to fail (it never ran: its name had a ';', which ctest's discovery splits): the note
-// off is sent at the first call boundary at or after 0.5 s, which with calls of up to 333 frames is
-// a block later than with 32-frame calls, so a and b differ. The shell (or the test) needs sample-
-// accurate MIDI timing; remove the should_fail then.
-TEST_CASE("shell: a MIDI note sounds and ends, the call size makes no difference" * doctest::should_fail()) {
+TEST_CASE("shell: a MIDI note sounds and ends, the call size makes no difference") {
 	const int frames = 48000 * 3;
 	const std::vector<float> a = render({32}, frames);
 	const std::vector<float> b = render({1, 7, 64, 333, 13}, frames);
@@ -52,8 +49,26 @@ TEST_CASE("shell: a MIDI note sounds and ends, the call size makes no difference
 	}
 	CHECK(peak > 0.01f);
 	CHECK(tail < 1e-3f);
-	// (the note off lands on the block boundary at or after 0.5 s either way: 24000 = 750 blocks)
+	// (the note off goes in before the block of frame 24000 either way: 750 blocks)
 	CHECK(a == b);
+}
+
+TEST_CASE("shell: timed MIDI goes in before the block of its frame, late or untimed MIDI at once") {
+	const sdk::EngineEntry* va = sdk::find_engine("va");
+	REQUIRE(va != nullptr);
+	// a note at frame 100 of a 1000-frame call is the note sent before a call that starts there
+	sdk::Shell a(*va, 48000), b(*va, 48000);
+	std::vector<float> la(2000), ra(2000), lb(2000), rb(2000);
+	a.midi(0x90, 60, 100, 100);
+	a.process(la.data(), ra.data(), 1000);
+	a.process(la.data() + 1000, ra.data() + 1000, 1000);
+	b.process(lb.data(), rb.data(), 96); // (the block of frame 100: frames 96..127)
+	b.midi(0x90, 60, 100);
+	b.process(lb.data() + 96, rb.data() + 96, 1904);
+	CHECK(la == lb);
+	float peak = 0;
+	for (float x : la) peak = std::fmax(peak, std::fabs(x));
+	CHECK(peak > 1e-3f);
 }
 
 TEST_CASE("shell: every engine plays a MIDI note through the shell") {
