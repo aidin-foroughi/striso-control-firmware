@@ -25,14 +25,14 @@ struct RecordingBoard {
 	void led(uint32_t rgb) { say("led " + std::to_string(rgb)); }
 	void message_interval(int ms) { say("interval " + std::to_string(ms)); }
 	void motion_interval(int i) { say("motion " + std::to_string(i)); }
-	midi_mode_t midi_mode() const { return mode; }
+	[[nodiscard]] midi_mode_t midi_mode() const { return mode; }
 	void set_midi_mode(midi_mode_t m) {
 		mode = m;
 		say("mode " + std::to_string(m));
 	}
 	void midinote_mode(midinote_mode_t m) { say("midinote " + std::to_string(m)); }
 	void jack2(jack2_mode_t m) { say("jack " + std::to_string(m)); }
-	int flipdir() const { return flip_dir; }
+	[[nodiscard]] int flipdir() const { return flip_dir; }
 	void flip() {
 		flip_dir = -flip_dir;
 		say("flip");
@@ -44,13 +44,13 @@ struct RecordingBoard {
 	}
 	void axis_cc(MidiAxis a, bool normal, int cc) { say(std::string(normal ? "normal " : "mpe ") + std::to_string(static_cast<int>(a)) + " " + std::to_string(cc)); }
 	void contvelo(int cc) { say("contvelo " + std::to_string(cc)); }
-	int channel_offset() const { return channel; }
+	[[nodiscard]] int channel_offset() const { return channel; }
 	void channel_offset(int c) {
 		channel = c;
 		say("channel " + std::to_string(c));
 	}
 	void bend_range(int s) { say("bendrange " + std::to_string(s)); }
-	int voicecount() const { return voices; }
+	[[nodiscard]] int voicecount() const { return voices; }
 	void voicecount(int n) {
 		voices = n;
 		say("voices " + std::to_string(n));
@@ -66,10 +66,10 @@ struct RecordingBoard {
 	void decay(float v) { say("decay " + std::to_string(v)); }
 	void pedal_decay(float v) { say("pedaldecay " + std::to_string(v)); }
 	void midi_config() { say("midi_config"); }
-	int voice_channel(int i) const { return channel + i; }
+	[[nodiscard]] int voice_channel(int i) const { return channel + i; }
 	void program_change(int ch, int p) { say("program " + std::to_string(ch) + " " + std::to_string(p)); }
-	int tuning() const { return cur_tuning; }
-	int tuning_color() const { return color; }
+	[[nodiscard]] int tuning() const { return cur_tuning; }
+	[[nodiscard]] int tuning_color() const { return color; }
 	void equal_temperament() { say("12tet"); }
 	void generators(float fifth, float octave) { say("generators " + std::to_string(fifth) + " " + std::to_string(octave)); }
 	void tuning_offset(float s) { tuning_off = s; }
