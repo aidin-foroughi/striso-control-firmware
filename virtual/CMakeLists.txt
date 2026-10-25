@@ -55,7 +55,8 @@ add_library(striso_virtual SHARED
   "${_fw}/app/messaging.cpp"
   "${_fw}/app/control_thread.cpp"
   "${_fw}/drivers/key_calibration.c"
-  "${_fw}/drivers/led.cpp")
+  "${_fw}/drivers/led.cpp"
+  "${_fw}/drivers/motion_filter.cpp")
 add_dependencies(striso_virtual striso_virtual_fwversion)
 target_include_directories(striso_virtual
   PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"

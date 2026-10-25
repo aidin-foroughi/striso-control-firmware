@@ -22,6 +22,14 @@
 #define LINE_MOTION_I2C_SDA LINE_I2C3_SDA
 #define LINE_MOTION_I2C_SCL LINE_I2C3_SCL
 
+#include <stdint.h>
+
+/* the accelerometer's full scale in g (2, 4, 8 or 16): CTRL1_XL, and the scaling of its readings */
+#define MOTION_ACC_FS 2
+
 void MotionSensorStart(void);
+/* one LSM6DSL reading (gyro x y z, accel x y z, as read), on the motion thread: the motion
+ * message and the synth's motion controls (motion_filter.cpp) */
+void motion_reading(const int16_t raw[6]);
 
 #endif

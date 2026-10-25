@@ -191,6 +191,17 @@ target_include_directories(test_led PRIVATE
 target_link_libraries(test_led PRIVATE striso_host_options)
 doctest_discover_tests(test_led TEST_PREFIX "led." PROPERTIES LABELS unit)
 
+# motion.*: the MotionFilter (src/drivers/motion_filter.hpp) against the old motion math
+# (tests/ref/motion_ref.c), bit for bit (on the board's CPU too: tools/target_render, target.motion)
+add_executable(test_motion_filter main.cpp motion/test_motion_filter.cpp ref/motion_ref.c)
+target_include_directories(test_motion_filter PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/motion"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ref"
+  "${PROJECT_SOURCE_DIR}/third_party/doctest"
+  "${PROJECT_SOURCE_DIR}/src/drivers")
+target_link_libraries(test_motion_filter PRIVATE striso_host_options m)
+doctest_discover_tests(test_motion_filter TEST_PREFIX "motion." PROPERTIES LABELS unit)
+
 # messaging_model[_small], messaging_threads: src/app/inbox.hpp (the control thread's event queue)
 # never loses, corrupts or reorders an accepted event, never misses a wakeup, refuses only from a
 # full lane and counts it (R2, B7): exhaustively on a small inbox, under key traffic on the board's,

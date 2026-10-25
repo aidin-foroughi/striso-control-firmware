@@ -139,13 +139,13 @@ tools/test.sh host-asan           # the same under AddressSanitizer and Undefine
 
 The host tests render every engine and preset on the PC: the default, stale-input and recorded performances (`tools/harness/rec`). They check that the output is finite, the peak is bounded and released voices fall silent. Each render is compared with a golden checksum (`tests/golden/renders.txt`), so any change to a voice's sound shows up. Unit tests (doctest) cover the live-parameter fuzz, the bowed engine's bounds, the config record format, the tuning math and `tools/striso.py`. The USB audio core has a simulation test.
 
-`ctest --preset firmware` (after building the firmware and `--target target_renders`) checks the USB descriptors and the UF2. It also runs every engine compiled for the board's CPU under QEMU, as a Cortex-M7 with the board's FPU settings, and compares the output with `tests/golden/target_renders.txt`. That shows what a compiler change does to the board's arithmetic. After an intended change to the sound, `tools/update_goldens.sh` rewrites both golden files.
+`ctest --preset firmware` (after building the firmware and `--target target_renders`) checks the USB descriptors and the UF2. It also runs every engine compiled for the board's CPU under QEMU, as a Cortex-M7 with the board's FPU settings, and compares the output with `tests/golden/target_renders.txt`. That shows what a compiler change does to the board's arithmetic. The motion filter runs there too, against the old motion math, bit for bit (`target.motion`). After an intended change to the sound, `tools/update_goldens.sh` rewrites both golden files.
 
 `tools/format.sh` (clang-format) and `tools/tidy.sh` (clang-tidy) cover our C++. CI (`.github/workflows/firmware.yml`) runs all of it on every push, with the virtual board's tests on Windows and macOS, and publishes a release for every `v*` tag (see Releases).
 
 ### Testing without the hardware: the virtual board
 
-`virtual/` builds the firmware's logic as a library for the PC, **striso_virtual** (`.dll`, `.dylib`, `.so`), from the board's own source files: `synth_control.cpp`, `synth_strisy.cpp` with every engine (as `VOICE=all`), the USB console and its protocol (`pconnection.c`), the message path (`messaging.cpp`, `control_thread.cpp`), `config_store.c`, `led.c`. They run on a small ChibiOS/HAL stand-in (`virtual/hal`): the firmware's threads run one at a time by priority, in virtual time (the 2 kHz tick, the codec's 32-frame block interrupt, the 1 ms USB frame), so a run is deterministic. What only the hardware has is replaced (`virtual/board`): key and control messages are injected where the key scanner sends them, so the firmware's own `synth_message` path runs; motion where the sensor thread reads it; the USB bulk console is a pair of byte queues with exactly the board's protocol (`Stc` commands, Q writes, the S/s binary stream). StcB opens the bootloader's drive as a directory, and a UF2 written there is flashed into the virtual board's config. No firmware file is changed for it; the board build is the same.
+`virtual/` builds the firmware's logic as a library for the PC, **striso_virtual** (`.dll`, `.dylib`, `.so`), from the board's own source files: `synth_control.cpp`, `synth_strisy.cpp` with every engine (as `VOICE=all`), the USB console and its protocol (`pconnection.c`), the message path (`messaging.cpp`, `control_thread.cpp`), `config_store.c`, the LEDs (`led.cpp`) and the motion math (`motion_filter.cpp`). They run on a small ChibiOS/HAL stand-in (`virtual/hal`): the firmware's threads run one at a time by priority, in virtual time (the 2 kHz tick, the codec's 32-frame block interrupt, the 1 ms USB frame), so a run is deterministic. What only the hardware has is replaced (`virtual/board`): key and control messages are injected where the key scanner sends them, so the firmware's own `synth_message` path runs; motion where the sensor thread reads it; the USB bulk console is a pair of byte queues with exactly the board's protocol (`Stc` commands, Q writes, the S/s binary stream). StcB opens the bootloader's drive as a directory, and a UF2 written there is flashed into the virtual board's config. No firmware file is changed for it; the board build is the same.
 
 ```sh
 tools/virtual.sh            # build and test natively (Windows: clang with Visual Studio's libraries; macOS: Xcode's clang)
@@ -162,7 +162,7 @@ The library is `build/host-virtual/virtual/striso_virtual.*`; its API is `virtua
 - console transcripts (`virtual/tests/transcripts`) and the real board's replies to the read-only commands, field for field (`transcripts/board`, recorded from a Striso);
 - the API: sound, LEDs, resets, the bootloader drive and its config, determinism, real time.
 
-Striso Live uses it as its **Virtual** Striso, and to audition a build with a real Striso as the controller (`--virtual-lib=<build>/virtual/striso_virtual.dll`): see its README. `test_mirror.py` keeps the virtual board's copies of `main.c`'s and `motionsensor.c`'s loops equal to the firmware's.
+Striso Live uses it as its **Virtual** Striso, and to audition a build with a real Striso as the controller (`--virtual-lib=<build>/virtual/striso_virtual.dll`): see its README. `test_mirror.py` keeps the virtual board's copies of `main.c`'s loops equal to the firmware's.
 
 ### Releases
 
@@ -185,7 +185,7 @@ Each zip holds the library, `striso_virtual.h`, `COPYING` and `manifest.json`: t
 | Path | What |
 |---|---|
 | `src/app` | main, the USB console and protocol (pconnection), the message path (the typed event queue, the control thread, the wire frame), configuration, the config editor page |
-| `src/drivers` | codec, key scanning (ADC), motion sensor, LEDs, aux jack, serial MIDI |
+| `src/drivers` | codec, key scanning (ADC), motion sensor and its filter, LEDs (the presenter over the PWM), aux jack (the JackDetector), serial MIDI |
 | `src/usb` | USB descriptors, bulk console, USB MIDI, USB audio |
 | `src/synth` | the synth thread and controls (`synth_strisy.cpp`, `synth_control.cpp`), the tuning math; `faust/` the Faust synth |
 | `dsp/include/striso_dsp` | the DSP library: strisy, the voice engines (`voice_<name>.h`), the master effects. Header only, C++20, no HAL |

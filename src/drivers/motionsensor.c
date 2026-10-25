@@ -174,12 +174,12 @@ static THD_WORKING_AREA(waThreadAccel, 320); // I2C with timeouts and recovery
 static void ThreadAccel(void *arg) {
   chRegSetThreadName("motion");
 
+#ifdef USE_MPU6050
   int16_t ax, ay, az, gx, gy, gz;
   int msg[9];
   msg[0] = ID_ACCEL;
   msg[1] = 8; // range?
 
-#ifdef USE_MPU6050
   bool init_succeeded = false;
   while (init_succeeded == false) {
     /* MPU6050 initialization.*/
@@ -271,8 +271,8 @@ static void ThreadAccel(void *arg) {
   // block data update: the output registers of a sample stay until both of their bytes are read,
   // so the 12-byte burst never combines bytes of two samples (spikes up to 256 LSB)
   lsm6dslWriteRegister(LSM6DSL_AD_CTRL3_C, LSMDSL_CTRL3_C_IF_INC | LSMDSL_CTRL3_C_BDU);
-  // accelerometer full scale in g (2, 4, 8 or 16): sets CTRL1_XL and the scaling below
-#define ACC_FS 2
+  // accelerometer full scale in g (2, 4, 8 or 16): sets CTRL1_XL and the scaling (motion_filter.hpp)
+#define ACC_FS MOTION_ACC_FS
 #define ACC_FS_XL (ACC_FS == 16 ? LSM6DSL_ACC_FS_16G : ACC_FS == 8 ? LSM6DSL_ACC_FS_8G : \
                    ACC_FS == 4 ? LSM6DSL_ACC_FS_4G : LSM6DSL_ACC_FS_2G)
   _Static_assert(ACC_FS == 2 || ACC_FS == 4 || ACC_FS == 8 || ACC_FS == 16, "ACC_FS: 2, 4, 8 or 16 g");
@@ -284,76 +284,13 @@ static void ThreadAccel(void *arg) {
 
 
 
-  /* Reader thread loop.*/
+  /* Reader thread loop: a reading, through the filter (motion_filter.cpp), every 3 ms */
   int16_t motion[6];
-  int stream_count = 0;
   while (TRUE) {
-    if (lsm6dslReadMotion(motion) != MSG_OK) {
-      // the bus was restarted (motion_transfer); no new reading this time
-      chThdSleepMilliseconds(3);
-      continue;
+    if (lsm6dslReadMotion(motion) == MSG_OK) {
+      motion_reading(motion);
     }
-
-    ax = -motion[3]; gx = -motion[0];
-    ay = -motion[4]; gy = -motion[1];
-    az = -motion[5]; gz = -motion[2];
-
-    float acc_x = ((float)ax)*(ACC_FS/32768.0f);
-    float acc_y = ((float)ay)*(ACC_FS/32768.0f);
-    float acc_z = ((float)az)*(ACC_FS/32768.0f);
-    float acc_abs = sqrtf(pow2(acc_x) + pow2(acc_y) + pow2(acc_z));
-    if (acc_abs>0.001) {
-      acc_x /= acc_abs;
-      acc_y /= acc_abs;
-      acc_z /= acc_abs;
-    }
-
-    if (config.send_motion_interval) {
-      if (config.send_motion_interval != 127) {
-        // 127 means only internal synth
-        // acceleration in message has maximum range 8g (16g for acc_abs)
-        msg[2] = (ax*ACC_FS/8)>>2;
-        msg[3] = (ay*ACC_FS/8)>>2;
-        msg[4] = (az*ACC_FS/8)>>2;
-        msg[5] = ((int16_t)(acc_abs * 32768.0f/8.0f))>>2;
-        msg[6] = gx>>2;
-        msg[7] = gy>>2;
-        msg[8] = gz>>2;
-        event_send(msg[0], msg[1], 7, &msg[2]);
-      }
-      else if (config.send_usb_bulk && ++stream_count >= 4) {
-        // internal synth only, but the USB stream is on (e.g. the Striso Live app): send every
-        // 4th reading (~60 per second) as stream-only motion data, no MIDI side effects
-        stream_count = 0;
-        msg[0] = ID_ACCEL_STREAM;
-        msg[2] = (ax*ACC_FS/8)>>2;
-        msg[3] = (ay*ACC_FS/8)>>2;
-        msg[4] = (az*ACC_FS/8)>>2;
-        msg[5] = ((int16_t)(acc_abs * 32768.0f/8.0f))>>2;
-        msg[6] = gx>>2;
-        msg[7] = gy>>2;
-        msg[8] = gz>>2;
-        event_send(msg[0], msg[1], 7, &msg[2]);
-        msg[0] = ID_ACCEL;
-      }
-
-#ifdef USE_INTERNAL_SYNTH
-      float rot_x = ((float)gx)*(1.0f/32768.0f);
-      float rot_y = ((float)gy)*(1.0f/32768.0f);
-      float rot_z = ((float)gz)*(1.0f/32768.0f);
-
-      *(synth_interface.acc_abs) = acc_abs;
-      *(synth_interface.acc_x) = acc_x;
-      *(synth_interface.acc_y) = acc_y;
-      *(synth_interface.acc_z) = acc_z;
-      *(synth_interface.rot_x) = rot_x;
-      *(synth_interface.rot_y) = rot_y;
-      *(synth_interface.rot_z) = rot_z;
-#endif
-    }
-
-    /* Waiting until the next 10 milliseconds time interval.*/
-    // TODO: wait for interrupt at MPU_READY pin
+    // (a failed read restarted the bus (motion_transfer): no new reading this time)
     chThdSleepMilliseconds(3);
   }
 #endif
