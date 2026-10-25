@@ -523,7 +523,9 @@ static inline void block_coefs(Engine& e) {
 	k.flut_inc = P.flut_hz * e.ctrl_dt;
 }
 
-static inline void process_voice(Engine& e, int vi) {
+// (out of line: inlined into process, the board build carried two copies of it, twice the code for
+// the I-cache)
+__attribute__((noinline)) static void process_voice(Engine& e, int vi) {
 	VoiceState& s = e.vs[vi];
 	const Params& P = e.ps;
 	const strisy::VoiceControls cc = e.vc[vi];
