@@ -223,7 +223,7 @@ std::string q(int target, int index, float value) {
 
 } // namespace
 
-TEST_CASE("state: StcY has every field, its counter is Stcy's; idle reads don't count") {
+TEST_CASE("state: StcY has every field, its counter is Stcy's, idle reads don't count") {
 	Board bd;
 	const Z z = state(bd);
 	MESSAGE(z.line);

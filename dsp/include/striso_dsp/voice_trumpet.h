@@ -972,7 +972,8 @@ static inline void process(Engine& e, real* __restrict__ output) {
 		real* __restrict__ ps = reinterpret_cast<real*>(&e.ps);
 		for (int i = 0; i < NPARAMS; i++) {
 			const real d = pt[i] - ps[i];
-			ps[i] = fabsf(d) < 1e-5f ? pt[i] : ps[i] + 0.05f * d;
+			// (the snap is relative: a large value's last steps would be below its float resolution)
+			ps[i] = fabsf(d) <= 1e-5f * rmax(fabsf(pt[i]), 1.0f) ? pt[i] : ps[i] + 0.05f * d;
 		}
 	}
 	{
@@ -1011,7 +1012,7 @@ static constexpr ParamEntry param_table[] = {
     {{"release", "level", 0.005f, 1.0f, C_}, &Params::rel},
     {{"rel_pedal", "level", 0.0f, 3.0f, C_}, &Params::rel_ped},
     {{"p_soft", "breath", 0.5f, 3.0f, C_}, &Params::p_soft},  // lightest touch re the threshold
-    {{"p_loud", "breath", 1.1f, 12.0f, C_}, &Params::p_loud}, // ff mouth pressure re the threshold
+    {{"p_loud", "breath", 1.1f, 20.0f, C_}, &Params::p_loud}, // ff mouth pressure re the threshold
     {{"p_reg", "breath", -0.5f, 1.5f, C_}, &Params::p_reg},
     {{"p_curve", "breath", 0.3f, 3.0f, C_}, &Params::p_curve},
     {{"lip_tune", "lips", -600.0f, 300.0f, C_}, &Params::lip_tune}, // cents re the note
@@ -1033,7 +1034,7 @@ static constexpr ParamEntry param_table[] = {
     {{"bore_decay", "bore", 0.005f, 0.2f, C_}, &Params::bore_t},
     {{"bore_reg", "bore", -1.0f, 2.0f, C_}, &Params::bore_reg},
     {{"bell_hz", "bore", 150.0f, 4000.0f, C_}, &Params::bell_hz},
-    {{"brassiness", "bore", 0.0f, 60.0f, C_}, &Params::brass},
+    {{"brassiness", "bore", 0.0f, 1500.0f, C_}, &Params::brass}, // shift (samples) per 10 kPa of wave
     {{"rad_hz", "radiation", 20.0f, 2000.0f, C_}, &Params::rad_hz},
     {{"tone_hz", "radiation", 500.0f, 16000.0f, C_}, &Params::tone_hz},
     {{"tone_q", "radiation", 0.5f, 2.0f, C_}, &Params::tone_q},
