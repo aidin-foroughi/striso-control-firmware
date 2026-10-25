@@ -488,6 +488,7 @@ class Instrument {
         striso::midi::NoteInput midi_in;
         striso::ump::Decoder<BUTTONCOUNT + MIDI_IN_NOTES> synth_in;
         striso::ump::StandardOut<BUTTONCOUNT> ump_out;  // MIDI mode midi2: the keys as MIDI 2.0 (ump_out.h)
+        bool key_out[BUTTONCOUNT] = {};                   // a key's Note On went out on MIDI 2.0
         bool key_sounding[BUTTONCOUNT] = {};  // a key's Note On went out (its Note Off not yet)
 
         // the decoder's host: the touch factors are the keys' sensitivities, a MIDI note's 1
@@ -1201,9 +1202,30 @@ class Instrument {
             synth_in.flush(*this);
 #endif
             if (config.midi2) {
-                for (int k = 0; k < n; k++) ump_out.packet(p[k]);
+                for (int k = 0; k < 5; k++) ump_out.packet(p[k]);
+                if (on != key_out[but]) {
+                    ump_out.packet(on ? striso::ump::note_on_packet(but, b.vpres, false) : striso::ump::note_off_packet(but));
+                    key_out[but] = on;
+                }
                 ump_out.flush(*this);
             }
+        }
+
+        // MIDI 2.0 out: a key whose state changed after its last controls (a release: they went
+        // out while it was on; portamento, transpose, the panic) gets its Note On / Off after its
+        // key message. (The internal synth's decoder doesn't need it: a key's voice is the key
+        // logic's.)
+        // (After midi2 is left, its notes still get their Note Off.)
+        void sync_key_states() {
+            bool any = false;
+            for (int but = 0; but < BUTTONCOUNT; but++) {
+                const bool on = buttons[but].state == STATE_ON;
+                if (on == key_out[but] || (on && !config.midi2)) continue;
+                ump_out.packet(on ? striso::ump::note_on_packet(but, buttons[but].vpres, false) : striso::ump::note_off_packet(but));
+                key_out[but] = on;
+                any = true;
+            }
+            if (any) ump_out.flush(*this);
         }
 
         // ump_out's sink: USB's MIDI 2.0 alt setting (nothing on the MIDI 1.0 one, or on DIN)
@@ -1603,6 +1625,7 @@ int synth_message(int size, int* msg) {
 
         if (src == ID_DIS) {
             dis.button_message(id, fmsg);
+            dis.sync_key_states();
         }
     }
     else {
