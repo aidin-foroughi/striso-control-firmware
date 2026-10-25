@@ -12,6 +12,8 @@ struct bowed {
 	STRISO_ENGINE_PRESETS(bowed)
 	using FastMemory = ::bowed::FastMemory;
 	using LargeMemory = ::bowed::LargeMemory;
+	// init() writes every byte of both regions (reset of every voice): no zeroing on a switch (engine.h)
+	static constexpr bool init_writes_memory = true;
 	static constexpr const char* name = "bowed";
 	static constexpr const char* summary = "bowed strings: friction-driven waveguide strings, modal body, section (9 presets)";
 	static constexpr uint32_t inputs = in_pressure | in_velocity | in_tilt_y | in_shake | in_rotation | in_pedal;

@@ -253,7 +253,7 @@ target_include_directories(striso_effect_fx_contract PRIVATE "${STRISO_DOCTEST_D
 target_link_libraries(striso_effect_fx_contract PRIVATE striso_effect_fx)
 doctest_discover_tests(striso_effect_fx_contract TEST_PREFIX "contract.fx." PROPERTIES LABELS "contract;unit")
 
-add_executable(striso_sdk_tests tests/main.cpp tests/test_helpers.cpp tests/test_midi.cpp tests/test_shell.cpp tests/test_ump.cpp tests/test_voice_allocator.cpp)
+add_executable(striso_sdk_tests tests/main.cpp tests/test_helpers.cpp tests/test_engine_memory.cpp tests/test_midi.cpp tests/test_shell.cpp tests/test_ump.cpp tests/test_voice_allocator.cpp)
 target_include_directories(striso_sdk_tests PRIVATE "${STRISO_DOCTEST_DIR}")
 target_link_libraries(striso_sdk_tests PRIVATE striso_sdk striso_engines striso_performances)
 doctest_discover_tests(striso_sdk_tests TEST_PREFIX "sdk." PROPERTIES LABELS unit)

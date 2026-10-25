@@ -212,6 +212,14 @@ concept VoiceEngine = PlainData<E> && PlainData<typename E::FastMemory> && Plain
 	    { e.set_param(i, v) } -> std::same_as<bool>;
     };
 
+// An engine whose init() writes every byte of its FastMemory and LargeMemory declares
+//   static constexpr bool init_writes_memory = true;
+// Then a host that hands it memory another engine used (EngineSet's shared arenas) needn't zero it
+// first: the engine starts from the same state either way. sdk/tests (engine_set) proves it for
+// each engine that declares it: init over any data gives the same bytes, and the same output, as
+// over zeros.
+template <class E> inline constexpr bool init_writes_memory = requires { requires E::init_writes_memory; };
+
 // An audio effect: init(fast, large, sample_rate), reset(), process(in, out) with
 // in[0..inputs) and out[0..outputs) BLOCK samples each, live parameters as a VoiceEngine.
 template <class F>

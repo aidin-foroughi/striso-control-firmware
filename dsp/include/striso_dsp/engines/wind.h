@@ -12,6 +12,8 @@ struct wind {
 	STRISO_ENGINE_PRESETS(wind)
 	using FastMemory = NoMemory;
 	using LargeMemory = ::wind::LargeMemory;
+	// init() writes every byte of both regions (reset of every voice): no zeroing on a switch (engine.h)
+	static constexpr bool init_writes_memory = true;
 	static constexpr const char* name = "wind";
 	static constexpr const char* summary = "woodwinds: reed and jet driven bores, cylindrical and conical (9 presets)";
 	static constexpr uint32_t inputs = in_pressure | in_velocity | in_tilt_y | in_shake | in_pedal;

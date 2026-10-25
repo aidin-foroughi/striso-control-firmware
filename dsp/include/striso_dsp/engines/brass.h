@@ -12,6 +12,8 @@ struct brass {
 	STRISO_ENGINE_PRESETS(brass)
 	using FastMemory = NoMemory;
 	using LargeMemory = ::brass::LargeMemory;
+	// init() writes every byte of both regions (reset of every voice): no zeroing on a switch (engine.h)
+	static constexpr bool init_writes_memory = true;
 	static constexpr const char* name = "brass";
 	static constexpr const char* summary = "brass: a lip source and a physical bore, bell, mutes (9 presets)";
 	static constexpr uint32_t inputs = in_pressure | in_velocity | in_tilt_y | in_shake | in_pedal;

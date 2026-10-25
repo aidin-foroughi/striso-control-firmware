@@ -13,6 +13,8 @@ struct trumpet {
 	STRISO_ENGINE_PRESETS(trumpet)
 	using FastMemory = ::trumpet::FastMemory;
 	using LargeMemory = ::trumpet::LargeMemory;
+	// init() writes every byte of both regions (reset of every voice): no zeroing on a switch (engine.h)
+	static constexpr bool init_writes_memory = true;
 	static constexpr const char* name = "trumpet";
 	static constexpr const char* summary = "physical trumpet: lips, mouthpiece and bore, played like the brass trumpet (1 preset)";
 	// pres the breath, vpres the attack, but_y the lips (lip_tilt); acc_abs and the pedal

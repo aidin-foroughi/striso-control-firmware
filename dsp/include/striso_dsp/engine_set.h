@@ -8,7 +8,9 @@
 // Only one engine runs at a time, so the engines' memory regions are one arena per region class,
 // as large as the largest engine's region: an engine's FastMemory and LargeMemory are the start of
 // the arena while it runs. start(k, ...) hands the arenas to engine k: its share of each is zeroed
-// (the state at power on, whatever ran before), then its init() runs. The engine objects stay
+// (the state at power on, whatever ran before), then its init() runs. An engine whose init()
+// writes all of its regions itself (init_writes_memory, engine.h) skips the zeroing: the same
+// state, without writing the bytes twice in the switch block. The engine objects stay
 // separate (their parameters persist across switches).
 //
 // visit(k, f): f(engine k) with engine k's own type, as a chain of compares the compiler inlines
@@ -120,7 +122,7 @@ private:
 	template <size_t I, class F> static void with_mem_(States& s, Fast& fast, Large& large, F& f, bool clear) {
 		using FastM = typename engine<I>::FastMemory;
 		using LargeM = typename engine<I>::LargeMemory;
-		if (clear) {
+		if (clear && !init_writes_memory<engine<I>>) {
 			fast.template clear<FastM>();
 			large.template clear<LargeM>();
 		}

@@ -132,20 +132,29 @@ TEST_CASE("engine_set: visit reaches each engine with its own type and memory") 
 	CHECK(seen == -1);
 }
 
-TEST_CASE("engine_set: one arena per region class, the largest engine's, start zeroes the new engine's share") {
-	using B = dsp::engines::bowed;
+namespace {
+// bowed without its init_writes_memory: the arena's zeroing path (every engine with regions in
+// the board's set says its init writes them, test_engine_memory.cpp proves it)
+struct bowed_zeroed : dsp::engines::bowed {
+	static constexpr bool init_writes_memory = false;
+};
+} // namespace
+
+TEST_CASE("engine_set: one arena per region class, the largest engine's, and start gives the new engine its power-on state") {
+	using B = bowed_zeroed;
 	using T = dsp::engines::trumpet;
 	using Set = dsp::EngineSet<B, T, dsp::engines::sine>;
 	static_assert(Set::Fast::size == std::max(sizeof(B::FastMemory), sizeof(T::FastMemory)));
 	static_assert(Set::Large::size == std::max(sizeof(B::LargeMemory), sizeof(T::LargeMemory)));
 	static_assert(Set::Fast::size < sizeof(B::FastMemory) + sizeof(T::FastMemory), "shared, not added up");
+	static_assert(!dsp::init_writes_memory<B> && dsp::init_writes_memory<T>);
 	// the fit check: an arena smaller than a region doesn't hold it
 	static_assert(!dsp::Arena<8, 4>::holds<B::FastMemory>());
 	static_assert(dsp::Arena<sizeof(B::FastMemory), alignof(B::FastMemory)>::holds<B::FastMemory>());
 
-	static Set::States s;
-	static Set::Fast fast;
-	static Set::Large large;
+	static Set::States s, s0;
+	static Set::Fast fast, fast0;
+	static Set::Large large, large0;
 	// what ran before left its data in the arenas
 	std::memset(fast.bytes, 0x5a, sizeof fast.bytes);
 	std::memset(large.bytes, 0x5a, sizeof large.bytes);
@@ -155,15 +164,25 @@ TEST_CASE("engine_set: one arena per region class, the largest engine's, start z
 			if (b[i] != 0) return false;
 		return true;
 	};
-	for (int k : {1, 0}) { // trumpet (the smaller regions), then bowed over it
+	for (int k : {1, 0}) { // trumpet (the smaller regions, init writes them), then bowed over it (zeroed)
 		CAPTURE(k);
 		bool before_init = false;
+		size_t fast_n = 0, large_n = 0;
 		Set::start(k, s, fast, large, [&](auto& e, auto& f, auto& l, auto) {
 			CHECK(static_cast<void*>(&f) == static_cast<void*>(fast.bytes)); // the arena's start
 			CHECK(static_cast<void*>(&l) == static_cast<void*>(large.bytes));
 			before_init = zeroed(&f, sizeof f) && zeroed(&l, sizeof l);
+			fast_n = sizeof f;
+			large_n = sizeof l;
 			e.init(f, l, 48000, 10);
 		});
-		CHECK(before_init);
+		// the engine without the trait gets its share zeroed before its init
+		if (k == 0) CHECK(before_init);
+		// either way, its regions are what init leaves over zeros (power on)
+		std::memset(&fast0, 0, sizeof fast0);
+		std::memset(&large0, 0, sizeof large0);
+		Set::start(k, s0, fast0, large0, [](auto& e, auto& f, auto& l, auto) { e.init(f, l, 48000, 10); });
+		CHECK(std::memcmp(fast.bytes, fast0.bytes, fast_n) == 0);
+		CHECK(std::memcmp(large.bytes, large0.bytes, large_n) == 0);
 	}
 }
