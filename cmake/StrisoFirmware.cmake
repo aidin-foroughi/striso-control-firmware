@@ -64,6 +64,7 @@ add_custom_command(OUTPUT "${_gen}/config_editor/config_editor.h"
   COMMAND "${Python3_EXECUTABLE}" "${STRISO_CONFIG_EDITOR_DIR}/config_editor.py"
           "${STRISO_CONFIG_EDITOR_DIR}/config.htm" "${_gen}/config_editor/config_editor.h"
   DEPENDS "${STRISO_CONFIG_EDITOR_DIR}/config.htm" "${STRISO_CONFIG_EDITOR_DIR}/config_editor.py"
+          "${PROJECT_SOURCE_DIR}/src/app/config_schema.hpp" "${PROJECT_SOURCE_DIR}/tools/config_schema.py"
   COMMENT "Generating config_editor.h" VERBATIM)
 add_custom_target(striso_config_editor DEPENDS "${_gen}/config_editor/config_editor.h")
 
