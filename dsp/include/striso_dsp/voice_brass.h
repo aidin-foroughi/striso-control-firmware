@@ -66,7 +66,10 @@
 #include <stdint.h>
 #include <type_traits>
 #include <math.h>
-#include "strisy.h"
+#include "controls.h"
+#include "dspmath.h"
+#include "params.h"
+#include "svf.h"
 #ifdef BRASS_TEST_HOOK
 #include <stdio.h>
 #endif
@@ -115,8 +118,11 @@ static constexpr real KCAP = 0.3f;
 using strisy::rmax;
 using strisy::rmin;
 
-// the bore delay lines: normal static arrays (AXI SRAM), 8 KB per voice
-static float bore_buf[MAX_VOICES][2][BLEN];
+// the bore delay lines, 8 KB per voice: the host gives them to the engine (engine contract,
+// engines/brass.h; the board: AXI SRAM)
+struct LargeMemory {
+	float bore[MAX_VOICES][2][BLEN];
+};
 
 // ---------------------------------------------------------------------------------------------
 // Sound design parameters (all floats: they are the live parameters, see EngineParams below).
@@ -429,8 +435,9 @@ struct Engine {
 	strisy::VoiceControls vc[MAX_VOICES];
 	int nvoices;
 	int preset;
-	Params p;  // parameters as set (presets, live edits)
-	Params ps; // smoothed copy used by the DSP (de-zippers live edits)
+	LargeMemory* large; // the host's (init)
+	Params p;           // parameters as set (presets, live edits)
+	Params ps;          // smoothed copy used by the DSP (de-zippers live edits)
 	real sr, pi_sr, ph_scale, ctrl_dt, block_dt;
 	strisy::SvfCoef lv_c, ty_c;
 	real shake_pk, shake; // global shake envelope
@@ -520,7 +527,7 @@ static inline void pulse_norm(real c, real& inv, real& mean, real& a1) {
 	a1 = rmax(f * inv, 0.05f);
 }
 
-static inline void reset_voice(VoiceState& s, int v) {
+static inline void reset_voice(Engine& e, VoiceState& s, int v) {
 	s.lv1 = s.lv2 = 0.0f;
 	s.amp = s.acc = s.tn = s.sc = 0.0f;
 	s.ty1 = s.ty2 = 0.0f;
@@ -539,7 +546,7 @@ static inline void reset_voice(VoiceState& s, int v) {
 	for (int i = 0; i < SLEN; i++) s.sb[i] = 0.0f;
 	if (v >= 0 && v < MAX_VOICES)
 		for (int h = 0; h < 2; h++)
-			for (int i = 0; i < BLEN; i++) bore_buf[v][h][i] = 0.0f;
+			for (int i = 0; i < BLEN; i++) e.large->bore[v][h][i] = 0.0f;
 }
 
 static inline void update_derived(Engine& e) {
@@ -572,7 +579,7 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 	for (int v = 0; v < MAX_VOICES; v++) {
 		VoiceState& s = e.vs[v];
 		s = VoiceState();
-		reset_voice(s, v);
+		reset_voice(e, s, v);
 		s.rng = 0x9E3779B9u * (uint32_t)(v + 1) + 12345u;
 		s.nrng = 0x85EBCA6Bu * (uint32_t)(v + 3) + 999u;
 		s.ph = s.rng * 2654435761u;
@@ -1041,8 +1048,8 @@ static inline void process_voice(Engine& e, int v) {
 	}
 
 	// ---- audio rate: bore, bell, body, mute ----------------------------------------------------
-	float* B1 = bore_buf[v][0];
-	float* B2 = bore_buf[v][1];
+	float* B1 = e.large->bore[v][0];
+	float* B2 = e.large->bore[v][1];
 	// level keytracking: the radiation high-pass takes the fundamental of notes below rad_hz; give
 	// part of it back ((1 + (rad_hz/f0)^2)^0.375) so low notes keep their weight
 	const real rq = fr / fl;
@@ -1064,7 +1071,7 @@ static inline void process_voice(Engine& e, int v) {
 		brass_guard_resets++;
 		fprintf(stderr, "guard: voice %d peak %g st %g note %g pres %g amp %g d1 %g lps %g gain %g sg %g\n", v, peak, st, note, pres, s.amp, s.d1, s.lps, gain, e.ctrl[3][0]);
 #endif
-		reset_voice(s, v);
+		reset_voice(e, s, v);
 		s.active = 0;
 		return;
 	}

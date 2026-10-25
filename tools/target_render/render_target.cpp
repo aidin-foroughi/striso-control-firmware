@@ -3,8 +3,8 @@
 // the board), so the output is the board's arithmetic: the arm compiler's own code (FMA
 // contraction, instruction selection), not the host's. Used to compare toolchains (the host
 // renders don't change with the arm compiler). Output: float32 mono, 48000 Hz, through
-// semihosting. Engine/performance like render_strisy.cpp: SYNTH_VOICE_HEADER, SYNTH_VOICE_NS,
-// SYNTH_VOICE_PRESETS, PERF_HEADER.
+// semihosting. The engine through its contract (striso::dsp::VoiceEngine: SYNTH_ENGINE_HEADER,
+// SYNTH_VOICE_NS, as the firmware's VOICE=<name>), the performance PERF_HEADER.
 // Usage (QEMU semihosting arguments): render_target <out.f32> [preset] [voices] [seconds] [fx]
 // Prints "hash <FNV-1a 64 of the float bits> peak <p> nonfinite <n>".
 // With -DTARGET_FX the master effects (fx.h) run after the engine, as in the firmware: fx 0 off,
@@ -16,36 +16,32 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "striso_dsp/strisy.h"
-#ifdef SYNTH_VOICE_HEADER
-#include SYNTH_VOICE_HEADER
-namespace eng = SYNTH_VOICE_NS;
-#else
-namespace eng = strisy;
-#endif
+#include "striso_dsp/engine.h"
+#include SYNTH_ENGINE_HEADER
+using Engine = striso::dsp::engines::SYNTH_VOICE_NS;
 #ifdef TARGET_FX
-#include "striso_dsp/fx.h" // before the performance (its BLOCK macro)
+#include "striso_dsp/effects/fx.h" // before the performance (its BLOCK macro)
 #endif
 #ifndef PERF_HEADER
 #define PERF_HEADER "performance.h"
 #endif
 #include PERF_HEADER
 
-static eng::Engine e;
+static Engine e;
+static striso::dsp::Memory<Engine> mem;
 #ifdef TARGET_FX
-static fx::Engine fxe;
+using Fx = striso::dsp::effects::fx;
+static Fx fxe;
+static striso::dsp::Memory<Fx> fxmem;
 static void fx_set(const char* name, float v) {
-	for (int i = 0; i < fx::NPARAM; i++)
-		if (!std::strcmp(fx::PARAMS[i].d.name, name)) {
-			*strisy::EngineParams<fx::Engine>::ptr(fxe, i) = v;
-			strisy::EngineParams<fx::Engine>::changed(fxe, i);
-		}
+	for (int i = 0; i < Fx::num_params; i++)
+		if (!std::strcmp(Fx::param_desc(i)->name, name)) (void)fxe.set_param(i, v);
 }
 #endif
 
 #ifdef TARGET_PROFILE
 // -DTARGET_PROFILE with QEMU -icount shift=0 (1 ns per instruction): SysTick on the CPU clock
-// (mps2: 25 MHz, a tick per 40 ns) counts the instructions eng::process() executes, /40
+// (mps2: 25 MHz, a tick per 40 ns) counts the instructions e.process() executes (the engine, and its copy of the controls), /40
 #define SYST_CSR (*reinterpret_cast<volatile uint32_t*>(0xE000E010u))
 #define SYST_RVR (*reinterpret_cast<volatile uint32_t*>(0xE000E014u))
 #define SYST_CVR (*reinterpret_cast<volatile uint32_t*>(0xE000E018u))
@@ -60,10 +56,10 @@ int main(int argc, char** argv) {
 	const int preset = argc > 2 ? std::atoi(argv[2]) : -1;
 	const int nv = argc > 3 ? std::atoi(argv[3]) : 10;
 	const double seconds = argc > 4 ? std::atof(argv[4]) : 17.5;
-	eng::init(e, SAMPLERATE, nv);
+	e.init(mem.fast, mem.large, SAMPLERATE, nv);
 #ifdef TARGET_FX
 	const int fx_mode = argc > 5 ? std::atoi(argv[5]) : 1;
-	fx::init(fxe, SAMPLERATE);
+	fxe.init(fxmem.fast, fxmem.large, SAMPLERATE);
 	if (fx_mode == 2) {
 		fx_set("drive", 0.3f);
 		fx_set("phmix", 0.6f);
@@ -77,11 +73,7 @@ int main(int argc, char** argv) {
 	uint64_t fx_ticks = 0;
 #endif
 #endif
-#ifdef SYNTH_VOICE_PRESETS
-	if (preset >= 0 && preset < eng::NUM_PRESETS) eng::set_preset(e, preset);
-#else
-	(void)preset;
-#endif
+	if (preset >= 0 && preset < Engine::num_presets()) e.set_preset(preset);
 #ifdef TARGET_PROFILE
 	SYST_RVR = 0xffffffu;
 	SYST_CVR = 0;
@@ -100,25 +92,37 @@ int main(int argc, char** argv) {
 	const int nblocks = static_cast<int>(seconds * SAMPLERATE / BLOCK);
 	Ctl v[NVOICES_MAX];
 	float g[8];
+	static striso::dsp::VoiceControls vc[NVOICES_MAX];
+	for (int i = 0; i < nv; i++) vc[i] = striso::dsp::voice_at_rest;
 	for (int b = 0; b < nblocks; b++) {
 		block_controls(b, v, nv, g);
-		for (int i = 0; i < nv; i++) e.vc[i] = {v[i].note, v[i].pres, v[i].vpres, v[i].but_x, v[i].but_y};
-		e.g = {g[0], g[1], g[2], g[3], g[4], g[5], g[6], g[7]};
-		eng::real buf[BLOCK];
+		for (int i = 0; i < nv; i++) {
+			vc[i].note = v[i].note;
+			vc[i].pres = v[i].pres;
+			vc[i].vpres = v[i].vpres;
+			vc[i].but_x = v[i].but_x;
+			vc[i].but_y = v[i].but_y;
+			striso::dsp::track_key(vc[i]);
+		}
+		const striso::dsp::GlobalControls gc = {g[0], g[1], g[2], g[3], g[4], g[5], g[6], g[7]};
+		float buf[BLOCK];
+		float* const outs[1] = {buf};
 #ifdef TARGET_PROFILE
 		const uint32_t t0 = SYST_CVR;
 #endif
-		eng::process(e, buf);
+		e.process(vc, gc, outs);
 #ifdef TARGET_PROFILE
 		dsp_ticks += (t0 - SYST_CVR) & 0xffffffu;
 #endif
 #ifdef TARGET_FX
 		if (fx_mode) {
-			eng::real l[BLOCK], r[BLOCK];
+			float l[BLOCK], r[BLOCK];
+			const float* const fx_in[1] = {buf};
+			float* const fx_out[2] = {l, r};
 #ifdef TARGET_PROFILE
 			const uint32_t t1 = SYST_CVR;
 #endif
-			fx::process(fxe, buf, l, r);
+			fxe.process(fx_in, fx_out);
 #ifdef TARGET_PROFILE
 			fx_ticks += (t1 - SYST_CVR) & 0xffffffu;
 #endif

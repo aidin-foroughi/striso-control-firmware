@@ -188,7 +188,8 @@ Each zip holds the library, `striso_virtual.h`, `COPYING` and `manifest.json`: t
 | `src/drivers` | codec, key scanning (ADC), motion sensor, LEDs, aux jack, serial MIDI |
 | `src/usb` | USB descriptors, bulk console, USB MIDI, USB audio |
 | `src/synth` | the synth thread and controls (`synth_strisy.cpp`, `synth_control.cpp`), the tuning math; `faust/` the Faust synth |
-| `dsp/include/striso_dsp` | the DSP library: strisy, the voice engines (`voice_<name>.h`), the master effects. Header only, C++20, no HAL |
+| `dsp/include/striso_dsp` | the DSP library: strisy, the voice engines (`voice_<name>.h`), the master effects, and the engine contract every one of them keeps (`engine.h`, `engines/<name>.h`; [doc/engines.md](doc/engines.md)). Header only, C++20, no HAL |
+| `sdk` | the engines on the PC without the firmware: a library per engine, the contract test suite, `striso_render` (any engine and preset from a scripted performance, a key recording or a MIDI file to WAV), the MIDI/MPE host shell a plugin would wrap. Builds on its own: `cmake -S sdk -B build/sdk` |
 | `board`, `cfg`, `ld` | board definition, ChibiOS configuration, linker script |
 | `cmake` | toolchain file, ChibiOS integration (from its own make fragments), version, post-build checks |
 | `tests` | host tests and golden checksums |
@@ -207,7 +208,7 @@ In a checkout from before this layout, `git submodule update --init` puts the su
   - list and set live parameters (`params`, `set`) and select voices (`voice`);
   - save touch settings (`save-touch`);
   - flash safely (`flash`). It backs up first, refuses blocks outside the app region and health-checks the board after the reboot.
-- `tools/harness/`: renders the voice engines on the PC from scripted or recorded performances (`VOICE=<name> tools/harness/render_strisy.sh <name> "" --preset 2 --rec /src/tools/harness/rec/<take>.csv`). It has stress and stale-input tests and a test of the master effects (`fx_test.sh`, `fx_suite.sh`). `cmake --build --preset host --target render_wavs` writes a WAV of every engine. `tools/harness/rec/` has real key-stream recordings for replay.
+- `tools/harness/`: the scripted performances (`performance.h`, `perf_<name>.h`) and real key-stream recordings (`rec/`) the engines are rendered with. `build/host/sdk/striso_render --engine <name> --preset 2 --rec tools/harness/rec/<take>.csv --wav x.wav` renders one (its log names the engine, preset and input file), `VOICE=<name> tools/harness/render_strisy.sh <name> "<flags>"` with extra compiler flags. A test of the master effects (`fx_test.sh`, `fx_suite.sh`). `cmake --build --preset host --target render_wavs` writes a WAV of every engine.
 - `tools/target_render/`: the engines compiled for the board's CPU and run under QEMU (see Tests).
 - `tools/virtual.sh`: builds and tests the virtual board natively (see Testing without the hardware).
 - `tools/package.sh`, `tools/release_dryrun.sh`: the release files and a dry run of a release (see Releases). `tools/ctest_arch.py` runs a build's tests under a launcher (`arch -x86_64`). `tools/ci_ccache.sh`, `tools/ci_docker.sh`: CI's ccache and its runs in the build image.

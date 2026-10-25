@@ -54,7 +54,9 @@
 #include <stdint.h>
 #include <type_traits>
 #include <math.h>
-#include "strisy.h"
+#include "controls.h"
+#include "dspmath.h"
+#include "params.h"
 
 namespace bowed {
 
@@ -68,11 +70,16 @@ static constexpr int NB = 5;         // body modes
 static constexpr int ENS_LEN = 2048; // section delay (42 ms)
 static constexpr uint32_t ENS_MASK = ENS_LEN - 1;
 
-// delay lines in AHB SRAM1/2 (ram1): 100 KB for 10 voices
-static float neck_buf[MAX_VOICES][NECK_LEN] __attribute__((aligned(32), section(".ram1_clear")));
-static float bridge_buf[MAX_VOICES][BRIDGE_LEN] __attribute__((aligned(32), section(".ram1_clear")));
-// section delay of the mix: normal static array (AXI SRAM), 8 KB
-static float ens_buf[ENS_LEN] __attribute__((aligned(32)));
+// The host gives the engine its delay lines (engine contract, engines/bowed.h): the strings,
+// touched every sample (100 KB for 10 voices; the board: AHB SRAM1/2), and the section delay of
+// the mix (8 KB, any RAM; the board: AXI SRAM)
+struct FastMemory {
+	alignas(32) float neck[MAX_VOICES][NECK_LEN];
+	alignas(32) float bridge[MAX_VOICES][BRIDGE_LEN];
+};
+struct LargeMemory {
+	alignas(32) float ens[ENS_LEN];
+};
 
 // test hook: per sample bow speed, string velocity at the bow, friction reflection R
 #ifndef BOWED_TRACE
@@ -340,6 +347,8 @@ struct Engine {
 	strisy::VoiceControls vc[MAX_VOICES];
 	int nvoices;
 	int preset;
+	FastMemory* fast;   // the host's (init)
+	LargeMemory* large; // the host's (init)
 	real sr, inv_sr, c_period, two_pi_sr, pi_sr, hp_k, dc_k, ts_k, block_dt;
 	real shake; // smoothed accelerometer magnitude
 	Params p;   // live parameters (written by the app / presets)
@@ -420,8 +429,8 @@ static constexpr real body_g[NB] = {0.8f, 1.0f, 0.9f, 0.55f, 1.0f};
 
 static inline void reset_voice(Engine& e, int v) {
 	VoiceState& s = e.vs[v];
-	for (int i = 0; i < NECK_LEN; i++) neck_buf[v][i] = 0.0f;
-	for (int i = 0; i < BRIDGE_LEN; i++) bridge_buf[v][i] = 0.0f;
+	for (int i = 0; i < NECK_LEN; i++) e.fast->neck[v][i] = 0.0f;
+	for (int i = 0; i < BRIDGE_LEN; i++) e.fast->bridge[v][i] = 0.0f;
 	int active = s.active;
 	uint32_t seed = s.seed;
 	real note_prev = s.note_prev, note_body = s.note_body, dn = s.dn, corr = s.corr, dcr = s.dcr, vib_ph = s.vib_ph;
@@ -464,7 +473,7 @@ static inline void init(Engine& e, int sample_rate, int nvoices) {
 	e.e_ph[1] = 0.43f;
 	e.e_d[0] = e.e_d[1] = 600.0f;
 	e.e_lvl = e.p.ens;
-	for (int i = 0; i < ENS_LEN; i++) ens_buf[i] = 0.0f;
+	for (int i = 0; i < ENS_LEN; i++) e.large->ens[i] = 0.0f;
 	for (int v = 0; v < MAX_VOICES; v++) {
 		e.vc[v] = {69.0f, 0.0f, 0.0f, 0.0f, 0.0f};
 		e.vs[v] = VoiceState();
@@ -727,8 +736,8 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 		const real Ls = rmax(Dn + Dbe + 0.5f * clampf(dfilt, 0.0f, 8.0f), 4.0f), bt = Dbe / Ls;
 		const real h = 0.5f * vb / bt, sl = vb / (bt * Ls);
 		const uint32_t w0 = s.w;
-		float* nb = neck_buf[v];
-		float* bb = bridge_buf[v];
+		float* __restrict__ nb = e.fast->neck[v];
+		float* __restrict__ bb = e.fast->bridge[v];
 		// the history the reads can reach: the neck taps up to Dn + 3, the bridge up to Db + 2
 		// (both clamped well inside the buffers; the indices are masked anyway)
 		const int na = (int)clampf(Dn + 4.0f, 0.0f, (real)(NECK_LEN - 1));
@@ -780,8 +789,8 @@ static inline void process_voice(Engine& e, int v, real trem, real body_shift, r
 			lh[k] = ha[k] - ldh[k];
 		}
 	}
-	float* __restrict__ nbuf = neck_buf[v];
-	float* __restrict__ bbuf = bridge_buf[v];
+	float* __restrict__ nbuf = e.fast->neck[v];
+	float* __restrict__ bbuf = e.fast->bridge[v];
 	real* __restrict__ sb = e.sbuf;
 	uint32_t w = s.w, seed = s.seed;
 	int slip = s.slip, cnt = s.cnt, tsum = 0, tn = 0;
@@ -1026,6 +1035,7 @@ static void bowed_test_hook(Engine& e);
 // section: two more players read from a delay of the mix, each with its own slow delay wander
 // (pitch wander = the delay's slope) and timing offset
 static inline void process_section(Engine& e, real* __restrict__ output) {
+	float* __restrict__ ens_buf = e.large->ens;
 	const Params& p = e.ps;
 	const real target = clampf(p.ens, 0.0f, 1.5f);
 	const real lvl0 = e.e_lvl;
@@ -1122,7 +1132,7 @@ static inline void process(Engine& e, real* __restrict__ output) {
 	if (bad(e.e_d[0] + e.e_d[1] + e.e_lvl, 1e5f)) { // (cannot happen) reset the section
 		e.e_d[0] = e.e_d[1] = 600.0f;
 		e.e_lvl = 0.0f;
-		for (int i = 0; i < ENS_LEN; i++) ens_buf[i] = 0.0f;
+		for (int i = 0; i < ENS_LEN; i++) e.large->ens[i] = 0.0f;
 	}
 }
 
