@@ -17,14 +17,14 @@ extern "C" void svh_synth_taps(float* engine, float* fx_l, float* fx_r, float (*
 		fx_r[n] = out_r[n];
 	}
 	for (int v = 0; v < VOICECOUNT; v++) {
-		const striso::dsp::VoiceControls& c = controls_vc[v];
+		const awva::VoiceControls& c = controls_vc[v];
 		controls[v][0] = c.note;
 		controls[v][1] = c.pres;
 		controls[v][2] = c.vpres;
 		controls[v][3] = c.but_x;
 		controls[v][4] = c.but_y;
 	}
-	const striso::dsp::GlobalControls& g = controls_g;
+	const awva::GlobalControls& g = controls_g;
 	const float gv[8] = {g.acc_abs, g.acc_x, g.acc_y, g.acc_z, g.rot_x, g.rot_y, g.rot_z, g.pedal};
 	for (int i = 0; i < 8; i++) globals[i] = gv[i];
 }
@@ -47,7 +47,7 @@ extern "C" void svh_set_engine_globals(const float* g) { controls_g = {g[0], g[1
 
 // the key signals of voice v (gate, strike and release follow from them, as from the keys)
 extern "C" void svh_set_engine_voice(int v, const float* c) {
-	striso::dsp::VoiceControls& d = controls_vc[v];
+	awva::VoiceControls& d = controls_vc[v];
 	d.note = c[0];
 	d.pres = c[1];
 	d.vpres = c[2];

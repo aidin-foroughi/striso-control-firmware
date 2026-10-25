@@ -9,12 +9,12 @@ include("${PROJECT_SOURCE_DIR}/third_party/doctest/cmake/doctest.cmake")
 add_executable(striso_virtual_tests main.cpp test_api.cpp test_message_path.cpp test_protocol.cpp test_midi_in.cpp test_midi_shell.cpp test_state.cpp test_ump_in.cpp test_usb_midi2.cpp)
 target_include_directories(striso_virtual_tests PRIVATE
   "${PROJECT_SOURCE_DIR}/third_party/doctest"
-  "${STRISO_HARNESS_DIR}")
+  "${AWVA_HARNESS_DIR}")
 target_compile_definitions(striso_virtual_tests PRIVATE
   "STRISO_GOLDEN_FILE=\"${PROJECT_SOURCE_DIR}/tests/golden/renders.txt\""
-  "STRISO_REC_DIR=\"${STRISO_HARNESS_DIR}/rec\""
+  "STRISO_REC_DIR=\"${AWVA_HARNESS_DIR}/rec\""
   "STRISO_TRANSCRIPTS=\"${CMAKE_CURRENT_SOURCE_DIR}/transcripts\"")
-target_link_libraries(striso_virtual_tests PRIVATE striso_virtual striso::dsp striso_sdk striso_engine_strisy striso_host_options)
+target_link_libraries(striso_virtual_tests PRIVATE striso_virtual awva::dsp awva_sdk awva_engine_strisy awva_host_options)
 target_compile_options(striso_virtual_tests PRIVATE -O2 -ffp-contract=off)
 target_compile_definitions(striso_virtual_tests PRIVATE _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS)
 if(APPLE)
@@ -29,8 +29,8 @@ doctest_discover_tests(striso_virtual_tests TEST_PREFIX "virtual." PROPERTIES LA
 # renders) through the firmware's synth thread, each bit for bit against its host golden. The
 # firmware's engines: SYNTH_ENGINES_ALL, the all-voices build's list in src/synth/synth_strisy.cpp.
 add_executable(virtual_render virtual_render.cpp perf_default.cpp perf_stale.cpp)
-target_include_directories(virtual_render PRIVATE "${STRISO_HARNESS_DIR}")
-target_link_libraries(virtual_render PRIVATE striso_virtual striso::dsp striso_host_options)
+target_include_directories(virtual_render PRIVATE "${AWVA_HARNESS_DIR}")
+target_link_libraries(virtual_render PRIVATE striso_virtual awva::dsp awva_host_options)
 target_compile_options(virtual_render PRIVATE -O2 -ffp-contract=off)
 target_compile_definitions(virtual_render PRIVATE _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS)
 set_target_properties(virtual_render PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/..")
@@ -51,7 +51,7 @@ foreach(l IN LISTS _golden_lines)
     set("_vgolden_${CMAKE_MATCH_1}" "${CMAKE_MATCH_2}")
   endif()
 endforeach()
-file(GLOB _recordings "${STRISO_HARNESS_DIR}/rec/*.csv")
+file(GLOB _recordings "${AWVA_HARNESS_DIR}/rec/*.csv")
 list(SORT _recordings)
 
 function(_virtual_render name)
@@ -67,7 +67,7 @@ set(_entries 0) # the voice list's entries: an engine without presets, or one pr
 foreach(x IN LISTS _fw_voices)
   string(REGEX REPLACE "^E::" "" v "${x}")
   list(APPEND STRISO_VIRTUAL_ENGINES ${v})
-  set(np "${STRISO_VOICE_${v}_PRESETS}")
+  set(np "${AWVA_ENGINE_${v}_PRESETS}")
   if(np)
     math(EXPR _entries "${_entries} + ${np}")
   else()
@@ -103,7 +103,7 @@ _virtual_render(render.strisy.fx --voice strisy --perf default --fx)
 _virtual_render(render.va.p5.fx --voice va --preset 5 --perf default --fx)
 message(STATUS "virtual board: engines ${STRISO_VIRTUAL_ENGINES}, ${_entries} voice entries")
 list(LENGTH STRISO_VIRTUAL_ENGINES _engines)
-target_compile_definitions(striso_virtual_tests PRIVATE STRISO_VOICE_ENTRIES=${_entries} STRISO_VOICE_ENGINES=${_engines})
+target_compile_definitions(striso_virtual_tests PRIVATE AWVA_ENGINE_ENTRIES=${_entries} AWVA_ENGINE_ENGINES=${_engines})
 
 # voice switching: an engine renders its golden after the board ran another preset or engine
 # (engine_init must leave nothing of what ran before)

@@ -28,7 +28,7 @@
     },
     {
       "name": "host",
-      "displayName": "Host: unit tests, renderers (striso_dsp on the PC)",
+      "displayName": "Host: unit tests, renderers (awva_dsp on the PC)",
       "inherits": "base",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo" }
     },

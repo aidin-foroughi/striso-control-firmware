@@ -1,4 +1,4 @@
-# clang-tidy (15, in Docker: tools/tidy.sh) for our C++. Clean on dsp/ (the striso_dsp library),
+# clang-tidy (15, in Docker: tools/tidy.sh) for our C++. Clean on dsp/ (the awva_dsp library),
 # the host tools and tests. The disabled checks don't fit real-time DSP code:
 #   C arrays, unions and pointer arithmetic are the DSP's state and inner loops (fixed size, in
 #   DTCM, indexed in tight loops); magic numbers are filter coefficients; float<->int conversions

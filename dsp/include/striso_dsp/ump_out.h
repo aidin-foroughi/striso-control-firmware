@@ -25,9 +25,9 @@
 
 #include <initializer_list>
 
-#include "striso_dsp/ump.h"
+#include "awva/ump.h"
 
-namespace striso::ump {
+namespace awva::ump {
 
 // standard MIDI 2.0 values (from the engines' floats; clamped)
 [[nodiscard]] inline uint32_t std_unsigned(float x) {
@@ -151,6 +151,6 @@ private:
 	uint32_t used_[4] = {}; // the note numbers sounding
 };
 
-} // namespace striso::ump
+} // namespace awva::ump
 
 #endif // STRISO_DSP_UMP_OUT_H_

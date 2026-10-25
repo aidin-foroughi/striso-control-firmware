@@ -1,18 +1,18 @@
-// Mono legato's note stack (striso_dsp/legato.h): last-note priority, the newest note's pitch and
+// Mono legato's note stack (awva/legato.h): last-note priority, the newest note's pitch and
 // tilt, the strongest note's pressure. The firmware's use (one voice, no new attack) is
 // synth_control.legato_* and control_replay.*.legato.
-#include "striso_dsp/legato.h"
+#include "awva/legato.h"
 
 #include "doctest/doctest.h"
 
 namespace {
-using Signals = striso::ump::NoteSignals;
+using Signals = awva::ump::NoteSignals;
 Signals held(float note, float pres, float vpres = 0.0f, float x = 0.0f) { return {note, pres, vpres, x, 0.0f, true}; }
 const Signals released = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false};
 } // namespace
 
 TEST_CASE("legato: the newest held note plays, a release returns to the newest still held") {
-	striso::voices::Legato<16> l;
+	awva::voices::Legato<16> l;
 	CHECK(l.empty());
 	l.note(3, held(60, 0.5f));
 	l.note(7, held(64, 0.2f, 0.8f, 0.3f));
@@ -37,7 +37,7 @@ TEST_CASE("legato: the newest held note plays, a release returns to the newest s
 }
 
 TEST_CASE("legato: past its size the oldest note is forgotten, clear() forgets all") {
-	striso::voices::Legato<4> l;
+	awva::voices::Legato<4> l;
 	for (int id = 0; id < 6; id++) l.note(id, held(60.0f + static_cast<float>(id), 0.5f));
 	CHECK(l.size() == 4);
 	CHECK(!l.held(0));

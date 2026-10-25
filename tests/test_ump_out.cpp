@@ -5,11 +5,11 @@
 #include <vector>
 
 #include "doctest/doctest.h"
-#include "striso_dsp/ump.h"
+#include "awva/ump.h"
 #include "striso_dsp/ump_out.h"
 
 namespace {
-namespace ump = striso::ump;
+namespace ump = awva::ump;
 } // namespace
 
 // --- MIDI 2.0 out (ump_out.h) ------------------------------------------------------------------

@@ -1,7 +1,7 @@
 // One MIDI file through the firmware's path (USB MIDI in on the virtual board: PExReceive ->
 // MidiInMsgHandler -> the control thread -> synth_control's MIDI note input -> the synth thread's
 // controls) and through the SDK's shell (sdk::Shell, its MidiVoices): both run the one mapping,
-// striso_dsp/midi_in.h (the notes, the instrument's messages) and voice_allocator.h (the voices),
+// awva/midi_in.h (the notes, the instrument's messages) and voice_allocator.h (the voices),
 // so the engine controls are the same, bit for bit, every time the notes have settled after an
 // event (the strikes faded). The expressive performance: MPE notes with their bend, pressure and
 // timbre, the master channel's notes with the mod wheel and poly pressure, the instrument's bend,
@@ -16,14 +16,14 @@
 
 #include "board.h"
 #include "doctest/doctest.h"
-#include "striso_sdk/shell.h"
-#include "striso_sdk/smf.h"
+#include "awva_sdk/shell.h"
+#include "awva_sdk/smf.h"
 
-const striso::sdk::EngineEntry& striso_engine_strisy();
+const awva::sdk::EngineEntry& awva_engine_strisy();
 
 namespace {
 
-namespace sdk = striso::sdk;
+namespace sdk = awva::sdk;
 
 constexpr int SR = 48000, NV = 10, SETTLE_MS = 40;
 
@@ -115,7 +115,7 @@ void compare(std::span<const sdk::MidiEvent> performance, const char* path) {
 	vt::Board bd;
 	REQUIRE(sv_select_voice(bd.b, 0) == 0); // strisy (the engine doesn't matter: the controls)
 	bd.run_ms(SETTLE_MS);
-	sdk::Shell shell(striso_engine_strisy(), SR, NV, false);
+	sdk::Shell shell(awva_engine_strisy(), SR, NV, false);
 	std::vector<float> l(SR * SETTLE_MS / 1000), r(l.size());
 	shell.process(l.data(), r.data(), static_cast<int>(l.size()));
 
@@ -132,7 +132,7 @@ void compare(std::span<const sdk::MidiEvent> performance, const char* path) {
 		st.size = sizeof st;
 		REQUIRE(sv_get_state(bd.b, &st) >= 0);
 		for (int v = 0; v < NV; v++) {
-			const striso::dsp::VoiceControls& c = shell.controls()[v];
+			const awva::VoiceControls& c = shell.controls()[v];
 			const float mine[5] = {c.note, c.pres, c.vpres, c.but_x, c.but_y};
 			CAPTURE(moment);
 			CAPTURE(v);

@@ -377,5 +377,5 @@ TEST_CASE("state: every switch StcK may press changes what StcY shows (or is pan
 		pressed++;
 	}
 	// MIDI modes, one voice key per engine of this firmware (StcX lists only those), tunings, presets
-	CHECK(pressed == 3 + 1 + STRISO_VOICE_ENGINES + 9 + 8); // midi, legato, voices, tunings, presets
+	CHECK(pressed == 3 + 1 + AWVA_ENGINE_ENGINES + 9 + 8); // midi, legato, voices, tunings, presets
 }

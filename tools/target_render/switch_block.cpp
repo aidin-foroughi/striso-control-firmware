@@ -10,15 +10,15 @@
 #include <cstdint>
 #include <cstdio>
 
-#include "striso_dsp/engine_set.h"
-#include "striso_dsp/engines/bowed.h"
-#include "striso_dsp/engines/brass.h"
-#include "striso_dsp/engines/ep.h"
-#include "striso_dsp/engines/modal.h"
+#include "awva/engine_set.h"
+#include "awva/engines/bowed.h"
+#include "awva/engines/brass.h"
+#include "awva/engines/ep.h"
+#include "awva/engines/modal.h"
 #include "striso_dsp/engines/strisy.h"
-#include "striso_dsp/engines/trumpet.h"
-#include "striso_dsp/engines/va.h"
-#include "striso_dsp/engines/wind.h"
+#include "awva/engines/trumpet.h"
+#include "awva/engines/va.h"
+#include "awva/engines/wind.h"
 
 #define SYST_CSR (*reinterpret_cast<volatile uint32_t*>(0xE000E010u))
 #define SYST_RVR (*reinterpret_cast<volatile uint32_t*>(0xE000E014u))
@@ -26,30 +26,30 @@
 
 namespace {
 
-namespace E = striso::dsp::engines;
+namespace E = awva::engines;
 // synth_strisy.cpp's SYNTH_ENGINES_ALL
-using Engines = striso::dsp::EngineSet<E::strisy, E::va, E::modal, E::bowed, E::wind, E::ep, E::brass, E::trumpet>;
+using Engines = awva::EngineSet<E::strisy, E::va, E::modal, E::bowed, E::wind, E::ep, E::brass, E::trumpet>;
 constexpr int NV = 10, SR = 48000;
 
 Engines::States engines;
 Engines::Fast fast;
 Engines::Large large;
-striso::dsp::VoiceControls vc[NV];
-striso::dsp::GlobalControls g;
-float out[striso::dsp::BLOCK];
+awva::VoiceControls vc[NV];
+awva::GlobalControls g;
+float out[awva::BLOCK];
 
 void init(int k) {
 	Engines::start(k, engines, fast, large, [](auto& e, auto& f, auto& l, auto) { e.init(f, l, SR, NV); });
 }
 void process(int k) {
-	for (int v = 0; v < NV; v++) striso::dsp::track_key(vc[v]);
+	for (int v = 0; v < NV; v++) awva::track_key(vc[v]);
 	float* const outs[1] = {out};
 	Engines::visit(k, engines, [&outs](auto& e, auto) { e.process(vc, g, outs); });
 }
 // a chord of every voice, held
 void chord() {
 	for (int v = 0; v < NV; v++) {
-		vc[v] = striso::dsp::voice_at_rest;
+		vc[v] = awva::voice_at_rest;
 		vc[v].note = 48.0f + 3.0f * static_cast<float>(v);
 		vc[v].pres = 0.6f;
 		vc[v].vpres = 0.5f;
@@ -63,7 +63,7 @@ int main(int /*argc*/, char** /*argv*/) {
 	SYST_RVR = 0xffffffu;
 	SYST_CVR = 0;
 	SYST_CSR = 5; // enabled, CPU clock, no interrupt
-	g = striso::dsp::globals_at_rest;
+	g = awva::globals_at_rest;
 	for (int k = 0; k < Engines::count; k++) {
 		const int before = (k + Engines::count - 1) % Engines::count;
 		chord();

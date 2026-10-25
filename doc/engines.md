@@ -1,11 +1,11 @@
 # Sound engines: the contract
 
-The engines, the effects, the engine contract and the SDK are in the engines repository: the `engines/` git submodule, pinned by commit (engines/README.md, engines/PROVENANCE.md). Paths below such as `dsp/`, `sdk/` and `tools/harness/` are in it. Exceptions stay in this repository: `strisy.h` (the port of the upstream `synth.dsp`), `fastpow.h` and `ump_out.h`.
+The engines, the effects, the engine contract and the SDK are in the engines repository: the `engines/` git submodule, pinned by commit (awva/README.md, awva/PROVENANCE.md). Paths below such as `dsp/`, `sdk/` and `tools/harness/` are in it. Exceptions stay in this repository: `strisy.h` (the port of the upstream `synth.dsp`), `fastpow.h` and `ump_out.h`.
 
 Every sound engine of the Striso (strisy, va, modal, bowed, wind, ep, brass, trumpet, reed, sine) and the master effects keep one contract. The firmware is one host of it, a program on the PC another. An engine can be built, tested, rendered and played without the firmware.
 
-- **The contract:** `dsp/include/striso_dsp/engine.h`. It has the `striso::dsp::VoiceEngine` and `striso::dsp::Effect` concepts, `VoiceControls`, `EngineInfo` and the memory placements.
-- **Each engine as a VoiceEngine:** `dsp/include/striso_dsp/engines/<name>.h` is `striso::dsp::engines::<name>`. The master effects are `effects/fx.h`, `striso::dsp::effects::fx`.
+- **The contract:** `dsp/include/awva/engine.h`. It has the `awva::VoiceEngine` and `awva::Effect` concepts, `VoiceControls`, `EngineInfo` and the memory placements.
+- **Each engine as a VoiceEngine:** `dsp/include/awva/engines/<name>.h` is `awva::engines::<name>`. The master effects are `effects/fx.h`, `awva::effects::fx`.
 - **The board's host:** `src/synth/synth_strisy.cpp`.
 - **The PC's host:** `sdk/`. It has the engine libraries, the contract test suite, the renderer and the host shell.
 
@@ -27,7 +27,7 @@ An `Effect` is the same, with `init(fast, large, sample_rate)` and `process(in, 
 
 ### Controls
 
-`striso::dsp::VoiceControls` is one voice:
+`awva::VoiceControls` is one voice:
 
 | field | |
 |---|---|
@@ -38,7 +38,7 @@ An `Effect` is the same, with `init(fast, large, sample_rate)` and `process(in, 
 | `gate` | 1 while the key is held, else 0. |
 | `strike`, `release` | The velocity (0 to 1) of the strike that opened the gate and of the release that closed it. Each is kept until the next. |
 
-The first five are the board's key signals (`strisy::VoiceControls`): this is what synth_control writes. `striso::dsp::track_key()` derives `gate`, `strike` and `release` from them once per block. A MIDI host sets them from the note-on and the note-off. The engines written for the board read the five key signals: their `Engine::vc` is `strisy::VoiceControls`. An engine that wants the notes declares `striso::dsp::VoiceControls vc[]` and gets all eight.
+The first five are the board's key signals (`strisy::VoiceControls`): this is what synth_control writes. `awva::track_key()` derives `gate`, `strike` and `release` from them once per block. A MIDI host sets them from the note-on and the note-off. The engines written for the board read the five key signals: their `Engine::vc` is `strisy::VoiceControls`. An engine that wants the notes declares `awva::VoiceControls vc[]` and gets all eight.
 
 `GlobalControls`:
 
@@ -72,7 +72,7 @@ The host places three kinds of memory:
 | `Placement::fast` | `FastMemory`: large, touched every sample. | AHB SRAM1/2 (`.ram1_clear`, 256 KB) |
 | `Placement::large` | `LargeMemory`: large, any RAM. | AXI SRAM (`.bss`, 512 KB) |
 
-An engine without a region declares it `NoMemory`. On the PC, `striso::dsp::Memory<E>` holds both regions in one object, and `sdk::Engine` puts the engine and its memory on the heap.
+An engine without a region declares it `NoMemory`. On the PC, `awva::Memory<E>` holds both regions in one object, and `sdk::Engine` puts the engine and its memory on the heap.
 
 What each engine needs:
 
@@ -89,7 +89,7 @@ On the board only one engine runs at a time, so the engines share one arena per 
 
 ## Writing an engine
 
-1. Write `dsp/include/striso_dsp/voice_<name>.h`, in namespace `<name>`:
+1. Write `dsp/include/awva/voice_<name>.h`, in namespace `<name>`:
    - `using real = float;`
    - `BLOCK` and `MAX_VOICES`
    - `struct Engine { strisy::GlobalControls g; strisy::VoiceControls vc[MAX_VOICES]; int nvoices; int preset; /* yours */ FastMemory* fast; LargeMemory* large; };`
@@ -100,11 +100,11 @@ On the board only one engine runs at a time, so the engines share one arena per 
    - optionally `NUM_PRESETS`, `preset_name(int)`, `set_preset(Engine&, int)` and a specialization of `strisy::EngineParams<Engine>` (live parameters)
 
    Include the helpers you use: `controls.h`, `params.h`, `dspmath.h`, `svf.h`. `voice_sine.h` is the minimal example.
-2. Write `dsp/include/striso_dsp/engines/<name>.h`, the traits. Copy one; `engines/bowed.h` has both memory regions.
+2. Write `dsp/include/awva/engines/<name>.h`, the traits. Copy one; `engines/bowed.h` has both memory regions.
    ```cpp
    struct <name> {
-       STRISO_ENGINE_FUNCTIONS(<name>)
-       STRISO_ENGINE_PRESETS(<name>)        // with presets
+       AWVA_ENGINE_FUNCTIONS(<name>)
+       AWVA_ENGINE_PRESETS(<name>)        // with presets
        using FastMemory = ::<name>::FastMemory;   // or NoMemory
        using LargeMemory = NoMemory;
        static constexpr const char* name = "<name>", *summary = "...";
@@ -113,9 +113,9 @@ On the board only one engine runs at a time, so the engines share one arena per 
    };
    ```
 3. That is all for the PC. CMake finds `engines/*.h`, so the engine gets:
-   - its library `striso_engine_<name>`;
+   - its library `awva_engine_<name>`;
    - the contract suite (`contract.<name>.*`);
-   - a place in `striso_render --list`;
+   - a place in `awva_render --list`;
    - render tests for every preset (`render.<name>.*`), which need golden checksums (`tools/update_goldens.sh`).
 4. For the board, add `E::<name>` to `SYNTH_ENGINES_ALL` in `src/synth/synth_strisy.cpp`, and its include above it. The order is the voice list's order (`v`, the settings keys). The virtual board's tests read the list from there. `tools/build.sh VOICE=<name>` builds a firmware with only that engine.
 
@@ -135,7 +135,7 @@ Then measure:
 
 ### MIDI 2.0: the Striso UMP profile
 
-Everything that plays the internal synth reaches the engines as MIDI 2.0 Universal MIDI Packets, through one decoder (`striso_dsp/ump.h`, `ump::Decoder`):
+Everything that plays the internal synth reaches the engines as MIDI 2.0 Universal MIDI Packets, through one decoder (`awva/ump.h`, `ump::Decoder`):
 - **the keys:** `synth_control.cpp`'s `update_synth_voice` sends each key's controls as packets, in the same key message, block and order as before;
 - **MIDI 1.0 and MPE in:** `NoteInput` (`midi_in.h`) up-converts them;
 - **MIDI 2.0 in:** `UmpInMsgHandler` (the virtual board's `sv_ump_write`; USB MIDI 2.0 next) gives MIDI 2.0 channel voice messages to `NoteInput::message2` and `InstrumentInput::message2`, and MIDI 1.0 ones in UMP (types 1, 2) to `MidiInMsgHandler`.
@@ -238,22 +238,22 @@ A SET_INTERFACE that changes the alt setting drops the IN data of the old format
 
 | | |
 |---|---|
-| `striso_engine_<name>` | One engine as a table of functions (`sdk::EngineEntry`). `sdk::Engine` is an instance with its memory. |
-| `striso_engines` | Every engine by name: `sdk::engines()`, `find_engine()`, `find_preset()`. |
-| `striso_effect_fx` | The master effects: `sdk::fx_effect()`, `sdk::Effect`. |
-| `striso_performances` | The scripted performances of `tools/harness`: `performance.h` is "default", `perf_stale.h` is "stale" and `perf_<x>.h` is "<x>". |
-| `striso_sdk` | MIDI in (`midi_voices.h`, on the board's mapping `striso_dsp/midi_in.h`), Standard MIDI Files (`smf.h`), the players (`performance.h`: scripted, key CSV, MIDI file) and the shell (`shell.h`). |
-| `striso_render` | The renderer (below). |
+| `awva_engine_<name>` | One engine as a table of functions (`sdk::EngineEntry`). `sdk::Engine` is an instance with its memory. |
+| `awva_engines` | Every engine by name: `sdk::engines()`, `find_engine()`, `find_preset()`. |
+| `awva_effect_fx` | The master effects: `sdk::fx_effect()`, `sdk::Effect`. |
+| `awva_performances` | The scripted performances of `tools/harness`: `performance.h` is "default", `perf_stale.h` is "stale" and `perf_<x>.h` is "<x>". |
+| `awva_sdk` | MIDI in (`midi_voices.h`, on the board's mapping `awva/midi_in.h`), Standard MIDI Files (`smf.h`), the players (`performance.h`: scripted, key CSV, MIDI file) and the shell (`shell.h`). |
+| `awva_render` | The renderer (below). |
 
 The SDK builds on its own, without the firmware tree or ChibiOS: `cmake -S sdk -B build/sdk && cmake --build build/sdk && ctest --test-dir build/sdk`. It needs `dsp/`, `tools/harness/` (the performances, the key-stream replay, the recordings) and `third_party/doctest`. On the firmware repository's host presets it is part of the build.
 
-#### striso_render
+#### awva_render
 
 ```
-striso_render --engine va --preset pad --perf default --wav va_pad.wav
-striso_render --engine ep --preset 3 --rec tools/harness/rec/play_2026-10-22_legato.csv --fx --wav ep.wav
-striso_render --engine bowed --midi tune.mid --wav bowed.wav
-striso_render --list
+awva_render --engine va --preset pad --perf default --wav va_pad.wav
+awva_render --engine ep --preset 3 --rec tools/harness/rec/play_2026-10-22_legato.csv --fx --wav ep.wav
+awva_render --engine bowed --midi tune.mid --wav bowed.wav
+awva_render --list
 ```
 
 The log on stderr says exactly what played:
@@ -279,7 +279,7 @@ The engines run 32-sample blocks, and a MIDI event takes effect at the next bloc
 
 Three pure units (no HAL, no heap), with the profile's decoder (`ump.h`), are the one copy of how MIDI in plays the internal synth. The board's `synth_control.cpp` runs them, and so does the SDK (`sdk::MidiVoices`, used by the shell and the renderer's MIDI files).
 
-**`striso_dsp/midi_in.h`, `NoteInput`: the notes.**
+**`awva/midi_in.h`, `NoteInput`: the notes.**
 - The MPE lower zone: per member channel, its bend times the bend range, pressure and CC74.
 - The other channels' notes, with poly and channel pressure, CC1 and CC74.
 - Velocity becomes a strike that fades ×0.6 every 2 ms; note-off velocity becomes the release.
@@ -287,7 +287,7 @@ Three pure units (no HAL, no heap), with the profile's decoder (`ump.h`), are th
 - It is the up-converter into the Striso UMP profile (above): the host gets packets (`ump`) for its decoder, which then calls `note_started`, `note_changed`, `note_silenced`, `note_dropped`. The host also says which channels its own MIDI out used lately (`echoed`) and gives the bend range.
 - `message2` takes standard MIDI 2.0 the same way, at its resolution.
 
-**`striso_dsp/midi_in.h`, `InstrumentInput`: the instrument's messages.** It does:
+**`awva/midi_in.h`, `InstrumentInput`: the instrument's messages.** It does:
 - the RPN select;
 - the notes' bend range (RPN 0: at least 1, not the zone master channel's);
 - the MCM (RPN 6 on channel 1: the zone's members, at most 15);
@@ -296,7 +296,7 @@ Three pure units (no HAL, no heap), with the profile's decoder (`ump.h`), are th
 
 The rules are the unit's. What follows from them is the host's: the board reconfigures its MIDI out on an MCM, moves its keys' `note_offset` with the bend, and knows which channels carry its own bends (echoes). The board's remote-control CCs (volume, modes, intervals) stay in `synth_control.cpp`.
 
-**`striso_dsp/voice_allocator.h`, `VoiceAllocator`: which note plays which voice.**
+**`awva/voice_allocator.h`, `VoiceAllocator`: which note plays which voice.**
 - **The rule, in order:**
   1. a repeated note keeps its voice;
   2. else a voice no note has had;
@@ -320,7 +320,7 @@ MIDI is taken in 2 ms steps, as on the board: the voices' level decay and the st
 | `contract.<engine>.*` | `sdk/tests/contract.cpp` on every engine. Info; init (silent, idle, a note sounds); release (silent within the declared tail, in every preset); reset; determinism; independence of instances; fuzz of controls and parameters in every preset; the parameter table and write rules; presets and switching while notes sound; voice stealing (note jumps, instant re-strikes, every voice at once); undeclared inputs make no difference; CPU smoke. |
 | `contract.fx.*` | The same for the master effects. |
 | `sdk.*` | The helpers (fastpow2, tan0, the SVF, write_param, track_key, EngineSet), the MIDI mapping and files, the shell. |
-| `striso_render.*` | The log names engine, preset and input; bad arguments are refused. |
+| `awva_render.*` | The log names engine, preset and input; bad arguments are refused. |
 | `render.*`, `target.*`, `virtual.render.*` | The golden checksums: host, QEMU (the board's arithmetic) and through the virtual board's firmware. All three go through the contract. |
 
 
@@ -352,16 +352,16 @@ Done in `trumpet-phys-sdk`: the bore delay lines are `FastMemory` (voices 0-7) a
 ### The accordion (`voice-accordion`)
 
 1. Keep `voice_accordion.h` as it is, with the free functions.
-2. Add `dsp/include/striso_dsp/engines/accordion.h`. Copy `engines/va.h` (presets, no regions) and fill in the summary, the inputs it reads, the budget (`profile.sh accordion`), the tail and its hero parameters.
+2. Add `dsp/include/awva/engines/accordion.h`. Copy `engines/va.h` (presets, no regions) and fill in the summary, the inputs it reads, the budget (`profile.sh accordion`), the tail and its hero parameters.
 3. If it has large buffers, give them to it as FastMemory or LargeMemory, as in `voice_bowed.h`.
-4. In `src/synth/synth_strisy.cpp`, add `#include "striso_dsp/engines/accordion.h"` and `E::accordion` to `SYNTH_ENGINES_ALL`. This replaces your change to the `VOICE_LIST` line and to `MAX_ENTRIES`: the entry count is computed now.
+4. In `src/synth/synth_strisy.cpp`, add `#include "awva/engines/accordion.h"` and `E::accordion` to `SYNTH_ENGINES_ALL`. This replaces your change to the `VOICE_LIST` line and to `MAX_ENTRIES`: the entry count is computed now.
 5. `ctest -R 'contract.accordion|render.accordion'` runs it. The goldens you have stay valid.
 
 ## Merge notes
 
 - **The engine list.** `VOICE_LIST(X, XP)` is gone. A branch that edits it adds its engine to `SYNTH_ENGINES_ALL` instead, and adds an `engines/<name>.h`.
-- **Firmware selection.** `SYNTH_VOICE_HEADER` is now `SYNTH_ENGINE_HEADER` (the traits header). `striso_voice_defines()` gives it.
+- **Firmware selection.** `SYNTH_VOICE_HEADER` is now `SYNTH_ENGINE_HEADER` (the traits header). `awva_engine_defines()` gives it.
 - **Engine code with static buffers.** It needs the region pointers; see the trumpet notes.
-- **Direct `ns::init` callers.** Code that calls `ns::init(e, ...)` directly on an engine with regions must set `e.fast` and `e.large` first. Better, it uses the adapter: `striso::dsp::engines::<name>` and `init(mem.fast, mem.large, sr, nv)`.
-- **The renderer.** `render_<voice>` and `render_strisy.cpp` are gone; it is `striso_render --engine <voice> --perf <name>`. `render.<...>` keeps its test names.
+- **Direct `ns::init` callers.** Code that calls `ns::init(e, ...)` directly on an engine with regions must set `e.fast` and `e.large` first. Better, it uses the adapter: `awva::engines::<name>` and `init(mem.fast, mem.large, sr, nv)`.
+- **The renderer.** `render_<voice>` and `render_strisy.cpp` are gone; it is `awva_render --engine <voice> --perf <name>`. `render.<...>` keeps its test names.
 - **Moved tests.** The parameter fuzz of `tests/test_params.cpp` is now part of the contract suites.

@@ -44,11 +44,11 @@ extern "C" {
 #include "tuning.h"
 #include "chprintf.h"
 #include "messaging.hpp"
-#include "striso_dsp/midi_in.h"
+#include "awva/midi_in.h"
 #include "striso_dsp/ump_out.h"
 #include "ump_stream.hpp"
-#include "striso_dsp/voice_allocator.h"
-#include "striso_dsp/legato.h"
+#include "awva/voice_allocator.h"
+#include "awva/legato.h"
 
 #include <array>
 #include <bit>
@@ -62,13 +62,13 @@ extern "C" {
 #define BUTTONCOUNT 68
 // notes from MIDI in: Button slots BUTTONCOUNT.. (they share the internal synth voices with the keys)
 #define MIDI_IN_NOTES 16
-static_assert(MIDI_IN_NOTES == striso::midi::NOTES, "a Button slot per MIDI in note");
+static_assert(MIDI_IN_NOTES == awva::midi::NOTES, "a Button slot per MIDI in note");
 #define MAX_PORTAMENTO_BUTTONS 8
 static constexpr uint8_t MIDI_C_ALL_SOUND_OFF = 0x78;  // (midi.h has All Notes Off, 0x7b)
 
 // the estimated volume's decay per tick (the MIDI voices'; the internal synth's: voice_allocator.h)
-#define VOL_TICK (striso::voices::LEVEL_STEP)
-#define VOL_TICK_FACT (striso::voices::LEVEL_DECAY)
+#define VOL_TICK (awva::voices::LEVEL_STEP)
+#define VOL_TICK_FACT (awva::voices::LEVEL_DECAY)
 
 float volume_linear = 90.0f; // volume in range 0-127
 void set_volume(float vol) {
@@ -418,11 +418,11 @@ class Instrument {
         Button buttons[BUTTONCOUNT + MIDI_IN_NOTES];  // the keys, then the notes from MIDI in
         int voices[MAX_VOICECOUNT];
         // the internal synth's voices: which key (or MIDI in note) plays each (voice_allocator.h)
-        striso::voices::VoiceAllocator<BUTTONCOUNT + MIDI_IN_NOTES, VOICECOUNT> synth_alloc;
+        awva::voices::VoiceAllocator<BUTTONCOUNT + MIDI_IN_NOTES, VOICECOUNT> synth_alloc;
         // mono legato (legato.h): the internal synth on one voice, the held notes slur (the preset
         // setting "mono", settings key 9; off by default)
         bool legato = false;
-        striso::voices::Legato<16> legato_notes;
+        awva::voices::Legato<16> legato_notes;
         int portamento_buttons[MAX_PORTAMENTO_BUTTONS];
         float notegen0 = 12.00;
         float notegen1 = 7.00;
@@ -480,8 +480,8 @@ class Instrument {
         }
 
         /*
-         * The internal synth is played in MIDI 2.0: the Striso UMP profile (striso_dsp/ump.h).
-         * The keys (update_synth_voice) and MIDI in (striso_dsp/midi_in.h: MIDI 1.0, MPE, the
+         * The internal synth is played in MIDI 2.0: the Striso UMP profile (awva/ump.h).
+         * The keys (update_synth_voice) and MIDI in (awva/midi_in.h: MIDI 1.0, MPE, the
          * up-converter shared with the SDK's hosts) send it; one decoder (synth_in) gives the
          * engines their controls. A note's id is its Button: a key 0 .. BUTTONCOUNT-1, a MIDI in
          * note BUTTONCOUNT + its slot. MIDI notes take an internal voice from the same pool as the
@@ -491,20 +491,20 @@ class Instrument {
          * range (RPN 0), the zone (MCM) and the other CCs are midi_in_message's. Sustain (CC64)
          * is the pedal, as before.
          */
-        striso::midi::NoteInput midi_in;
-        striso::ump::Decoder<BUTTONCOUNT + MIDI_IN_NOTES> synth_in;
-        striso::ump::StandardOut<BUTTONCOUNT> ump_out;  // MIDI mode midi2: the keys as MIDI 2.0 (ump_out.h)
+        awva::midi::NoteInput midi_in;
+        awva::ump::Decoder<BUTTONCOUNT + MIDI_IN_NOTES> synth_in;
+        awva::ump::StandardOut<BUTTONCOUNT> ump_out;  // MIDI mode midi2: the keys as MIDI 2.0 (ump_out.h)
         bool key_out[BUTTONCOUNT] = {};                   // a key's Note On went out on MIDI 2.0
         bool key_sounding[BUTTONCOUNT] = {};  // a key's Note On went out (its Note Off not yet)
 
         // the decoder's host: the touch factors are the keys' sensitivities, a MIDI note's 1
-        striso::ump::Touch touch(int id) const {
-            return id < BUTTONCOUNT ? striso::ump::Touch{pres_sensitivity, velo_sensitivity, y_sensitivity}
-                                    : striso::ump::Touch{1.0f, 1.0f, 1.0f};
+        awva::ump::Touch touch(int id) const {
+            return id < BUTTONCOUNT ? awva::ump::Touch{pres_sensitivity, velo_sensitivity, y_sensitivity}
+                                    : awva::ump::Touch{1.0f, 1.0f, 1.0f};
         }
 
         // a MIDI note starts: its Button, its level, a voice (a key's voice is the key logic's)
-        void note_started(int id, const striso::ump::NoteSignals& n) {
+        void note_started(int id, const awva::ump::NoteSignals& n) {
             if (id < BUTTONCOUNT) return;
             Button& b = buttons[id];
             b.state = STATE_ON;
@@ -515,7 +515,7 @@ class Instrument {
             get_synth_voice(id);  // (-1: every voice plays a louder held note)
         }
 
-        void note_changed(int id, const striso::ump::NoteSignals& n) {
+        void note_changed(int id, const awva::ump::NoteSignals& n) {
             if (id >= BUTTONCOUNT) {
                 Button& b = buttons[id];
                 b.state = n.on ? STATE_ON : STATE_OFF;
@@ -539,7 +539,7 @@ class Instrument {
         }
 
         // midi_in's host: its packets go to the decoder (flushed after each message)
-        void ump(const striso::ump::Packet& p) { synth_in.packet(p); }
+        void ump(const awva::ump::Packet& p) { synth_in.packet(p); }
 
         bool echoed(int channel) const { return note_out_recently(channel); }  // (SC-16)
 
@@ -1197,16 +1197,16 @@ class Instrument {
                 pb = bend_sensitivity * pow3(b.but_x);
             }
             const bool on = b.state == STATE_ON;
-            striso::ump::Packet p[6] = {
-                striso::ump::pitch_packet(but, b.note + pb),
-                striso::ump::pres_packet(but, b.pres),
-                striso::ump::signed_packet(but, striso::ump::ctl_vpres, b.vpres),
-                striso::ump::signed_packet(but, striso::ump::ctl_x, b.but_x),
-                striso::ump::signed_packet(but, striso::ump::ctl_y, b.but_y),
+            awva::ump::Packet p[6] = {
+                awva::ump::pitch_packet(but, b.note + pb),
+                awva::ump::pres_packet(but, b.pres),
+                awva::ump::signed_packet(but, awva::ump::ctl_vpres, b.vpres),
+                awva::ump::signed_packet(but, awva::ump::ctl_x, b.but_x),
+                awva::ump::signed_packet(but, awva::ump::ctl_y, b.but_y),
                 {0, 0}};
             int n = 5;
             if (on != key_sounding[but]) {
-                p[n++] = on ? striso::ump::note_on_packet(but, b.vpres, false) : striso::ump::note_off_packet(but);
+                p[n++] = on ? awva::ump::note_on_packet(but, b.vpres, false) : awva::ump::note_off_packet(but);
                 key_sounding[but] = on;
             }
 #ifdef USE_INTERNAL_SYNTH
@@ -1216,7 +1216,7 @@ class Instrument {
             if (config.midi2) {
                 for (int k = 0; k < 5; k++) ump_out.packet(p[k]);
                 if (on != key_out[but]) {
-                    ump_out.packet(on ? striso::ump::note_on_packet(but, b.vpres, false) : striso::ump::note_off_packet(but));
+                    ump_out.packet(on ? awva::ump::note_on_packet(but, b.vpres, false) : awva::ump::note_off_packet(but));
                     key_out[but] = on;
                 }
                 ump_out.flush(*this);
@@ -1233,7 +1233,7 @@ class Instrument {
             for (int but = 0; but < BUTTONCOUNT; but++) {
                 const bool on = buttons[but].state == STATE_ON;
                 if (on == key_out[but] || (on && !config.midi2)) continue;
-                ump_out.packet(on ? striso::ump::note_on_packet(but, buttons[but].vpres, false) : striso::ump::note_off_packet(but));
+                ump_out.packet(on ? awva::ump::note_on_packet(but, buttons[but].vpres, false) : awva::ump::note_off_packet(but));
                 key_out[but] = on;
                 any = true;
             }
@@ -1283,7 +1283,7 @@ class Instrument {
         }
 
         // the decoded controls of note id to its voice (if it still has one)
-        void write_synth_voice(int id, const striso::ump::NoteSignals& n) {
+        void write_synth_voice(int id, const awva::ump::NoteSignals& n) {
 #ifdef USE_INTERNAL_SYNTH
             if (legato) {
                 write_legato_voice(id, n);
@@ -1307,11 +1307,11 @@ class Instrument {
         // mono legato: the one voice plays the newest held note, at the strongest held note's
         // pressure; a release returns to the newest still held (no new attack); the last
         // note's release is the voice's
-        void write_legato_voice(int id, const striso::ump::NoteSignals& n) {
+        void write_legato_voice(int id, const awva::ump::NoteSignals& n) {
 #ifdef USE_INTERNAL_SYNTH
             legato_notes.note(id, n);
             if (!synth_interface) return;
-            striso::ump::NoteSignals s = n;
+            awva::ump::NoteSignals s = n;
             if (legato_notes.empty()) {
                 if (synth_alloc.voice(id) < 0) return;  // (a note the voice had left: nothing)
             } else {
@@ -1350,7 +1350,7 @@ class Instrument {
         // end the internal sound of key but's note (its key is still held): through the decoder
         void silence_key(int but) {
 #ifdef USE_INTERNAL_SYNTH
-            synth_in.packet(striso::ump::management_packet(but, striso::ump::PNM_SILENCE));
+            synth_in.packet(awva::ump::management_packet(but, awva::ump::PNM_SILENCE));
             synth_in.flush(*this);
 #else
             (void)but;
@@ -1360,7 +1360,7 @@ class Instrument {
         // the decoder's: the internal sound of note id's voice ends
         void silence_synth_voice(int but) {
 #ifdef USE_INTERNAL_SYNTH
-            if (legato) legato_notes.note(but, striso::ump::NoteSignals{0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false});
+            if (legato) legato_notes.note(but, awva::ump::NoteSignals{0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false});
             const int voice = synth_alloc.voice(but);
             if (voice >= 0 && synth_interface) {
                 *(synth_interface->pres[voice])  = 0.0f;
@@ -2338,7 +2338,7 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
  */
 int UmpInMsgHandler(midi_device_t dev, const uint32_t* words, int n) {
     int i = 0;
-    while (i < n && i + striso::ump::words(words[i]) <= n) {
+    while (i < n && i + awva::ump::words(words[i]) <= n) {
         const uint32_t w0 = words[i];
         const uint8_t type = (uint8_t)(w0 >> 28), port = (uint8_t)(((w0 >> 24) & 0x0f) + 1);
         if (type == 1 || type == 2) {
@@ -2352,20 +2352,20 @@ int UmpInMsgHandler(midi_device_t dev, const uint32_t* words, int n) {
                 chThdSleepMilliseconds(1);
             }
         }
-        i += striso::ump::words(w0);
+        i += awva::ump::words(w0);
     }
     return i;
 }
 
 /*
- * The host of MIDI in's instrument messages (striso::midi::InstrumentInput: the RPN select, the
+ * The host of MIDI in's instrument messages (awva::midi::InstrumentInput: the RPN select, the
  * bend range, the MCM, the instrument's bend, the pedal): what follows from them on the board.
  * (The notes' messages: dis is NoteInput's host.)
  */
 struct MidiInInstrument {
     Instrument& d;
     // NoteInput's host: the Instrument's
-    void ump(const striso::ump::Packet& p) { d.ump(p); }
+    void ump(const awva::ump::Packet& p) { d.ump(p); }
     bool echoed(int channel) const { return d.echoed(channel); }
     float bend_range() const { return d.bend_range(); }
     // the MPE master channel's own range (2) is not the notes'
@@ -2393,7 +2393,7 @@ struct MidiInInstrument {
 };
 
 // the bend range, the MCM, the instrument's bend, the pedal (and the RPN select per channel)
-static striso::midi::InstrumentInput instrument_in;
+static awva::midi::InstrumentInput instrument_in;
 
 static void board_cc(uint8_t channel, uint8_t data1, uint8_t data2);
 

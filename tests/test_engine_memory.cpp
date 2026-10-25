@@ -11,19 +11,19 @@
 #include <vector>
 
 #include "doctest/doctest.h"
-#include "striso_dsp/engine_set.h"
-#include "striso_dsp/engines/accordion.h"
-#include "striso_dsp/engines/bowed.h"
-#include "striso_dsp/engines/brass.h"
-#include "striso_dsp/engines/ep.h"
-#include "striso_dsp/engines/modal.h"
-#include "striso_dsp/engines/reed.h"
+#include "awva/engine_set.h"
+#include "awva/engines/accordion.h"
+#include "awva/engines/bowed.h"
+#include "awva/engines/brass.h"
+#include "awva/engines/ep.h"
+#include "awva/engines/modal.h"
+#include "awva/engines/reed.h"
 #include "striso_dsp/engines/strisy.h"
-#include "striso_dsp/engines/trumpet.h"
-#include "striso_dsp/engines/va.h"
-#include "striso_dsp/engines/wind.h"
+#include "awva/engines/trumpet.h"
+#include "awva/engines/va.h"
+#include "awva/engines/wind.h"
 
-namespace dsp = striso::dsp;
+namespace dsp = awva;
 namespace E = dsp::engines;
 
 namespace {

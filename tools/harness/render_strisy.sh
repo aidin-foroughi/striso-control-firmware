@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Render a scripted performance through a C++ voice engine on the host, with extra compiler flags
-# (CMake target render_custom: sdk/tools/striso_render.cpp with one engine and the performance
+# (CMake target render_custom: sdk/tools/awva_render.cpp with one engine and the performance
 # compiled into the same file; built and run in Docker). For renders without extra flags the plain
-# renderer is simpler: build/host/sdk/striso_render --engine <name> --perf <name> --wav <file>.
+# renderer is simpler: build/host/sdk/awva_render --engine <name> --perf <name> --wav <file>.
 # Usage: [FW_DIR=<checkout>] [VOICE=<name>] [PERF=<header>] tools/harness/render_strisy.sh <out-name> [compiler flags] [renderer options...]
 #   FW_DIR: firmware checkout, relative to the current directory or absolute (default: this
 #     repository; e.g. FW_DIR=../worktrees/fw-bowed from the repository root)
@@ -11,7 +11,7 @@
 #     first, so a perf_<voice>.h next to this script works for any FW_DIR
 #   compiler flags: e.g. "-DNV=10" (one argument, as before)
 #   renderer options: --preset N|name, --nv N, --fx, --rec <csv>, --midi <mid>, --seconds S,
-#     --wav <file>: see sdk/tools/striso_render.cpp (file paths as the container sees them:
+#     --wav <file>: see sdk/tools/awva_render.cpp (file paths as the container sees them:
 #     /out/x.wav). The performance is "custom" (PERF); its log says which file that was.
 # -> tools/harness/out/<out-name>.f32 (float32, 48000 Hz, mono; stereo with --fx); prints the peak
 #    and warns about non-finite samples.

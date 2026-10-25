@@ -10,7 +10,7 @@
 #   config_schema   tools/config_schema.py against the schema and tests/golden/firmware_bytes.txt
 #   render.<voice>[.p<preset>].<performance>   every engine and preset renders the default
 #               performance, the stale-vpres performance and the recorded key streams
-#               (tools/harness/rec) through the SDK's renderer (sdk/: striso_render, the engines'
+#               (tools/harness/rec) through the SDK's renderer (sdk/: awva_render, the engines'
 #               contract): finite, peak <= 8, a silent idle tail after the stale release, and the
 #               golden checksum (tests/golden/renders.txt) so any change of the DSP's output is
 #               caught. After an intended change: tools/update_goldens.sh
@@ -20,9 +20,9 @@ include("${PROJECT_SOURCE_DIR}/third_party/doctest/cmake/doctest.cmake")
 # --- the SDK's tests of what stays in the firmware (the engines repo has the rest) ---------------------
 # the board's VOICE=all engine set in its memory, the board's MIDI 2.0 output edge (ump_out.h);
 # named sdk.* as when they were in sdk/
-add_executable(striso_board_sdk_tests "${STRISO_ENGINES_DIR}/sdk/tests/main.cpp" test_engine_memory.cpp test_ump_out.cpp)
+add_executable(striso_board_sdk_tests "${AWVA_DIR}/sdk/tests/main.cpp" test_engine_memory.cpp test_ump_out.cpp)
 target_include_directories(striso_board_sdk_tests PRIVATE "${PROJECT_SOURCE_DIR}/third_party/doctest")
-target_link_libraries(striso_board_sdk_tests PRIVATE striso_sdk striso_engines striso_performances)
+target_link_libraries(striso_board_sdk_tests PRIVATE awva_sdk awva_engines awva_performances)
 doctest_discover_tests(striso_board_sdk_tests TEST_PREFIX "sdk." PROPERTIES LABELS unit)
 
 # --- doctest unit tests ----------------------------------------------------------------------------
@@ -46,13 +46,13 @@ add_executable(striso_tests
   "${PROJECT_SOURCE_DIR}/src/drivers/key_calibration.c")
 target_include_directories(striso_tests PRIVATE
   "${PROJECT_SOURCE_DIR}/third_party/doctest"
-  "${STRISO_HARNESS_DIR}"
+  "${AWVA_HARNESS_DIR}"
   "${PROJECT_SOURCE_DIR}/src/app"
   "${PROJECT_SOURCE_DIR}/src/drivers"
   "${PROJECT_SOURCE_DIR}/src/synth")
-target_compile_definitions(striso_tests PRIVATE "STRISO_REC_DIR=\"${STRISO_HARNESS_DIR}/rec\""
+target_compile_definitions(striso_tests PRIVATE "STRISO_REC_DIR=\"${AWVA_HARNESS_DIR}/rec\""
   "STRISO_GOLDEN_DIR=\"${PROJECT_SOURCE_DIR}/tests/golden\"")
-target_link_libraries(striso_tests PRIVATE striso::dsp striso_host_options Threads::Threads)
+target_link_libraries(striso_tests PRIVATE awva::dsp awva_host_options Threads::Threads)
 # the DSP as the renderers build it (reproducible float results)
 target_compile_options(striso_tests PRIVATE -O2 -ffp-contract=off)
 doctest_discover_tests(striso_tests TEST_PREFIX "unit." PROPERTIES LABELS unit)
@@ -60,10 +60,10 @@ doctest_discover_tests(striso_tests TEST_PREFIX "unit." PROPERTIES LABELS unit)
 # every DSP header compiles on its own (voice_wind_tune.h is a fragment of voice_wind.h)
 set(_dsp_headers "")
 foreach(d IN LISTS STRISO_DSP_INCLUDE_DIRS) # the firmware's and the engines repo's
-  file(GLOB _h RELATIVE "${d}" "${d}/striso_dsp/*.h" "${d}/striso_dsp/engines/*.h" "${d}/striso_dsp/effects/*.h")
+  file(GLOB _h RELATIVE "${d}" "${d}/awva/*.h" "${d}/awva/engines/*.h" "${d}/awva/effects/*.h")
   list(APPEND _dsp_headers ${_h})
 endforeach()
-list(REMOVE_ITEM _dsp_headers striso_dsp/voice_wind_tune.h)
+list(REMOVE_ITEM _dsp_headers awva/voice_wind_tune.h)
 set(_hdr_srcs "")
 foreach(h IN LISTS _dsp_headers)
   string(MAKE_C_IDENTIFIER "${h}" id)
@@ -72,7 +72,7 @@ foreach(h IN LISTS _dsp_headers)
   list(APPEND _hdr_srcs "${src}")
 endforeach()
 add_library(striso_dsp_headers OBJECT ${_hdr_srcs})
-target_link_libraries(striso_dsp_headers PRIVATE striso::dsp striso_host_options)
+target_link_libraries(striso_dsp_headers PRIVATE awva::dsp awva_host_options)
 target_compile_options(striso_dsp_headers PRIVATE -Wno-unused-function -Wno-unused-variable)
 
 # --- the key scanner (src/drivers/key_scanner*.hpp) ----------------------------------------------
@@ -83,7 +83,7 @@ target_include_directories(test_key_scanner PRIVATE
   "${PROJECT_SOURCE_DIR}/third_party/doctest"
   "${PROJECT_SOURCE_DIR}/src/drivers"
   "${CMAKE_CURRENT_SOURCE_DIR}/ref")
-target_link_libraries(test_key_scanner PRIVATE striso_host_options)
+target_link_libraries(test_key_scanner PRIVATE awva_host_options)
 target_compile_options(test_key_scanner PRIVATE -O2 -ffp-contract=off)
 set_source_files_properties(ref/button_read_ref.c PROPERTIES COMPILE_OPTIONS "-fwrapv")
 doctest_discover_tests(test_key_scanner TEST_PREFIX "scanner." PROPERTIES LABELS unit)
@@ -95,7 +95,7 @@ add_executable(test_console main.cpp test_console.cpp)
 target_include_directories(test_console PRIVATE
   "${PROJECT_SOURCE_DIR}/third_party/doctest"
   "${PROJECT_SOURCE_DIR}/src/app")
-target_link_libraries(test_console PRIVATE striso_host_options)
+target_link_libraries(test_console PRIVATE awva_host_options)
 target_compile_options(test_console PRIVATE -O2)
 doctest_discover_tests(test_console TEST_PREFIX "console." PROPERTIES LABELS unit)
 
@@ -107,7 +107,7 @@ target_include_directories(test_scan_seq PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/ref"
   "${PROJECT_SOURCE_DIR}/third_party/doctest"
   "${PROJECT_SOURCE_DIR}/src/drivers")
-target_link_libraries(test_scan_seq PRIVATE striso_host_options)
+target_link_libraries(test_scan_seq PRIVATE awva_host_options)
 target_compile_options(test_scan_seq PRIVATE -O1 $<$<COMPILE_LANGUAGE:C>:-Wno-unused-parameter>)
 doctest_discover_tests(test_scan_seq TEST_PREFIX "scanseq." PROPERTIES LABELS unit)
 
@@ -115,7 +115,7 @@ doctest_discover_tests(test_scan_seq TEST_PREFIX "scanseq." PROPERTIES LABELS un
 # the same session, <name>.csv: tools/record_raw.py) replay to exactly the board's messages
 add_executable(scan_replay scan_replay.cpp)
 target_include_directories(scan_replay PRIVATE "${PROJECT_SOURCE_DIR}/src/drivers")
-target_link_libraries(scan_replay PRIVATE striso_host_options)
+target_link_libraries(scan_replay PRIVATE awva_host_options)
 target_compile_options(scan_replay PRIVATE -O2 -ffp-contract=off)
 file(GLOB _scan_recordings "${CMAKE_CURRENT_SOURCE_DIR}/scan/*.ksr")
 list(SORT _scan_recordings)
@@ -134,14 +134,14 @@ endforeach()
 add_executable(test_usb_audio_core "${PROJECT_SOURCE_DIR}/tools/usbaudio/test_core.c")
 target_include_directories(test_usb_audio_core PRIVATE "${PROJECT_SOURCE_DIR}/src/usb")
 target_compile_options(test_usb_audio_core PRIVATE -O2 -Werror)
-target_link_libraries(test_usb_audio_core PRIVATE m striso_host_options)
+target_link_libraries(test_usb_audio_core PRIVATE m awva_host_options)
 add_test(NAME usb_audio_core COMMAND test_usb_audio_core)
 set_tests_properties(usb_audio_core PROPERTIES LABELS unit)
 # usb_audio_wrap: the ring across the wrap of its free-running 32-bit frame counters (24.85 h)
 add_executable(test_ua_wrap test_ua_wrap.c)
 target_include_directories(test_ua_wrap PRIVATE "${PROJECT_SOURCE_DIR}/src/usb")
 target_compile_options(test_ua_wrap PRIVATE -O2 -Werror)
-target_link_libraries(test_ua_wrap PRIVATE striso_host_options)
+target_link_libraries(test_ua_wrap PRIVATE awva_host_options)
 add_test(NAME usb_audio_wrap COMMAND test_ua_wrap)
 set_tests_properties(usb_audio_wrap PROPERTIES LABELS unit)
 
@@ -154,7 +154,7 @@ if(EXISTS "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c")
     "${CMAKE_CURRENT_SOURCE_DIR}/usb_queue/stubs"
     "${STRISO_CHIBIOS_DIR}/os/hal/include"
     "${PROJECT_SOURCE_DIR}/src/usb")
-  target_link_libraries(test_obq_discard PRIVATE striso_host_options)
+  target_link_libraries(test_obq_discard PRIVATE awva_host_options)
   target_compile_options(test_obq_discard PRIVATE -O1 -Wno-unused-parameter)
   add_test(NAME usb_obq_discard COMMAND test_obq_discard)
   set_tests_properties(usb_obq_discard PROPERTIES LABELS unit)
@@ -190,7 +190,7 @@ if(EXISTS "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c")
       "${PROJECT_SOURCE_DIR}/src/drivers"
       "${STRISO_CHIBIOS_DIR}/os/hal/include"
       "${_streams}")
-    target_link_libraries(${_exe} PRIVATE striso_host_options)
+    target_link_libraries(${_exe} PRIVATE awva_host_options)
     target_compile_options(${_exe} PRIVATE -O1 -Wno-unused-parameter -Wno-unused-function
       -Wno-sign-compare -Wno-missing-field-initializers -Wno-format -Wno-unused-but-set-variable
       -fno-strict-aliasing $<$<BOOL:${STRISO_SANITIZE}>:-fno-sanitize=alignment>)
@@ -209,7 +209,7 @@ target_include_directories(test_jack_detector PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/aux_jack/stubs"
   "${PROJECT_SOURCE_DIR}/third_party/doctest"
   "${PROJECT_SOURCE_DIR}/src/drivers")
-target_link_libraries(test_jack_detector PRIVATE striso_host_options)
+target_link_libraries(test_jack_detector PRIVATE awva_host_options)
 target_compile_options(test_jack_detector PRIVATE -O1 -Wno-unused-parameter -Wno-unused-variable -Wno-switch)
 doctest_discover_tests(test_jack_detector TEST_PREFIX "jack." PROPERTIES LABELS unit)
 
@@ -221,7 +221,7 @@ target_include_directories(test_led PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/led/stubs"
   "${PROJECT_SOURCE_DIR}/third_party/doctest"
   "${PROJECT_SOURCE_DIR}/src/drivers")
-target_link_libraries(test_led PRIVATE striso_host_options)
+target_link_libraries(test_led PRIVATE awva_host_options)
 doctest_discover_tests(test_led TEST_PREFIX "led." PROPERTIES LABELS unit)
 
 # motion.*: the MotionFilter (src/drivers/motion_filter.hpp) against the old motion math
@@ -232,7 +232,7 @@ target_include_directories(test_motion_filter PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/ref"
   "${PROJECT_SOURCE_DIR}/third_party/doctest"
   "${PROJECT_SOURCE_DIR}/src/drivers")
-target_link_libraries(test_motion_filter PRIVATE striso_host_options m)
+target_link_libraries(test_motion_filter PRIVATE awva_host_options m)
 doctest_discover_tests(test_motion_filter TEST_PREFIX "motion." PROPERTIES LABELS unit)
 
 # messaging_model[_small], messaging_threads: src/app/inbox.hpp (the control thread's event queue)
@@ -243,7 +243,7 @@ add_executable(test_messaging_model messaging/test_messaging_model.cpp)
 target_include_directories(test_messaging_model PRIVATE
   "${CMAKE_CURRENT_SOURCE_DIR}/messaging/stubs"
   "${PROJECT_SOURCE_DIR}/src/app")
-target_link_libraries(test_messaging_model PRIVATE striso_host_options Threads::Threads)
+target_link_libraries(test_messaging_model PRIVATE awva_host_options Threads::Threads)
 target_compile_options(test_messaging_model PRIVATE -O2)
 foreach(_m IN ITEMS "messaging_model_small;small" "messaging_model;board" "messaging_threads;threads")
   list(GET _m 0 _name)
@@ -256,7 +256,7 @@ endforeach()
 # analog path LINE2 -> ADC PGA -> line out, in a model of the TLV320AIC3104 registers (D4)
 add_executable(test_codec_linein test_codec_linein.c)
 target_include_directories(test_codec_linein PRIVATE "${PROJECT_SOURCE_DIR}/src/drivers")
-target_link_libraries(test_codec_linein PRIVATE striso_host_options)
+target_link_libraries(test_codec_linein PRIVATE awva_host_options)
 add_test(NAME codec_linein COMMAND test_codec_linein)
 set_tests_properties(codec_linein PROPERTIES LABELS unit)
 
@@ -301,7 +301,7 @@ foreach(l IN LISTS _golden_lines)
     set("_golden_${CMAKE_MATCH_1}" "${CMAKE_MATCH_2}")
   endif()
 endforeach()
-file(GLOB _recordings "${STRISO_HARNESS_DIR}/rec/*.csv")
+file(GLOB _recordings "${AWVA_HARNESS_DIR}/rec/*.csv")
 list(SORT _recordings)
 
 # a released voice's stale positive vpres must not keep it sounding (synth_control leaves it):
@@ -317,12 +317,12 @@ function(_render_test name)
       list(APPEND args --expect missing)
     endif()
   endif()
-  add_test(NAME ${name} COMMAND striso_render ${args})
+  add_test(NAME ${name} COMMAND awva_render ${args})
   set_tests_properties(${name} PROPERTIES LABELS render)
 endfunction()
 
-foreach(v IN LISTS STRISO_VOICES)
-  set(npresets "${STRISO_VOICE_${v}_PRESETS}")
+foreach(v IN LISTS AWVA_ENGINES)
+  set(npresets "${AWVA_ENGINE_${v}_PRESETS}")
   if(npresets)  # (not "n": if(n) is the constant N, false)
     math(EXPR last "${npresets} - 1")
     set(presets "")
@@ -348,7 +348,7 @@ foreach(v IN LISTS STRISO_VOICES)
       _render_test(render.${tag}.rec_${rn} --engine ${v} ${parg} --rec "${rec}")
     endforeach()
   endforeach()
-  if(v IN_LIST STRISO_PERFORMANCES) # its own performance, tools/harness/perf_<v>.h
+  if(v IN_LIST AWVA_PERFORMANCES) # its own performance, tools/harness/perf_<v>.h
     _render_test(render.${v}.perf --engine ${v} --perf ${v})
   endif()
 endforeach()

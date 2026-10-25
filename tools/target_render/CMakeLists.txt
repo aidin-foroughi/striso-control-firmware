@@ -13,11 +13,11 @@ set(_tr_flags ${_mcflags} ${_opt_synth}
   "$<$<COMPILE_LANGUAGE:CXX>:-std=gnu++20;-fno-exceptions;-fno-rtti>" "$<$<COMPILE_LANGUAGE:C>:-std=gnu17>")
 set(_targets "")
 
-foreach(v IN LISTS STRISO_VOICES)
+foreach(v IN LISTS AWVA_ENGINES)
   add_executable(target_render_${v} "${_dir}/render_target.cpp" "${_dir}/startup.c")
-  striso_voice_defines(defs ${v})
+  awva_engine_defines(defs ${v})
   target_compile_definitions(target_render_${v} PRIVATE ${defs})
-  target_include_directories(target_render_${v} PRIVATE ${STRISO_DSP_INCLUDE_DIRS} "${STRISO_HARNESS_DIR}" "${PROJECT_SOURCE_DIR}/tools/harness")
+  target_include_directories(target_render_${v} PRIVATE ${STRISO_DSP_INCLUDE_DIRS} "${AWVA_HARNESS_DIR}" "${PROJECT_SOURCE_DIR}/tools/harness")
   target_compile_options(target_render_${v} PRIVATE ${_tr_flags})
   target_link_options(target_render_${v} PRIVATE ${_mcflags} ${_opt_synth} --specs=rdimon.specs -nostartfiles
     "-T${_dir}/target.ld" -Wl,--gc-sections
@@ -57,7 +57,7 @@ list(APPEND _targets target_scan_seq)
 # the key path's instructions per block, before and after the UMP profile (key_path.cpp), with
 # synth_control.cpp's flags; ctest target.key_path checks both give the same controls
 add_executable(target_key_path "${_dir}/key_path.cpp" "${_dir}/startup.c")
-target_include_directories(target_key_path PRIVATE ${STRISO_DSP_INCLUDE_DIRS} "${STRISO_HARNESS_DIR}" "${PROJECT_SOURCE_DIR}/tools/harness")
+target_include_directories(target_key_path PRIVATE ${STRISO_DSP_INCLUDE_DIRS} "${AWVA_HARNESS_DIR}" "${PROJECT_SOURCE_DIR}/tools/harness")
 target_compile_options(target_key_path PRIVATE ${_mcflags} ${_opt}
   "$<$<COMPILE_LANGUAGE:CXX>:-std=gnu++20;-fno-exceptions;-fno-rtti>" "$<$<COMPILE_LANGUAGE:C>:${_copt}>")
 target_link_options(target_key_path PRIVATE ${_mcflags} ${_opt} --specs=rdimon.specs -nostartfiles
@@ -85,11 +85,11 @@ add_custom_target(target_renders DEPENDS ${_targets})
 # instruction counts per block of the engine and the master effects (tools/target_render/profile.sh):
 # target_profile_<voice>, the same renderer with -DTARGET_PROFILE -DTARGET_FX
 set(_ptargets "")
-foreach(v IN LISTS STRISO_VOICES)
+foreach(v IN LISTS AWVA_ENGINES)
   add_executable(target_profile_${v} "${_dir}/render_target.cpp" "${_dir}/startup.c")
-  striso_voice_defines(defs ${v})
+  awva_engine_defines(defs ${v})
   target_compile_definitions(target_profile_${v} PRIVATE ${defs} TARGET_PROFILE TARGET_FX)
-  target_include_directories(target_profile_${v} PRIVATE ${STRISO_DSP_INCLUDE_DIRS} "${STRISO_HARNESS_DIR}" "${PROJECT_SOURCE_DIR}/tools/harness")
+  target_include_directories(target_profile_${v} PRIVATE ${STRISO_DSP_INCLUDE_DIRS} "${AWVA_HARNESS_DIR}" "${PROJECT_SOURCE_DIR}/tools/harness")
   target_compile_options(target_profile_${v} PRIVATE ${_tr_flags})
   target_link_options(target_profile_${v} PRIVATE ${_mcflags} ${_opt_synth} --specs=rdimon.specs -nostartfiles
     "-T${_dir}/target.ld" -Wl,--gc-sections
@@ -135,8 +135,8 @@ if(EXISTS "${_golden_file}")
   endforeach()
 endif()
 
-foreach(v IN LISTS STRISO_VOICES)
-  set(np "${STRISO_VOICE_${v}_PRESETS}")
+foreach(v IN LISTS AWVA_ENGINES)
+  set(np "${AWVA_ENGINE_${v}_PRESETS}")
   set(presets -1)
   if(np)
     math(EXPR last "${np} - 1")

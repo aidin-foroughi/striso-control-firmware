@@ -20,7 +20,7 @@ in_docker bash -c "cmake --build --preset firmware --target target_profiles > bu
   for elf in build/firmware/target_render/target_profile_*.elf; do
     v=\${elf##*target_profile_}; v=\${v%.elf}
     echo \"\$v\" | grep -Eq -- '$RE' || continue
-    np=\$(grep -Eo 'NUM_PRESETS = [0-9]+' engines/dsp/include/striso_dsp/voice_\$v.h 2>/dev/null | grep -Eo '[0-9]+' || true)
+    np=\$(grep -Eo 'NUM_PRESETS = [0-9]+' awva/dsp/include/awva/voice_\$v.h 2>/dev/null | grep -Eo '[0-9]+' || true)
     if [ -z \"\$np\" ]; then jobs=\"\$jobs \$v:-1\"; else for p in \$(seq 0 \$((np - 1))); do jobs=\"\$jobs \$v:\$p\"; done; fi
   done
   run() {

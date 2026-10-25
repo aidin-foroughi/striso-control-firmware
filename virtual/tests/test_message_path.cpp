@@ -2,7 +2,7 @@
 // scanner sends them (sv_inject_key: event_send, the control thread, synth_message, synth_control's
 // voice allocation, pitch, sensitivities), rendered by the board's synth thread. The controls the
 // engine got each block (the board's controls tap) are then replayed on the same engine compiled
-// here, straight through its contract (striso::dsp::VoiceEngine), as the host renderers drive it:
+// here, straight through its contract (awva::VoiceEngine), as the host renderers drive it:
 // its output must be the board's, bit for bit.
 // So the DSP on the board's path is exactly the DSP the goldens check; what differs from the
 // goldens' recorded renders is only how controls come from keys (the harness's stand-in for
@@ -17,13 +17,13 @@
 #include "board.h"
 #include "doctest/doctest.h"
 #include "harness_util.h"
-#include "striso_dsp/engines/bowed.h"
-#include "striso_dsp/engines/brass.h"
-#include "striso_dsp/engines/ep.h"
-#include "striso_dsp/engines/modal.h"
+#include "awva/engines/bowed.h"
+#include "awva/engines/brass.h"
+#include "awva/engines/ep.h"
+#include "awva/engines/modal.h"
 #include "striso_dsp/engines/strisy.h"
-#include "striso_dsp/engines/va.h"
-#include "striso_dsp/engines/wind.h"
+#include "awva/engines/va.h"
+#include "awva/engines/wind.h"
 
 namespace {
 
@@ -96,13 +96,13 @@ BoardRender render_keys(const std::string& engine, const std::vector<Row>& rows,
 // the same engine, straight, on the board's controls (its first preset, as the board's entry)
 template <class E> std::vector<float> replay(const BoardRender& br) {
 	static E e;
-	static striso::dsp::Memory<E> mem;
+	static awva::Memory<E> mem;
 	e.init(mem.fast, mem.large, SR, NV);
 	if (E::num_presets() > 0) e.set_preset(0);
 	const size_t nblocks = br.engine.size() / BLOCK;
 	std::vector<float> out(br.engine.size());
-	striso::dsp::VoiceControls vc[NV];
-	for (striso::dsp::VoiceControls& c : vc) c = striso::dsp::voice_at_rest;
+	awva::VoiceControls vc[NV];
+	for (awva::VoiceControls& c : vc) c = awva::voice_at_rest;
 	for (size_t b = 0; b < nblocks; b++) {
 		const float* c = &br.controls[b * NV * 5];
 		for (int v = 0; v < NV; v++) {
@@ -111,10 +111,10 @@ template <class E> std::vector<float> replay(const BoardRender& br) {
 			vc[v].vpres = c[5 * v + 2];
 			vc[v].but_x = c[5 * v + 3];
 			vc[v].but_y = c[5 * v + 4];
-			striso::dsp::track_key(vc[v]);
+			awva::track_key(vc[v]);
 		}
 		const float* g = &br.globals[b * 8];
-		const striso::dsp::GlobalControls gc = {g[0], g[1], g[2], g[3], g[4], g[5], g[6], g[7]};
+		const awva::GlobalControls gc = {g[0], g[1], g[2], g[3], g[4], g[5], g[6], g[7]};
 		float buf[BLOCK];
 		float* const o[1] = {buf};
 		e.process(vc, gc, o);
@@ -193,7 +193,7 @@ const std::string legato = std::string(STRISO_REC_DIR) + "/play_2026-10-22_legat
 
 #define ENGINE_CASE(ns) \
 	TEST_CASE("message path: recorded keys through the firmware, " #ns " is the straight engine bit for bit") { \
-		for (const std::string& rec : {staccato, legato}) check_engine<striso::dsp::engines::ns>(#ns, rec); \
+		for (const std::string& rec : {staccato, legato}) check_engine<awva::engines::ns>(#ns, rec); \
 	}
 
 ENGINE_CASE(strisy)

@@ -3,7 +3,7 @@
 // the board), so the output is the board's arithmetic: the arm compiler's own code (FMA
 // contraction, instruction selection), not the host's. Used to compare toolchains (the host
 // renders don't change with the arm compiler). Output: float32 mono, 48000 Hz, through
-// semihosting. The engine through its contract (striso::dsp::VoiceEngine: SYNTH_ENGINE_HEADER,
+// semihosting. The engine through its contract (awva::VoiceEngine: SYNTH_ENGINE_HEADER,
 // SYNTH_VOICE_NS, as the firmware's VOICE=<name>), the performance PERF_HEADER.
 // Usage (QEMU semihosting arguments): render_target <out.f32> [preset] [voices] [seconds] [fx]
 // Prints "hash <FNV-1a 64 of the float bits> peak <p> nonfinite <n>".
@@ -16,11 +16,11 @@
 #include <cstdlib>
 #include <cstring>
 
-#include "striso_dsp/engine.h"
+#include "awva/engine.h"
 #include SYNTH_ENGINE_HEADER
-using Engine = striso::dsp::engines::SYNTH_VOICE_NS;
+using Engine = awva::engines::SYNTH_VOICE_NS;
 #ifdef TARGET_FX
-#include "striso_dsp/effects/fx.h" // before the performance (its BLOCK macro)
+#include "awva/effects/fx.h" // before the performance (its BLOCK macro)
 #endif
 #ifndef PERF_HEADER
 #define PERF_HEADER "performance.h"
@@ -28,11 +28,11 @@ using Engine = striso::dsp::engines::SYNTH_VOICE_NS;
 #include PERF_HEADER
 
 static Engine e;
-static striso::dsp::Memory<Engine> mem;
+static awva::Memory<Engine> mem;
 #ifdef TARGET_FX
-using Fx = striso::dsp::effects::fx;
+using Fx = awva::effects::fx;
 static Fx fxe;
-static striso::dsp::Memory<Fx> fxmem;
+static awva::Memory<Fx> fxmem;
 static void fx_set(const char* name, float v) {
 	for (int i = 0; i < Fx::num_params; i++)
 		if (!std::strcmp(Fx::param_desc(i)->name, name)) (void)fxe.set_param(i, v);
@@ -92,8 +92,8 @@ int main(int argc, char** argv) {
 	const int nblocks = static_cast<int>(seconds * SAMPLERATE / BLOCK);
 	Ctl v[NVOICES_MAX];
 	float g[8];
-	static striso::dsp::VoiceControls vc[NVOICES_MAX];
-	for (int i = 0; i < nv; i++) vc[i] = striso::dsp::voice_at_rest;
+	static awva::VoiceControls vc[NVOICES_MAX];
+	for (int i = 0; i < nv; i++) vc[i] = awva::voice_at_rest;
 	for (int b = 0; b < nblocks; b++) {
 		block_controls(b, v, nv, g);
 		for (int i = 0; i < nv; i++) {
@@ -102,9 +102,9 @@ int main(int argc, char** argv) {
 			vc[i].vpres = v[i].vpres;
 			vc[i].but_x = v[i].but_x;
 			vc[i].but_y = v[i].but_y;
-			striso::dsp::track_key(vc[i]);
+			awva::track_key(vc[i]);
 		}
-		const striso::dsp::GlobalControls gc = {g[0], g[1], g[2], g[3], g[4], g[5], g[6], g[7]};
+		const awva::GlobalControls gc = {g[0], g[1], g[2], g[3], g[4], g[5], g[6], g[7]};
 		float buf[BLOCK];
 		float* const outs[1] = {buf};
 #ifdef TARGET_PROFILE

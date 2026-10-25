@@ -81,7 +81,7 @@ set_target_properties(striso_virtual PROPERTIES
   C_EXTENSIONS ON CXX_EXTENSIONS ON
   C_VISIBILITY_PRESET hidden CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON
   POSITION_INDEPENDENT_CODE ON)
-target_link_libraries(striso_virtual PRIVATE striso::dsp striso_host_options)
+target_link_libraries(striso_virtual PRIVATE awva::dsp awva_host_options)
 # the DSP as the host renderers build it (-O2, no FMA contraction): the goldens' arithmetic
 target_compile_options(striso_virtual PRIVATE -O2 -ffp-contract=off -fno-strict-aliasing
   -Wno-unused-parameter -Wno-missing-field-initializers -Wno-sign-compare -Wno-unused-function

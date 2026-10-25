@@ -1,6 +1,6 @@
 // The key path's cost on the board's CPU: the instructions per block that give 10 held, moving
 // keys their engine controls, the way synth_control.cpp's update_synth_voice did it before the
-// UMP profile (the floats straight to the voice) and the way it does now (striso_dsp/ump.h: the
+// UMP profile (the floats straight to the voice) and the way it does now (awva/ump.h: the
 // key's packets through the decoder, its host writing the voice). Compiled with the firmware's
 // flags for synth_control.cpp and counted on QEMU (-icount shift=0, SysTick /40), as profile.sh.
 // The keys play the default performance, quantised to the scanner's 14-bit codes; both paths
@@ -14,7 +14,7 @@
 #include <cstring>
 
 #include "performance.h"
-#include "striso_dsp/ump.h"
+#include "awva/ump.h"
 #include "striso_dsp/ump_out.h"
 
 #define SYST_CSR (*reinterpret_cast<volatile uint32_t*>(0xE000E010u))
@@ -65,11 +65,11 @@ __attribute__((noinline)) void update_before(int but) {
 
 // after: the key's packets through the decoder (synth_control.cpp now)
 struct Host {
-	striso::ump::Decoder<KEYS + 16> synth_in;
+	awva::ump::Decoder<KEYS + 16> synth_in;
 	bool key_sounding[KEYS] = {};
-	[[nodiscard]] striso::ump::Touch touch(int /*id*/) const { return {pres_sensitivity, velo_sensitivity, y_sensitivity}; }
-	void note_started(int /*id*/, const striso::ump::NoteSignals& /*n*/) {}
-	void note_changed(int id, const striso::ump::NoteSignals& n) {
+	[[nodiscard]] awva::ump::Touch touch(int /*id*/) const { return {pres_sensitivity, velo_sensitivity, y_sensitivity}; }
+	void note_started(int /*id*/, const awva::ump::NoteSignals& /*n*/) {}
+	void note_changed(int id, const awva::ump::NoteSignals& n) {
 		const int voice = voice_of[id];
 		const Interface* si = &iface[1];
 		if (voice < 0) return;
@@ -94,7 +94,7 @@ struct UsbSink {
 		n += 2;
 	}
 };
-striso::ump::StandardOut<KEYS> ump_out;
+awva::ump::StandardOut<KEYS> ump_out;
 UsbSink usb;
 bool key_out[KEYS];
 
@@ -102,13 +102,13 @@ __attribute__((noinline)) void update_midi2(int but) {
 	const Button& b = buttons[but];
 	float pb = 0.0f;
 	if (pitch_bend_x) pb = bend_sensitivity * pow3(b.but_x);
-	ump_out.packet(striso::ump::pitch_packet(but, b.note + pb));
-	ump_out.packet(striso::ump::pres_packet(but, b.pres));
-	ump_out.packet(striso::ump::signed_packet(but, striso::ump::ctl_vpres, b.vpres));
-	ump_out.packet(striso::ump::signed_packet(but, striso::ump::ctl_x, b.but_x));
-	ump_out.packet(striso::ump::signed_packet(but, striso::ump::ctl_y, b.but_y));
+	ump_out.packet(awva::ump::pitch_packet(but, b.note + pb));
+	ump_out.packet(awva::ump::pres_packet(but, b.pres));
+	ump_out.packet(awva::ump::signed_packet(but, awva::ump::ctl_vpres, b.vpres));
+	ump_out.packet(awva::ump::signed_packet(but, awva::ump::ctl_x, b.but_x));
+	ump_out.packet(awva::ump::signed_packet(but, awva::ump::ctl_y, b.but_y));
 	if (b.on != key_out[but]) {
-		ump_out.packet(b.on ? striso::ump::note_on_packet(but, b.vpres, false) : striso::ump::note_off_packet(but));
+		ump_out.packet(b.on ? awva::ump::note_on_packet(but, b.vpres, false) : awva::ump::note_off_packet(but));
 		key_out[but] = b.on;
 	}
 	ump_out.flush(usb);
@@ -118,13 +118,13 @@ __attribute__((noinline)) void update_after(int but) {
 	const Button& b = buttons[but];
 	float pb = 0.0f;
 	if (pitch_bend_x) pb = bend_sensitivity * pow3(b.but_x);
-	host.synth_in.packet(striso::ump::pitch_packet(but, b.note + pb));
-	host.synth_in.packet(striso::ump::pres_packet(but, b.pres));
-	host.synth_in.packet(striso::ump::signed_packet(but, striso::ump::ctl_vpres, b.vpres));
-	host.synth_in.packet(striso::ump::signed_packet(but, striso::ump::ctl_x, b.but_x));
-	host.synth_in.packet(striso::ump::signed_packet(but, striso::ump::ctl_y, b.but_y));
+	host.synth_in.packet(awva::ump::pitch_packet(but, b.note + pb));
+	host.synth_in.packet(awva::ump::pres_packet(but, b.pres));
+	host.synth_in.packet(awva::ump::signed_packet(but, awva::ump::ctl_vpres, b.vpres));
+	host.synth_in.packet(awva::ump::signed_packet(but, awva::ump::ctl_x, b.but_x));
+	host.synth_in.packet(awva::ump::signed_packet(but, awva::ump::ctl_y, b.but_y));
 	if (b.on != host.key_sounding[but]) {
-		host.synth_in.packet(b.on ? striso::ump::note_on_packet(but, b.vpres, false) : striso::ump::note_off_packet(but));
+		host.synth_in.packet(b.on ? awva::ump::note_on_packet(but, b.vpres, false) : awva::ump::note_off_packet(but));
 		host.key_sounding[but] = b.on;
 	}
 	host.synth_in.flush(host);

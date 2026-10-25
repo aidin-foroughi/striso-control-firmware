@@ -22,7 +22,7 @@ function(_synth_control_test target)
     "${PROJECT_SOURCE_DIR}/tests"
     "${PROJECT_SOURCE_DIR}/src/synth")
   target_compile_definitions(${target} PRIVATE SYNTH_ENGINE_STRISY ${ARGN})
-  target_link_libraries(${target} PRIVATE striso::dsp striso_host_options)
+  target_link_libraries(${target} PRIVATE awva::dsp awva_host_options)
   # reproducible float results (the replay traces); Piers' C-style code warns a lot under -Wextra
   target_compile_options(${target} PRIVATE -O1 -ffp-contract=off
     $<$<COMPILE_LANGUAGE:CXX>:-Wno-write-strings -Wno-unused-parameter -Wno-sign-compare -Wno-missing-field-initializers>)
@@ -69,7 +69,7 @@ foreach(l IN LISTS _golden_lines)
     set("_golden_${CMAKE_MATCH_1}" "${CMAKE_MATCH_2}")
   endif()
 endforeach()
-file(GLOB _recordings "${STRISO_HARNESS_DIR}/rec/*.csv")
+file(GLOB _recordings "${AWVA_HARNESS_DIR}/rec/*.csv")
 list(SORT _recordings)
 foreach(rec IN LISTS _recordings)
   get_filename_component(rn "${rec}" NAME_WE)

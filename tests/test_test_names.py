@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DIRS = ["tests", "engines/sdk/tests", "virtual/tests"]
+DIRS = ["tests", "awva/sdk/tests", "virtual/tests"]
 NAME = re.compile(r'TEST_CASE(?:_TEMPLATE)?\s*\(\s*"((?:[^"\\]|\\.)*)"')
 
 bad = []

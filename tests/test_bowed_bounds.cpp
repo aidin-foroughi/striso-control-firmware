@@ -17,7 +17,7 @@ long g_bound_failures = 0;
 		if (!(c)) g_bound_failures++; \
 	} while (0)
 #include "harness_util.h"
-#include "striso_dsp/engines/bowed.h"
+#include "awva/engines/bowed.h"
 
 namespace {
 
@@ -54,8 +54,8 @@ void collect(Result& res, const float* buf) {
 
 // the engine with its memory (the contract's init), then its native API: this is a white-box test
 bowed::Engine& start() {
-	static striso::dsp::engines::bowed a;
-	static striso::dsp::Memory<striso::dsp::engines::bowed> mem;
+	static awva::engines::bowed a;
+	static awva::Memory<awva::engines::bowed> mem;
 	a.init(mem.fast, mem.large, kSampleRate, kVoices);
 	return a.e;
 }

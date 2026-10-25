@@ -20,9 +20,9 @@
 // Select with `make SYNTH_ENGINE=strisy` (default) or `make SYNTH_ENGINE=faust`.
 //
 // The voice engine is chosen with `make VOICE=<name>`: strisy (default), <name> for
-// dsp/include/striso_dsp/engines/<name>.h, or `all` for every engine in one firmware, switched at
+// dsp/include/awva/engines/<name>.h, or `all` for every engine in one firmware, switched at
 // runtime with synth_select_voice() (USB console commands '0'..'9', 'v' lists them).
-// Every engine is a striso::dsp::VoiceEngine (dsp/include/striso_dsp/engine.h, doc/engines.md)
+// Every engine is a awva::VoiceEngine (dsp/include/awva/engine.h, doc/engines.md)
 // and this file is its host on the board: it places the engines' state and memory, maps the keys'
 // signals (synth_interface) to their controls in one place (controls_vc, controls_g), and
 // dispatches through an EngineSet built from the engine list (SYNTH_ENGINES).
@@ -46,18 +46,18 @@ static volatile uint32_t prof_blocks;
 		prof_t = t_; \
 	} while (0)
 
-#include "striso_dsp/engine_set.h"
-#include "striso_dsp/effects/fx.h"
+#include "awva/engine_set.h"
+#include "awva/effects/fx.h"
 #if defined(SYNTH_VOICE_ALL)
 #include "striso_dsp/engines/strisy.h"
-#include "striso_dsp/engines/va.h"
-#include "striso_dsp/engines/modal.h"
-#include "striso_dsp/engines/bowed.h"
-#include "striso_dsp/engines/wind.h"
-#include "striso_dsp/engines/ep.h"
-#include "striso_dsp/engines/brass.h"
-#include "striso_dsp/engines/trumpet.h"
-#include "striso_dsp/engines/accordion.h"
+#include "awva/engines/va.h"
+#include "awva/engines/modal.h"
+#include "awva/engines/bowed.h"
+#include "awva/engines/wind.h"
+#include "awva/engines/ep.h"
+#include "awva/engines/brass.h"
+#include "awva/engines/trumpet.h"
+#include "awva/engines/accordion.h"
 // the engines of the VOICE=all firmware, in the order of the voice list ('v', the settings keys)
 #define SYNTH_ENGINES_ALL E::strisy, E::va, E::modal, E::bowed, E::wind, E::ep, E::brass, E::trumpet, E::accordion
 #define SYNTH_ENGINES SYNTH_ENGINES_ALL
@@ -75,8 +75,8 @@ static volatile uint32_t prof_blocks;
 #include <bit>
 #include <cstdint>
 
-namespace E = striso::dsp::engines;
-using Engines = striso::dsp::EngineSet<SYNTH_ENGINES>;
+namespace E = awva::engines;
+using Engines = awva::EngineSet<SYNTH_ENGINES>;
 
 // full scale of the codec's 24 bit samples, and the volume smoothing (one pole per block)
 static constexpr int32_t MAX_VAL = 1 << 23;
@@ -86,7 +86,7 @@ template <class... V> static constexpr bool fit_the_board() {
 	return ((VOICECOUNT <= V::info.budget.max_voices) && ...);
 }
 static_assert(fit_the_board<SYNTH_ENGINES>(), "too many voices for an engine");
-static_assert(CHANNEL_BUFFER_SIZE == striso::dsp::BLOCK, "engine block size must match the codec buffer");
+static_assert(CHANNEL_BUFFER_SIZE == awva::BLOCK, "engine block size must match the codec buffer");
 
 // Where the engines live: their state in DTCM (zero wait state, not shared with DMA), and one
 // arena per memory region class that the running engine has (engine_set.h): FastMemory in AHB
@@ -116,7 +116,7 @@ static void build_entries(void) {
 	num_entries = 0;
 	for (int k = 0; k < Engines::count; k++) {
 		Engines::visit(k, engines, [k](auto& e, auto) {
-			const striso::dsp::EngineInfo& in = e.info;
+			const awva::EngineInfo& in = e.info;
 			if (in.num_presets == 0) entries[num_entries++] = {(uint8_t)k, -1, in.name, nullptr};
 			for (int i = 0; i < in.num_presets; i++)
 				entries[num_entries++] = {(uint8_t)k, (int8_t)i, in.name, e.preset_name(i)};
@@ -143,8 +143,8 @@ static constexpr int DEFAULT_ENGINE = 0;
 // The keys write into one shared set of controls: synth_interface points into controls_vc and
 // controls_g (the one mapping of the board's key signals to the engines' controls). Every block
 // the gates, strikes and releases follow from them (track_key) and the active engine gets a copy.
-static striso::dsp::VoiceControls controls_vc[VOICECOUNT];
-static striso::dsp::GlobalControls controls_g;
+static awva::VoiceControls controls_vc[VOICECOUNT];
+static awva::GlobalControls controls_g;
 static volatile int voice_request = 0; // entry to switch to, set by synth_select_voice()
 static int voice_current = -1;         // entry running in the synth thread
 
@@ -160,7 +160,7 @@ static void engine_set_preset(int k, int p) {
 }
 
 static void engine_process(int k, float* out) {
-	for (int v = 0; v < VOICECOUNT; v++) striso::dsp::track_key(controls_vc[v]);
+	for (int v = 0; v < VOICECOUNT; v++) awva::track_key(controls_vc[v]);
 	float* const outs[1] = {out};
 	Engines::visit(k, engines, [&outs](auto& e, auto) { e.process(controls_vc, controls_g, outs); });
 }
@@ -173,9 +173,9 @@ static void engine_process(int k, float* out) {
 
 // master effects (mono in, stereo out), after the voice engine: state in DTCM, the delay line and
 // the pre-delay in AHB SRAM1/2, the reverb ring in AXI SRAM
-static striso::dsp::effects::fx fx_engine __attribute__((section(".ram5_clear")));
-static striso::dsp::effects::fx::FastMemory fx_fast __attribute__((section(".ram1_clear")));
-static striso::dsp::effects::fx::LargeMemory fx_large;
+static awva::effects::fx fx_engine __attribute__((section(".ram5_clear")));
+static awva::effects::fx::FastMemory fx_fast __attribute__((section(".ram1_clear")));
+static awva::effects::fx::LargeMemory fx_large;
 
 // ---------------------------------------------------------------------------------------------
 // Live parameters: writes from the USB console are queued and applied at the start of an audio
@@ -188,8 +188,8 @@ static striso::dsp::effects::fx::LargeMemory fx_large;
 	return n;
 }
 
-[[nodiscard]] static const striso::dsp::ParamDesc* engine_param_desc(int k, int i) {
-	const striso::dsp::ParamDesc* d = nullptr;
+[[nodiscard]] static const awva::ParamDesc* engine_param_desc(int k, int i) {
+	const awva::ParamDesc* d = nullptr;
 	Engines::visit(k, engines, [&d, i](auto& e, auto) { d = e.param_desc(i); });
 	return d;
 }
@@ -248,8 +248,8 @@ static void synthThread(void* arg) { // THE SYNTH THREAD
 	fx_engine.init(fx_fast, fx_large, SAMPLINGFREQ);
 
 	// defaults as the Faust sliders: accelerometer at rest, pedal 3/16, note 69
-	controls_g = striso::dsp::globals_at_rest;
-	for (int v = 0; v < VOICECOUNT; v++) controls_vc[v] = striso::dsp::voice_at_rest;
+	controls_g = awva::globals_at_rest;
+	for (int v = 0; v < VOICECOUNT; v++) controls_vc[v] = awva::voice_at_rest;
 
 	// voices beyond VOICECOUNT write to a dummy
 	synth_interface.acc_abs = &controls_g.acc_abs;
@@ -416,7 +416,7 @@ void synth_params_print(void* chp, int target) {
 		const int count = engine_param_count(k);
 		chprintf(out, "params 0 %s%s%s %d\r\n", en.engine_name, en.preset_name ? ":" : "", en.preset_name ? en.preset_name : "", count);
 		for (int i = 0; i < count; i++) {
-			const striso::dsp::ParamDesc* d = engine_param_desc(k, i);
+			const awva::ParamDesc* d = engine_param_desc(k, i);
 			const float* p = engine_param_ptr(k, i);
 			chprintf(out, "%d %s %s %08lx %08lx %08lx %d\r\n", i, d->name, d->group,
 			    float_bits(d->min), float_bits(d->max), float_bits(p ? *p : 0.0f), static_cast<int>(d->kind));
@@ -425,7 +425,7 @@ void synth_params_print(void* chp, int target) {
 		const int count = fx_engine.num_params;
 		chprintf(out, "params 1 fx %d\r\n", count);
 		for (int i = 0; i < count; i++) {
-			const striso::dsp::ParamDesc* d = fx_engine.param_desc(i);
+			const awva::ParamDesc* d = fx_engine.param_desc(i);
 			const float* p = fx_engine.param(i);
 			chprintf(out, "%d %s %s %08lx %08lx %08lx %d\r\n", i, d->name, d->group,
 			    float_bits(d->min), float_bits(d->max), float_bits(p ? *p : 0.0f), static_cast<int>(d->kind));
@@ -439,7 +439,7 @@ void synth_heroes_print(void* chp) {
 	const VoiceEntry& en = entries[n];
 	chprintf(out, "H %d", n);
 	Engines::visit(en.engine, engines, [&en, out](auto& e, auto) {
-		for (const char* h : striso::dsp::heroes_of(e.info, en.preset_name).name)
+		for (const char* h : awva::heroes_of(e.info, en.preset_name).name)
 			if (h) chprintf(out, " %s", h);
 	});
 	chprintf(out, " |");

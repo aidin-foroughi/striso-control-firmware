@@ -1,7 +1,7 @@
 # One target render on QEMU (ctest target.*): cmake -DQEMU=<qemu-system-arm> -DELF=<elf>
 #   -DOUT=<out.f32> -DPRESET=<n or -1> -DNAME=<test name> -DEXPECT=<hash or missing> -P run.cmake
 # Fails on non-finite output, a peak over 8 or a hash other than EXPECT. With the environment
-# variable STRISO_GOLDEN_OUT=<dir> it writes <dir>/<NAME>.hash instead of comparing.
+# variable AWVA_GOLDEN_OUT=<dir> it writes <dir>/<NAME>.hash instead of comparing.
 get_filename_component(dir "${OUT}" DIRECTORY)
 file(MAKE_DIRECTORY "${dir}")
 execute_process(
@@ -22,8 +22,8 @@ endif()
 if(peak GREATER 8)
   message(FATAL_ERROR "peak ${peak} over 8")
 endif()
-if(DEFINED ENV{STRISO_GOLDEN_OUT} AND NOT "$ENV{STRISO_GOLDEN_OUT}" STREQUAL "")
-  file(WRITE "$ENV{STRISO_GOLDEN_OUT}/${NAME}.hash" "${NAME} ${hash}\n")
+if(DEFINED ENV{AWVA_GOLDEN_OUT} AND NOT "$ENV{AWVA_GOLDEN_OUT}" STREQUAL "")
+  file(WRITE "$ENV{AWVA_GOLDEN_OUT}/${NAME}.hash" "${NAME} ${hash}\n")
 elseif(NOT hash STREQUAL EXPECT)
   message(FATAL_ERROR "target render hash ${hash}, expected ${EXPECT} (the board's arithmetic changed)")
 endif()

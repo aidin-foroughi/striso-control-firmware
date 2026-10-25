@@ -20,16 +20,16 @@
 #include <cmath>
 #include <algorithm>
 #include <xmmintrin.h>
-#include "striso_dsp/engine.h"
+#include "awva/engine.h"
 #include SYNTH_ENGINE_HEADER
-using Engine = striso::dsp::engines::SYNTH_VOICE_NS;
+using Engine = awva::engines::SYNTH_VOICE_NS;
 #ifndef PERF_HEADER
 #define PERF_HEADER "performance.h"
 #endif
-#include "striso_dsp/effects/fx.h"
+#include "awva/effects/fx.h"
 #include PERF_HEADER
 
-using Fx = striso::dsp::effects::fx;
+using Fx = awva::effects::fx;
 
 static int param_index(const char* name) {
 	for (int i = 0; i < fx::NPARAM; i++)
@@ -104,7 +104,7 @@ int main(int argc, char** argv) {
 	std::vector<Event> events;
 	std::vector<Ramp> ramps;
 	static Fx fxa;
-	static striso::dsp::Memory<Fx> fxmem;
+	static awva::Memory<Fx> fxmem;
 	fxa.init(fxmem.fast, fxmem.large, SAMPLERATE);
 	fx::Engine& fe = fxa.e; // (its internals: the parameters at time 0 apply without a fade)
 	for (int a = 2; a < argc; a++) {
@@ -143,13 +143,13 @@ int main(int argc, char** argv) {
 	fx::update_stages(fe);
 
 	static Engine e;
-	static striso::dsp::Memory<Engine> mem;
+	static awva::Memory<Engine> mem;
 	const int nv = 6;
 	e.init(mem.fast, mem.large, SAMPLERATE, nv);
 	if (preset >= 0) e.set_preset(preset);
-	striso::dsp::VoiceControls vc[NVOICES_MAX];
-	for (int i = 0; i < nv; i++) vc[i] = striso::dsp::voice_at_rest;
-	striso::dsp::GlobalControls gc = striso::dsp::globals_at_rest;
+	awva::VoiceControls vc[NVOICES_MAX];
+	for (int i = 0; i < nv; i++) vc[i] = awva::voice_at_rest;
+	awva::GlobalControls gc = awva::globals_at_rest;
 	const int nin = (int)(seconds * SAMPLERATE / BLOCK);
 	const int nblocks = nin + (int)(tail * SAMPLERATE / BLOCK);
 	std::vector<float> dry((size_t)nblocks * BLOCK), wet((size_t)nblocks * BLOCK * 2);
@@ -180,7 +180,7 @@ int main(int argc, char** argv) {
 					vc[i].vpres = 0;
 				}
 			}
-			for (int i = 0; i < nv; i++) striso::dsp::track_key(vc[i]);
+			for (int i = 0; i < nv; i++) awva::track_key(vc[i]);
 			float* const eo[1] = {in};
 			e.process(vc, gc, eo);
 			for (int n = 0; n < BLOCK; n++) in[n] *= (float)gain;

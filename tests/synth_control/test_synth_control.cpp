@@ -17,7 +17,7 @@
 //       sent and every change of the internal synth's voice controls, per key message. Checks that
 //       no MIDI note and no internal voice is left on at the end; prints "hash <FNV-1a 64 of the
 //       trace>". --expect: fail unless it matches (tests/golden/control_replay.txt);
-//       STRISO_GOLDEN_OUT=<dir> with --golden-name: write <dir>/N.hash instead (update_goldens.sh).
+//       AWVA_GOLDEN_OUT=<dir> with --golden-name: write <dir>/N.hash instead (update_goldens.sh).
 //
 // The internal synth's control block mirrors synth_strisy.cpp: VOICECOUNT real voices, the rest of
 // the MAX_VOICECOUNT slots write to a dummy.
@@ -1371,7 +1371,7 @@ static int replay(int argc, char** argv) {
 		std::printf("FAIL: %d internal voices left sounding\n", sounding);
 		rc = 1;
 	}
-	const char* golden_out = std::getenv("STRISO_GOLDEN_OUT");
+	const char* golden_out = std::getenv("AWVA_GOLDEN_OUT");
 	if (golden_name && golden_out && *golden_out) {
 		const std::string path = std::string(golden_out) + "/" + golden_name + ".hash";
 		FILE* g = std::fopen(path.c_str(), "w");
@@ -1743,7 +1743,7 @@ static int settings_trace(int argc, char** argv) {
 	}
 	if (tr) std::fclose(tr);
 	std::printf("settings %s: hash %016llx\n", what.c_str(), static_cast<unsigned long long>(h));
-	const char* golden_out = std::getenv("STRISO_GOLDEN_OUT");
+	const char* golden_out = std::getenv("AWVA_GOLDEN_OUT");
 	if (golden_name && golden_out && *golden_out) {
 		const std::string path = std::string(golden_out) + "/" + golden_name + ".hash";
 		FILE* g = std::fopen(path.c_str(), "w");

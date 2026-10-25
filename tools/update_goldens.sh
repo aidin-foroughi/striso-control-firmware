@@ -7,7 +7,7 @@
 #                                    target_render, preset firmware)
 #   tests/golden/control_replay.txt  the recorded key streams through synth_control.cpp (ctest -L
 #                                    control_replay, preset host; only with 'control')
-# The renderers write their hashes instead of comparing them (STRISO_GOLDEN_OUT); the other checks
+# The renderers write their hashes instead of comparing them (AWVA_GOLDEN_OUT); the other checks
 # (finite, peak, silent stale tail) still apply and must pass.
 # Usage: [FW_DIR=<checkout>] tools/update_goldens.sh [host|target|control]   (default: host and target)
 set -euo pipefail
@@ -20,7 +20,7 @@ update() {  # <preset> <label> <golden file> <build target>
 set -e
 cmake --preset $1 > /dev/null && cmake --build --preset $1 --target $4 > /tmp/build.log 2>&1 || { tail -30 /tmp/build.log; exit 1; }
 rm -rf /tmp/golden && mkdir /tmp/golden
-STRISO_GOLDEN_OUT=/tmp/golden ctest --preset $1 -L '^$2\$' -j\$(nproc) > /tmp/golden.log 2>&1 || { grep -E 'Failed|!!|FATAL' /tmp/golden.log | head -30; echo '!! render checks failed: goldens not written'; exit 1; }
+AWVA_GOLDEN_OUT=/tmp/golden ctest --preset $1 -L '^$2\$' -j\$(nproc) > /tmp/golden.log 2>&1 || { grep -E 'Failed|!!|FATAL' /tmp/golden.log | head -30; echo '!! render checks failed: goldens not written'; exit 1; }
 { sed -n '/^#/p' $3; cat /tmp/golden/*.hash | LC_ALL=C sort; } > /tmp/new.txt
 mv /tmp/new.txt $3
 echo \"\$(ls /tmp/golden | wc -l) golden checksums written to $3\""

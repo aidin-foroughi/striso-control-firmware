@@ -1,14 +1,14 @@
-// The strisy engine (strisy.h) as a striso::dsp::VoiceEngine: striso::dsp::engines::strisy.
+// The strisy engine (strisy.h) as a awva::VoiceEngine: awva::engines::strisy.
 #ifndef STRISO_DSP_ENGINES_STRISY_H_
 #define STRISO_DSP_ENGINES_STRISY_H_
 
 #include "../strisy.h"
-#include "striso_dsp/adapter.h"
+#include "awva/adapter.h"
 
-namespace striso::dsp {
+namespace awva {
 namespace traits {
 struct strisy {
-	STRISO_ENGINE_FUNCTIONS(strisy)
+	AWVA_ENGINE_FUNCTIONS(strisy)
 	using FastMemory = NoMemory;
 	using LargeMemory = NoMemory;
 	static constexpr const char* name = "strisy";
@@ -21,6 +21,6 @@ struct strisy {
 namespace engines {
 using strisy = Adapter<traits::strisy>;
 } // namespace engines
-} // namespace striso::dsp
+} // namespace awva
 
 #endif

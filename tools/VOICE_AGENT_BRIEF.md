@@ -155,7 +155,7 @@ The tools are in that checkout's `tools/`; the worktrees are next to it in `../w
 
 ## Updates (2026-10-23): CMake, new layout, GCC 14, tests (these override the text above)
 
-- **Layout:** engines live in `dsp/include/striso_dsp/voice_<voice>.h` (with `strisy.h`, `fx.h`,
+- **Layout:** engines live in `dsp/include/awva/voice_<voice>.h` (with `strisy.h`, `fx.h`,
   `fastpow.h`); include siblings as `#include "strisy.h"`. The synth glue is
   `src/synth/synth_strisy.cpp`. A new `voice_<name>.h` that defines `namespace <name>` is picked
   up by the renderers and tests automatically (CMake reconfigures).

@@ -8,7 +8,7 @@
 #include <vector>
 
 #include "doctest/doctest.h"
-#include "striso_dsp/voice_modal.h"
+#include "awva/voice_modal.h"
 
 namespace {
 
