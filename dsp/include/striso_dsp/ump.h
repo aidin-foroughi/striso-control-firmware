@@ -119,23 +119,23 @@ struct Packet {
 	return 0x40000000u | ((uint32_t)status << 20) | ((uint32_t)(note & 0x7f) << 8) | index;
 }
 
-[[nodiscard]] inline double round_half_away(double x) { return x >= 0 ? (double)(int64_t)(x + 0.5) : -(double)(int64_t)(0.5 - x); }
+// to the nearest integer (ties away from 0) in 32 bits, with one conversion instruction each way
+// on the board's FPU (no 64-bit integer library calls); the callers saturate first
+[[nodiscard]] inline uint32_t round_u32(double v) { return (uint32_t)(v + 0.5); }
+[[nodiscard]] inline uint32_t round_s32(double v) { return (uint32_t)(v >= 0 ? (int32_t)(v + 0.5) : (int32_t)(v - 0.5)); }
+[[nodiscard]] inline uint32_t saturate_s32(double v) {
+	return v <= -2147483647.5 ? 0x80000000u : (v >= 2147483646.5 ? 0x7fffffffu : round_s32(v));
+}
 
 // values in the Striso scale (inside): from the engines' floats, and back (one rounding, in double)
 [[nodiscard]] inline uint32_t pres_value(float p) {
-	const double v = round_half_away((double)p * PRES_ONE);
-	return v <= 0 ? 0u : (v >= 4294967295.0 ? 0xffffffffu : (uint32_t)v);
+	const double v = (double)p * PRES_ONE;
+	return !(v > 0) ? 0u : (v >= 4294967294.5 ? 0xffffffffu : round_u32(v));
 }
 [[nodiscard]] inline float pres_of(uint32_t v) { return (float)((double)v / PRES_ONE); }
-[[nodiscard]] inline uint32_t signed_value(float x) {
-	const double v = round_half_away((double)x * SIGNED_ONE);
-	return (uint32_t)(int32_t)(v <= -2147483648.0 ? -2147483647.0 - 1.0 : (v >= 2147483647.0 ? 2147483647.0 : v));
-}
+[[nodiscard]] inline uint32_t signed_value(float x) { return saturate_s32((double)x * SIGNED_ONE); }
 [[nodiscard]] inline float signed_of(uint32_t v) { return (float)((double)(int32_t)v / SIGNED_ONE); }
-[[nodiscard]] inline uint32_t pitch_value(float note) {
-	const double v = round_half_away((double)note * PITCH_ONE);
-	return (uint32_t)(int32_t)(v <= -2147483648.0 ? -2147483647.0 - 1.0 : (v >= 2147483647.0 ? 2147483647.0 : v));
-}
+[[nodiscard]] inline uint32_t pitch_value(float note) { return saturate_s32((double)note * PITCH_ONE); }
 [[nodiscard]] inline float pitch_of(uint32_t v) { return (float)((double)(int32_t)v / PITCH_ONE); }
 
 [[nodiscard]] inline uint32_t float_bits(float x) {
@@ -155,8 +155,8 @@ struct Packet {
 
 // the messages of the profile
 [[nodiscard]] inline Packet note_on_packet(int id, float strike, bool fades) {
-	const double s = strike <= 0.0f ? 0.0 : (strike >= 1.0f ? 65535.0 : round_half_away((double)strike * 65535.0));
-	return {head(note_on, (uint8_t)id, ATTR_PROFILE), ((uint32_t)s << 16) | (fades ? ATTR_STRIKE : 0u)};
+	const uint32_t s = strike <= 0.0f ? 0u : (strike >= 1.0f ? 65535u : round_u32((double)strike * 65535.0));
+	return {head(note_on, (uint8_t)id, ATTR_PROFILE), (s << 16) | (fades ? ATTR_STRIKE : 0u)};
 }
 [[nodiscard]] inline Packet note_off_packet(int id) { return {head(note_off, (uint8_t)id, 0), 0}; }
 // (each in the scale if the scale holds it exactly, else as an exact value)

@@ -40,6 +40,18 @@ target_link_options(target_motion PRIVATE ${_mcflags} ${_opt} --specs=rdimon.spe
 set_target_properties(target_motion PROPERTIES LINKER_LANGUAGE CXX SUFFIX ".elf"
   LINK_DEPENDS "${_dir}/target.ld" EXCLUDE_FROM_ALL ON)
 list(APPEND _targets target_motion)
+# the key path's instructions per block, before and after the UMP profile (key_path.cpp), with
+# synth_control.cpp's flags; ctest target.key_path checks both give the same controls
+add_executable(target_key_path "${_dir}/key_path.cpp" "${_dir}/startup.c")
+target_include_directories(target_key_path PRIVATE "${STRISO_DSP_INCLUDE_DIR}" "${PROJECT_SOURCE_DIR}/tools/harness")
+target_compile_options(target_key_path PRIVATE ${_mcflags} ${_opt}
+  "$<$<COMPILE_LANGUAGE:CXX>:-std=gnu++20;-fno-exceptions;-fno-rtti>" "$<$<COMPILE_LANGUAGE:C>:${_copt}>")
+target_link_options(target_key_path PRIVATE ${_mcflags} ${_opt} --specs=rdimon.specs -nostartfiles
+  "-T${_dir}/target.ld" -Wl,--gc-sections
+  $<$<VERSION_GREATER_EQUAL:${CMAKE_C_COMPILER_VERSION},12>:-Wl,--no-warn-rwx-segments>)
+set_target_properties(target_key_path PROPERTIES LINKER_LANGUAGE CXX SUFFIX ".elf"
+  LINK_DEPENDS "${_dir}/target.ld" EXCLUDE_FROM_ALL ON)
+list(APPEND _targets target_key_path)
 
 # not part of the firmware build: cmake --build --preset firmware --target target_renders
 add_custom_target(target_renders DEPENDS ${_targets})
@@ -71,6 +83,11 @@ add_test(NAME target.motion COMMAND "${QEMU_SYSTEM_ARM}" -M mps2-an500 -nographi
   -semihosting-config "enable=on,target=native,arg=target_motion" -kernel "$<TARGET_FILE:target_motion>")
 set_tests_properties(target.motion PROPERTIES LABELS target_render TIMEOUT 900
   PASS_REGULAR_EXPRESSION "motion: [0-9]+ readings, 0 differences")
+
+add_test(NAME target.key_path COMMAND "${QEMU_SYSTEM_ARM}" -M mps2-an500 -nographic -monitor none -serial none
+  -icount shift=0 -semihosting-config "enable=on,target=native,arg=key_path" -kernel "$<TARGET_FILE:target_key_path>")
+set_tests_properties(target.key_path PROPERTIES LABELS target_render TIMEOUT 900
+  PASS_REGULAR_EXPRESSION "before [0-9]+ after [0-9]+ differences 0")
 
 set(_golden_file "${PROJECT_SOURCE_DIR}/tests/golden/target_renders.txt")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_golden_file}")
