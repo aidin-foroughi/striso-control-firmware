@@ -90,7 +90,7 @@ endforeach()
 
 # the settings presets in every tuning and every settings key (test_synth_control settings): the
 # state after each step against tests/golden/control_replay.txt, as the replays
-foreach(what presets keys)
+foreach(what presets keys leds)
   set(name control_replay.settings.${what})
   set(args settings ${what} --golden-name ${name})
   if(STRISO_GOLDEN)

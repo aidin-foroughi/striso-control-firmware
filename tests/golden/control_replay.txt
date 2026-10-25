@@ -15,4 +15,5 @@ control_replay.2026-10-22_staccato.mono 565d6e02af5b5c0a
 control_replay.2026-10-22_staccato.mpe 5cadbede4246788a
 control_replay.2026-10-22_staccato.normal 524df3aa9067edce
 control_replay.settings.keys d81d98655494316f
+control_replay.settings.leds 875c1b29945a880f
 control_replay.settings.presets ba011f982f0b5cff

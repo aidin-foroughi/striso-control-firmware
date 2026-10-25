@@ -9,8 +9,9 @@
 //   test_synth_control list             the scenario names
 //   test_synth_control replay <take.csv> [--mode mpe|normal|mono] [--trace FILE] [--expect HASH]
 //                                       [--golden-name N]
-//   test_synth_control settings <presets|keys> [--trace FILE] [--expect HASH] [--golden-name N]
-//       every settings preset in every tuning, every settings key: the state after each step
+//   test_synth_control settings <presets|keys|leds> [--trace FILE] [--expect HASH] [--golden-name N]
+//       every settings preset in every tuning, every settings key: the state after each step;
+//       leds: every led call of those and of the controls (octave, Settings, glissando, StcK, MIDI in)
 //       a recorded key stream (tools/harness/rec, tools/record_keys.py) through synth_message, as
 //       the board's key thread gets it, with synth_tick every 2 ms. The trace is every MIDI message
 //       sent and every change of the internal synth's voice controls, per key message. Checks that
@@ -64,17 +65,35 @@ int chsnprintf(char* str, size_t size, const char* fmt, ...) {
 }
 static int last_r, last_g, last_b, last_dial = -999, blink_count = 0;
 int last_color[3];
+// every led call, in order (test_synth_control settings leds)
+static std::string led_calls;
+static void led_call(const char* what, long a, long b = 0, long c = 0) {
+	char buf[64];
+	snprintf(buf, sizeof buf, "L %s %ld %ld %ld\n", what, a, b, c);
+	led_calls += buf;
+}
 void led_rgb3(int r, int g, int b) {
+	led_call("rgb", r, g, b);
 	last_r = last_color[0] = r;
 	last_g = last_color[1] = g;
 	last_b = last_color[2] = b;
 }
 void led_rgb(uint32_t rgb) { led_rgb3(rgb >> 16 & 0xff, rgb >> 8 & 0xff, rgb & 0xff); }
-void led_rgb3_blink(int /*r*/, int /*g*/, int /*b*/, sysinterval_t /*time*/) { blink_count++; }
+void led_rgb3_blink(int r, int g, int b, sysinterval_t time) {
+	led_call("blink", r, g, b);
+	led_call("blinktime", static_cast<long>(time));
+	blink_count++;
+}
 static uint32_t last_updown = 0;
-void led_updown(uint32_t state) { last_updown = state; }
+void led_updown(uint32_t state) {
+	led_call("updown", static_cast<long>(state));
+	last_updown = state;
+}
 uint32_t led_updown_get(void) { return last_updown; }
-void led_updown_dial(int angle) { last_dial = angle; }
+void led_updown_dial(int angle) {
+	led_call("dial", angle);
+	last_dial = angle;
+}
 static int jack_setting_now = -1;
 static std::string jack_calls;
 void aux_jack_switch_mode_setting(jack2_mode_t mode) {
@@ -1508,8 +1527,98 @@ static int settings_trace(int argc, char** argv) {
 			}
 			reset_on_release = false;
 		}
+	} else if (what == "leds") {
+		// every led call (the indicator colour, the up/down leds, the dials, the blinks) of the boot,
+		// every preset in every tuning, every settings key moved, and the controls
+		auto leds = [&](const char* name) {
+			out((std::string("== ") + name + "\n").c_str());
+			out(led_calls.c_str());
+			led_calls.clear();
+		};
+		leds("boot");
+		for (int tuning : {34, 36, 38, 23, 25, 27, 29, 31, 33}) {
+			config_but(tuning, 0, 0);
+			snprintf(step, sizeof step, "tuning %d", tuning);
+			leds(step);
+			for (int preset : {35, 37, 39, 41, 43, 45, 30, 32}) {
+				config_but(preset, 0, 0);
+				snprintf(step, sizeof step, "tuning %d preset %d", tuning, preset);
+				leds(step);
+			}
+		}
+		static const struct {
+			int type;
+			float adjust;
+		} moves[] = {{0, 0}, {1, 1}, {1, -1}, {1, 0.5f}, {2, 3}, {2, -5}, {1, 20}, {2, -40}, {0, 0}};
+		for (int id = 0; id < 70; id++) {
+			for (const auto& m : moves) {
+				config_but(id, m.type, m.adjust);
+				snprintf(step, sizeof step, "key %d %d %08x", id, m.type, fbits(m.adjust));
+				leds(step);
+			}
+			reset_on_release = false;
+		}
+		// the controls: Settings, glissando, octave up and down (alone, both, with Settings held: a
+		// semitone), the pedal switch, on a flipped layout too; StcK; MIDI in
+		static const struct {
+			int id, v;
+		} controls[] = {{IDC_ALT, 1}, {IDC_ALT, 0}, {IDC_PORTAMENTO, 1}, {IDC_PORTAMENTO, 0}, {IDC_OCT_UP, 1},
+		    {IDC_OCT_UP, 0}, {IDC_OCT_UP, 1}, {IDC_OCT_UP, 0}, {IDC_OCT_UP, 1}, {IDC_OCT_UP, 0}, {IDC_OCT_DOWN, 1},
+		    {IDC_OCT_DOWN, 0}, {IDC_OCT_DOWN, 1}, {IDC_OCT_UP, 1}, {IDC_OCT_UP, 0}, {IDC_OCT_DOWN, 0}, {IDC_ALT, 1},
+		    {IDC_OCT_UP, 1}, {IDC_OCT_UP, 0}, {IDC_OCT_DOWN, 1}, {IDC_OCT_UP, 1}, {IDC_OCT_UP, 0}, {IDC_OCT_DOWN, 0},
+		    {IDC_ALT, 0}, {IDC_PEDAL_2, 1}, {IDC_PEDAL_2, 0}, {IDC_PORTAMENTO, 1}, {IDC_ALT, 1}, {IDC_ALT, 0},
+		    {IDC_PORTAMENTO, 0}};
+		for (int flip = 0; flip < 2; flip++) {
+			if (flip) config_but(11, 0, 0);
+			for (int down = 0; down < 6; down++) { // octaves down, then up past the middle
+				for (const auto& c : controls) {
+					ctl(c.id, c.v);
+					snprintf(step, sizeof step, "flip %d control %d %d", flip, c.id, c.v);
+					leds(step);
+				}
+				ctl(IDC_OCT_DOWN, 1);
+				ctl(IDC_OCT_DOWN, 0);
+				snprintf(step, sizeof step, "flip %d down %d", flip, down);
+				leds(step);
+			}
+		}
+		// the up/down leds over the whole range: octaves down to the bottom, then semitones up to the
+		// top (Settings held), on both layouts
+		for (int flip = 0; flip < 2; flip++) {
+			if (flip) config_but(11, 0, 0);
+			for (int i = 0; i < 6; i++) {
+				ctl(IDC_OCT_DOWN, 1);
+				ctl(IDC_OCT_DOWN, 0);
+				snprintf(step, sizeof step, "sweep %d octave down %d", flip, i);
+				leds(step);
+			}
+			for (int i = 0; i < 64; i++) {
+				ctl(IDC_ALT, 1);
+				ctl(IDC_OCT_UP, 1);
+				ctl(IDC_OCT_UP, 0);
+				ctl(IDC_ALT, 0);
+				snprintf(step, sizeof step, "sweep %d semitone up %d", flip, i);
+				leds(step);
+			}
+		}
+		for (int id : {0, 2, 4, 18, 20, 36, 23, 35, 37, 63}) {
+			stck(id);
+			snprintf(step, sizeof step, "stck %d", id);
+			leds(step);
+		}
+		static const uint8_t midi[][3] = {{0x90, 60, 100}, {0x80, 60, 0}, {0xB0, 1, 64}, {0xB0, 7, 100}, {0xF8, 0, 0}, {0xE0, 0, 80}};
+		for (const auto& m : midi) {
+			midi_in(m[0], m[1], m[2]);
+			snprintf(step, sizeof step, "midi %02x %d %d", m[0], m[1], m[2]);
+			leds(step);
+		}
+		for (int i = 0; i < 300; i++) {
+			host_now += TIME_MS2I(2);
+			synth_tick();
+		}
+		leds("ticks");
 	} else {
-		std::fprintf(stderr, "settings presets|keys\n");
+		std::fprintf(stderr, "settings presets|keys|leds\n");
 		return 2;
 	}
 	if (tr) std::fclose(tr);
