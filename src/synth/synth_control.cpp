@@ -567,7 +567,7 @@ class Instrument {
                     MidiSend3(MIDI_NOTE_OFF | x.midi_channel, x.midinote, 0);
                 }
 #endif
-                silence_synth_voice(b);
+                silence_key(b);
                 x.state = STATE_OFF;
             }
             for (int n = 0; n < MAX_VOICECOUNT; n++) {
@@ -1201,7 +1201,17 @@ class Instrument {
 #endif
         }
 
-        // end the internal sound of but's note (its key is still held)
+        // end the internal sound of key but's note (its key is still held): through the decoder
+        void silence_key(int but) {
+#ifdef USE_INTERNAL_SYNTH
+            synth_in.packet(striso::ump::management_packet(but, striso::ump::PNM_SILENCE));
+            synth_in.flush(*this);
+#else
+            (void)but;
+#endif
+        }
+
+        // the decoder's: the internal sound of note id's voice ends
         void silence_synth_voice(int but) {
 #ifdef USE_INTERNAL_SYNTH
             const int voice = synth_alloc.voice(but);
@@ -1266,7 +1276,7 @@ class Instrument {
                 // take over the voice
                 if (voices[voice] >= 0) {
                     if (buttons[voices[voice]].state == STATE_ON) {
-                        silence_synth_voice(voices[voice]);  // a held note stolen
+                        silence_key(voices[voice]);  // a held note stolen
                         buttons[voices[voice]].stolen = buttons[voices[voice]].pres > 0.0f;
                     }
                     release_voice(voices[voice]);
