@@ -289,6 +289,11 @@ struct Engine {
 	real mix[BLOCK];
 	real pmc[NCTRL]; // mouth pressure at the control points
 	real tnc[NCTRL]; // tongue noise at the control points
+	// what every voice's block uses from the parameters alone (block_coefs, once per block)
+	struct Coefs {
+		real q, lw, Cc, Mb, iRp, alpha, beta, a1, one_m, Gd, gd, Gr, fr, br, fac_acc, fac_tn, pcv, shake, flut_inc;
+		strisy::SvfCoef tcf;
+	} k;
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -472,6 +477,52 @@ static int trumpet_dbg_newton = 0;
 // ---------------------------------------------------------------------------------------------
 // one voice, one block
 
+static inline void block_coefs(Engine& e) {
+	const Params& P = e.ps;
+	Engine::Coefs& k = e.k;
+	const real dt = e.dt;
+	k.q = clampr(P.lip_q, 0.5f, 100.0f);
+	k.lw = clampr(P.lip_width * 0.001f, 0.002f, 0.02f);
+	// mouthpiece: cup compliance C, backbore inertance M from the popping frequency, and its loss as a
+	// resistance in parallel with M (no loss for the mean flow) from the resonance's Q into the bore:
+	// series equivalent at the resonance zc^2 / Rp, so Q = zc / (Z0 + zc^2 / Rp)
+	const real Cc = clampr(P.cup, 0.1f, 3.0f) * 1e-6f / (RHO * C0 * C0);
+	const real wp = 2.0f * PI * clampr(P.pop_hz, 200.0f, 4000.0f);
+	const real Mb = 1.0f / (wp * wp * Cc);
+	const real zc = fsqrt(Mb / Cc);
+	const real rs_need = zc / clampr(P.pop_q, 0.3f, 50.0f) - Z0;
+	const real iRp = rs_need > 0.0f ? rs_need / (zc * zc) : 0.0f; // 1 / Rp
+	const real alpha = 2.0f * Cc / dt, beta = 2.0f * Mb / dt;
+	// backbore (trapezoidal): ub' = a1 pc' + b1, see the audio loop
+	const real gam = 1.0f / beta + iRp;
+	const real kap = 1.0f / (1.0f + Z0 * gam);
+	k.Cc = Cc;
+	k.Mb = Mb;
+	k.iRp = iRp;
+	k.alpha = alpha;
+	k.beta = beta;
+	k.a1 = gam * kap;
+	k.one_m = 1.0f - gam * kap * Z0;
+	// the bell's DC high-pass: the open end, no reflection of the mean flow (far below the note: the
+	// harmonics stay harmonic)
+	const real fdc = DC_HZ;
+	const real gd = tanp(e.pi_sr * fdc);
+	k.gd = gd;
+	k.Gd = gd / (1.0f + gd);
+	// radiation filters
+	const real fr = clampr(P.rad_hz, 10.0f, 4000.0f);
+	const real grr = tanp(e.pi_sr * fr);
+	k.fr = fr;
+	k.Gr = grr / (1.0f + grr);
+	k.tcf = strisy::svf_pade(e.pi_sr * clampr(P.tone_hz, 200.0f, 16000.0f), clampr(P.tone_q, 0.5f, 4.0f));
+	k.br = rmax(P.breath, 0.0f);
+	k.fac_acc = 1.0f - e.ctrl_dt / rmax(P.acc_t, 0.005f);
+	k.fac_tn = 1.0f - e.ctrl_dt / 0.006f;
+	k.pcv = clampr(P.p_curve, 0.3f, 3.0f);
+	k.shake = e.shake * rmax(P.flutter, 0.0f);
+	k.flut_inc = P.flut_hz * e.ctrl_dt;
+}
+
 static inline void process_voice(Engine& e, int vi) {
 	VoiceState& s = e.vs[vi];
 	const Params& P = e.ps;
@@ -540,11 +591,11 @@ static inline void process_voice(Engine& e, int vi) {
 	const real lip_c = P.lip_tune + P.lip_treg * oct + rmax(P.jitter, 0.0f) * (s.jn + 0.5f * s.dr);
 	const real wl = w0 * exp2s(lip_c * (1.0f / 1200));
 	const real w2 = wl * wl;
-	const real q = clampr(P.lip_q, 0.5f, 100.0f);
+	const real q = e.k.q;
 	const real mu = clampr(P.lip_mass * exp2s(-P.mass_reg * oct), 0.05f, 50.0f);
 	const real imu = 1.0f / mu;
 	const real x0 = clampr(P.lip_open * 0.001f * exp2s(-P.open_reg * oct - P.lip_tilt * tilt), 0.0f, 0.003f);
-	const real lw = clampr(P.lip_width * 0.001f, 0.002f, 0.02f);
+	const real lw = e.k.lw;
 	const real dt = e.dt;
 	// lip damping per sample: linear (Q) and growing with the speed (tissue losses), contact when closed
 	const real c1 = dt * wl / q;
@@ -553,27 +604,14 @@ static inline void process_voice(Engine& e, int vi) {
 	const real ke = clampr(P.embouch, 0.0f, 1.5f) * imu / w2; // rest position per Pa above the threshold
 	const real kc = rmax(P.contact, 0.0f) * w2;
 	const real ccon = dt * 2.0f * fsqrt(kc);
-	// mouthpiece: cup compliance C, backbore inertance M from the popping frequency, and its loss as a
-	// resistance in parallel with M (no loss for the mean flow) from the resonance's Q into the bore:
-	// series equivalent at the resonance zc^2 / Rp, so Q = zc / (Z0 + zc^2 / Rp)
-	const real Cc = clampr(P.cup, 0.1f, 3.0f) * 1e-6f / (RHO * C0 * C0);
-	const real wp = 2.0f * PI * clampr(P.pop_hz, 200.0f, 4000.0f);
-	const real Mb = 1.0f / (wp * wp * Cc);
-	const real zc = fsqrt(Mb / Cc);
-	const real rs_need = zc / clampr(P.pop_q, 0.3f, 50.0f) - Z0;
-	const real iRp = rs_need > 0.0f ? rs_need / (zc * zc) : 0.0f; // 1 / Rp
-	const real alpha = 2.0f * Cc / dt, beta = 2.0f * Mb / dt;
-	// backbore (trapezoidal): ub' = a1 pc' + b1, see the audio loop
-	const real gam = 1.0f / beta + iRp;
-	const real kap = 1.0f / (1.0f + Z0 * gam);
-	const real a1 = gam * kap, one_m = 1.0f - gam * kap * Z0;
+	// mouthpiece (block_coefs)
+	const real Cc = e.k.Cc, Mb = e.k.Mb, iRp = e.k.iRp, alpha = e.k.alpha, beta = e.k.beta;
+	const real a1 = e.k.a1, one_m = e.k.one_m; // backbore (trapezoidal): ub' = a1 pc' + b1, see the audio loop
 	// bore: bell reflection lowpass, DC high-pass, round-trip loss
 	const real fb = clampr(P.bell_hz * exp2s(0.3f * P.lip_tilt * tilt), 50.0f, 8000.0f);
 	const real gb = tanp(e.pi_sr * fb);
 	const real Gb = gb / (1.0f + gb);
-	const real fdc = DC_HZ; // the open end: no reflection of the mean flow (far below the note: the harmonics stay harmonic)
-	const real gd = tanp(e.pi_sr * fdc);
-	const real Gd = gd / (1.0f + gd);
+	const real gd = e.k.gd, Gd = e.k.Gd; // the open end (DC_HZ)
 	const real t0 = tanp(rmin(PI / P0, 1.3f));
 	// the mouthpiece's reflection phase at f0 (lips closed): R = (Zm - Z0) / (Zm + Z0), Zm = (Rp || iwM)
 	// + 1 / (iwC) = Rs + iX
@@ -679,10 +717,8 @@ static inline void process_voice(Engine& e, int vi) {
 	const real rl = clampr(fsqrt(P0 * (1.0f / RLDIV)) - 1.0f, 0.15f, RL);
 
 	// radiation filters
-	const real fr = clampr(P.rad_hz, 10.0f, 4000.0f);
-	const real grr = tanp(e.pi_sr * fr);
-	const real Gr = grr / (1.0f + grr);
-	const strisy::SvfCoef tcf = strisy::svf_pade(e.pi_sr * clampr(P.tone_hz, 200.0f, 16000.0f), clampr(P.tone_q, 0.5f, 4.0f));
+	const real fr = e.k.fr, Gr = e.k.Gr;
+	const strisy::SvfCoef tcf = e.k.tcf;
 	// (1 + (rad_hz / f0)^2)^(low_comp / 2): low notes keep their weight through the radiation high-pass
 	const real rq = fr / f0;
 	const real lcomp = rmin(exp2s(0.5f * rmax(P.low_comp, 0.0f) * log2s(1.0f + rq * rq)), 4.0f);
@@ -694,15 +730,14 @@ static inline void process_voice(Engine& e, int vi) {
 	const real ped = clampr(e.g.pedal, 0.0f, 1.0f);
 	const real rel_tc = rmax(P.rel + P.rel_ped * ped * ped, 0.004f) / (1.0f + 3.0f * s.vneg);
 	const real fac = 1.0f - e.ctrl_dt / (held ? 0.03f : rel_tc);
-	const real fac_acc = 1.0f - e.ctrl_dt / rmax(P.acc_t, 0.005f);
-	const real fac_tn = 1.0f - e.ctrl_dt / 0.006f;
+	const real fac_acc = e.k.fac_acc;
+	const real fac_tn = e.k.fac_tn;
 	const real fac_gate = rmin(e.ctrl_dt / rel_tc, 1.0f);
 	const real pcl = pres * (P.pc_a + P.pc_b * pres);
 	const real p_lo = s.pthr * clampr(P.p_soft, 0.3f, 4.0f);
 	const real p_hi = s.pthr * rmax(clampr(P.p_loud, 1.0f, 20.0f) * exp2s(P.p_reg * oct), P.p_soft + 0.05f);
-	const real pcv = clampr(P.p_curve, 0.3f, 3.0f);
-	const real shake = e.shake * rmax(P.flutter, 0.0f);
-	const real flut_inc = P.flut_hz * e.ctrl_dt;
+	const real pcv = e.k.pcv;
+	const real shake = e.k.shake, flut_inc = e.k.flut_inc;
 	{
 		real lv1 = s.lv1, lv2 = s.lv2, amp = s.amp, acc = s.acc, accf = s.accf, tn = s.tn, gate = s.gate, fph = s.flut_ph;
 		// the lungs and the mouth follow the key slowly (the breath smoother); the tongue's accent is fast
@@ -759,7 +794,7 @@ static inline void process_voice(Engine& e, int vi) {
 	real* __restrict__ out = e.vout;
 	const uint32_t i2 = (uint32_t)(int)d2t, in = (uint32_t)(int)d1t;
 	const real f2 = d2t - (real)(int)i2, fn = d1t - (real)(int)in;
-	const real br = rmax(P.breath, 0.0f);
+	const real br = e.k.br;
 	const real two_rho = 2.0f / RHO;
 	real pm = s.pm_prev;
 	const real pthr_b = s.pthr;
@@ -769,10 +804,23 @@ static inline void process_voice(Engine& e, int vi) {
 	real xlp = s.xlp, xhp = s.xhp, xprev = s.xprev, tlast = s.tlast - (real)BLOCK, pprev = s.pprev, xamp = 0.0f;
 	int ncross = 0;
 	real per_sum = 0.0f;
-	for (int k = 0; k < NCTRL; k++) {
-		const real dpm = (e.pmc[k] - pm) * (1.0f / CTRL);
-		const real tnl = e.tnc[k] * 2e-4f;
-		for (int j = 0; j < CTRL; j++) {
+	// Three passes: the lips and the mouthpiece (they write the wave into the bore), the bell (its
+	// reflection back into the bore, and what radiates: the steepening and the transmission), and the
+	// pitch tracker on the lips' opening. The mouthpiece hears the bell after d2t samples, so the first
+	// two run in chunks of up to that many samples; sample by sample (the order of a single loop) when a
+	// read of the bell's could reach back a whole line to where the chunk writes (the lowest notes)
+	real dpm = 0.0f, tnl = 0.0f;
+	real xs[BLOCK];
+	const bool reach = (real)in + 2.0f < (real)(BLEN - BLOCK) && d1 + (real)BLOCK * RU + 2.0f < (real)(BLEN - BLOCK);
+	const int chunk = reach ? (i2 < (uint32_t)BLOCK ? (int)i2 : BLOCK) : 1;
+	const uint32_t wst = w;
+	for (int n0 = 0; n0 < BLOCK; n0 += chunk) {
+		const int n1 = n0 + chunk < BLOCK ? n0 + chunk : BLOCK;
+		for (int n = n0; n < n1; n++) {
+			if ((n & (CTRL - 1)) == 0) {
+				dpm = (e.pmc[(unsigned)n / CTRL] - pm) * (1.0f / CTRL);
+				tnl = e.tnc[(unsigned)n / CTRL] * 2e-4f;
+			}
 			pm += dpm;
 			// the wave returning from the bell, at the mouthpiece
 			const real r0 = B2[(w - i2) & BMASK], r1 = B2[(w - i2 - 1u) & BMASK];
@@ -837,27 +885,13 @@ static inline void process_voice(Engine& e, int vi) {
 				else v = (v + dt * (-w2 * (x - xr) - kc * x + F)) / (cd + ccon);
 			}
 			x = clampr(x + dt * v, -0.003f, 0.006f);
-			xlp += a_lp * (x - xlp);
-			xhp += 0.004f * (xlp - xhp);
-			{
-				const real xc = xlp - xhp;
-				xamp = rmax(xamp, fabsf(xc));
-				if (xprev < 0.0f && xc >= 0.0f) {
-					const real tc = (real)(k * CTRL + j) - xc / (xc - xprev);
-					if (tlast > -4000.0f) {
-						const real per = tc - tlast;
-						if (fabsf(per - pprev) < 0.05f * per) { // a clean, periodic regime
-							per_sum += per;
-							ncross++;
-						}
-						pprev = per;
-					}
-					tlast = tc;
-				}
-				xprev = xc;
-			}
+			xs[n] = x;
+			w = (w + 1u) & BMASK;
+		}
+		for (int n = n0; n < n1; n++) {
+			const uint32_t wr = (wst + (uint32_t)n) & BMASK;
 			// the outgoing wave at the bell: the linear wave reflects (lowpass, DC-free, x g) ...
-			const real a0 = B1[(w - in) & BMASK], a1 = B1[(w - in - 1u) & BMASK];
+			const real a0 = B1[(wr - in) & BMASK], a1 = B1[(wr - in - 1u) & BMASK];
 			const real bl = a0 + fn * (a1 - a0);
 			const real vb = (bl - lps) * Gb;
 			const real lp = vb + lps;
@@ -865,16 +899,15 @@ static inline void process_voice(Engine& e, int vi) {
 			const real vd = (lp - hps) * Gd;
 			const real ld = vd + hps;
 			hps = ld + vd;
-			B2[w] = g * lp - (g + 1.0f) * ld; // -1 at DC (the open end), g lp at the note
+			B2[wr] = g * lp - (g + 1.0f) * ld; // -1 at DC (the open end), g lp at the note
 			// ... and the steepened wave radiates (stage 1 on the bore line, stage 2 on its output)
 			real dn = d1t - clampr(ks * bl, -smax1, smax1);
 			dn = clampr(dn, d1 - rl, d1 + RU);
 			d1 = clampr(dn, 0.0f, DMAX);
 			const int i1 = (int)d1;
 			const real f1 = d1 - (real)i1;
-			const real b0 = B1[(w - (uint32_t)i1) & BMASK], b1 = B1[(w - (uint32_t)i1 - 1u) & BMASK];
+			const real b0 = B1[(wr - (uint32_t)i1) & BMASK], b1 = B1[(wr - (uint32_t)i1 - 1u) & BMASK];
 			const real b = b0 + f1 * (b1 - b0);
-			w = (w + 1u) & BMASK;
 			SB[ws] = b;
 			const real ynom = SB[(ws - (uint32_t)SD) & SMASK];
 			real dsn = (real)SD - clampr(ks2 * ynom, -smax2, smax2);
@@ -893,7 +926,29 @@ static inline void process_voice(Engine& e, int vi) {
 			const real vdc = (yst - ltd) * Gd;
 			const real ldc = vdc + ltd;
 			ltd = ldc + vdc;
-			out[k * CTRL + j] = yst - g * lt - (1.0f - g) * ldc;
+			out[n] = yst - g * lt - (1.0f - g) * ldc;
+		}
+	}
+	for (int n = 0; n < BLOCK; n++) {
+		const real x = xs[n];
+		xlp += a_lp * (x - xlp);
+		xhp += 0.004f * (xlp - xhp);
+		{
+			const real xc = xlp - xhp;
+			xamp = rmax(xamp, fabsf(xc));
+			if (xprev < 0.0f && xc >= 0.0f) {
+				const real tc = (real)n - xc / (xc - xprev);
+				if (tlast > -4000.0f) {
+					const real per = tc - tlast;
+					if (fabsf(per - pprev) < 0.05f * per) { // a clean, periodic regime
+						per_sum += per;
+						ncross++;
+					}
+					pprev = per;
+				}
+				tlast = tc;
+			}
+			xprev = xc;
 		}
 	}
 	s.x = x;
@@ -981,6 +1036,7 @@ static inline void process(Engine& e, real* __restrict__ output) {
 		e.shake_pk = rmax(sh, e.shake_pk * (1.0f - e.block_dt * 2.5f));
 		e.shake += 0.03f * (e.shake_pk - e.shake);
 	}
+	block_coefs(e);
 	for (int n = 0; n < BLOCK; n++) e.mix[n] = 0.0f;
 	for (int v = 0; v < e.nvoices; v++) process_voice(e, v);
 	// master: DC blocker, then a gentle soft clip with a ceiling of 4.2
