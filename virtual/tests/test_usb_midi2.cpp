@@ -3,6 +3,7 @@
 // were on alt 0, and the same bytes as MIDI 1.0 in UMP on alt 1; mode midi2 is MPE on alt 0 and
 // the keys as standard MIDI 2.0 (ump_out.h) on alt 1. USB MIDI 2.0 in plays as sv_ump_write does.
 #include <cstdint>
+#include <ios>
 #include <iterator>
 #include <string>
 #include <utility>
