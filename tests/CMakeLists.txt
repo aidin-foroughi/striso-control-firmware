@@ -22,6 +22,7 @@ find_package(Threads REQUIRED)
 add_executable(striso_tests
   main.cpp
   test_bowed_bounds.cpp
+  test_modal_tremrate.cpp
   test_config_store.cpp
   test_preset_loader.cpp
   test_settings_keys.cpp

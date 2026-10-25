@@ -373,8 +373,7 @@ TEST_CASE("fuzz: random playing and parameter writes stay finite and bounded") {
 	}
 }
 
-// (wind: apex and body defaults are outside their declared ranges, expected to fail until fixed)
-TEST_CASE("parameters: a sane table, writes clamp, round and ignore NaN" * doctest::should_fail(std::string(info().name) == "wind")) {
+TEST_CASE("parameters: a sane table, writes clamp, round and ignore NaN") {
 	sdk::Engine e = fresh(presets().front());
 	const int n = e.num_params();
 	CHECK(e.param_desc(n) == nullptr);
@@ -430,16 +429,19 @@ TEST_CASE("parameters: a sane table, writes clamp, round and ignore NaN" * docte
 // rule and can't come back; a glide that stops short or a coefficient that latches is heard).
 // The excursion happens in silence, the engine processing (its parameter glides run), then both
 // instances play the same phrase. First and last preset (the range check above covers them all).
-// Engines known not to pass it yet (doc/engines.md): wind (defaults outside the declared ranges:
-// apex, body; attack, speak), bowed (force_lo, force_hi, pos, bright, body_size don't come back),
-// modal (tremrate: the tremolo's phase). Their check is expected to fail; remove an engine from
-// the list once it passes.
-[[nodiscard]] bool param_roundtrip_known_issue() {
-	const std::string n = info().name;
-	return n == "wind" || n == "bowed" || n == "modal";
+//
+// The rate of a free-running oscillator is not held to the sound check (its readback is): the
+// oscillator's phase is the integral of its rate, so an excursion leaves it shifted for good, as a
+// vibraphone motor that ran faster for a moment stays ahead. That is the instrument's memory, not
+// a stuck state: tests/test_modal_tremrate.cpp shows it is the only difference (with the phase
+// copied back the phrase is the untouched one, bit for bit). Rates whose oscillator the phrase
+// doesn't hear (a vibrato at depth 0) pass either way and need no entry.
+[[nodiscard]] bool free_running_rate(const char* param) {
+	const std::string e = info().name, p = param;
+	return e == "modal" && p == "tremrate"; // the motor tremolo (its phase: trem_phase)
 }
 
-TEST_CASE("parameters: to the extremes and back to the default, the sound as untouched" * doctest::should_fail(param_roundtrip_known_issue())) {
+TEST_CASE("parameters: to the extremes and back to the default, the sound as untouched") {
 	const std::vector<int> ps = presets();
 	for (int p : {ps.front(), ps.back()}) {
 		CAPTURE(std::string(info().name));
@@ -468,6 +470,7 @@ TEST_CASE("parameters: to the extremes and back to the default, the sound as unt
 			play(b, k, 40);
 			b.set_param(i, v0);
 			CHECK(*b.param(i) == v0);
+			if (free_running_rate(d->name)) continue;
 			play(b, k, quiet - 80);
 			std::vector<float> out;
 			play(b, k, blocks(1.0), &out, [&](int n) { phrase(k, n); });

@@ -44,6 +44,25 @@ template <class E> struct EngineParams {
 	return true;
 }
 
+// One block of a parameter's glide from a towards its written value t: the fraction k of the way
+// (an engine's glide speed), but at least kGlideStep of the declared range, and onto t once that
+// reaches it. The exponential alone never arrives: it stops a few ulps short and a slow one is
+// still audibly off long after the edit (a self-oscillating bore or string hears 0.2%). With the
+// floor a glide over the whole range arrives within 1/kGlideStep + ln(1 / (k kGlideStep)) / k blocks
+// (a 0.006 glide: 470 blocks, 0.31 s); while the fraction moves more than the floor, a step is the
+// exponential's, bit for bit. A NaN target is ignored; a NaN value takes the target.
+inline constexpr float kGlideStep = 1e-3f;
+[[nodiscard]] inline float glide_param(float a, float t, float k, const ParamDesc& d) {
+	if (t != t) return a;
+	const float diff = t - a;
+	if (diff != diff) return t;
+	const float floor = kGlideStep * (d.max - d.min);
+	if (diff <= floor && diff >= -floor) return t;
+	const float step = k * diff;
+	if (step < floor && step > -floor) return a + (diff > 0.0f ? floor : -floor);
+	return a + step;
+}
+
 } // namespace strisy
 
 #endif // STRISO_DSP_PARAMS_H_
