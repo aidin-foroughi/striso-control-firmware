@@ -58,7 +58,7 @@ The first five are the board's key signals (`strisy::VoiceControls`): this is wh
 - **heroes, preset_heroes.** Up to 8 live parameter names, in display order: the knobs an app shows first. A list per preset can override the engine's, for presets whose character lives elsewhere (va's pad, bowed's pizzicato). `heroes_of(info, preset name)` gives the list that applies.
   - The effects have theirs too: fx's are `rvmix` and `dlmix`.
   - They were seeded from Striso Live's `hero.dart`. The contract suite checks that every name is one of the engine's parameters and every override names one of its presets.
-  - The board doesn't send them yet (a read-only console command after the console lane's merge). Once it does, the app reads them from the board instead of keeping its own table.
+  - The board sends them: `StcH` replies `H <voice> <name>... | <fx name>...`, the current voice's list (its preset's override, else its engine's), a bar, then the effects'. The app reads them from the board.
 
 ### Memory and where it goes
 
@@ -176,8 +176,8 @@ The engines run 32-sample blocks, and a MIDI event takes effect at the next bloc
 
 `dsp/include/striso_dsp/midi_in.h` (`striso::midi::NoteInput`) is the one MIDI note input mapping. The board's `synth_control.cpp` runs it, and so does the SDK (`sdk::MidiVoices`, used by the shell and the renderer's MIDI files):
 - The MPE lower zone: its member channels (an MCM sets them); per channel, bend times the bend range (RPN 0), pressure and CC74.
-- The other channels' notes, with poly and channel pressure, CC1 and CC74, and their bend: the instrument's ±2 semitones.
-- Velocity becomes a strike that fades ×0.6 every 2 ms.
+- The other channels' notes, with poly and channel pressure, CC1 and CC74, and their bend: the instrument's Â±2 semitones.
+- Velocity becomes a strike that fades Ã—0.6 every 2 ms.
 - Note-off velocity becomes the release.
 - With 16 notes held, a new one takes the oldest.
 
