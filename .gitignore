@@ -23,3 +23,6 @@ tools/utils/stribri
 # release files (tools/release_dryrun.sh, tools/package.sh) and CI's ccache (tools/ci_docker.sh)
 dist/
 .ccache/
+
+# local leak-scan patterns (tools/leak_scan.sh): never committed
+.leak_patterns.local
