@@ -32,6 +32,7 @@ endforeach()
 string(APPEND _eng "#define STRISO_TEST_ENGINES(X, XP)${_list}\n")
 file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/striso_engines.h" CONTENT "${_eng}")
 
+find_package(Threads REQUIRED)
 add_executable(striso_tests
   main.cpp
   test_params.cpp
@@ -39,6 +40,7 @@ add_executable(striso_tests
   test_config_store.cpp
   test_tuning.cpp
   test_key_calibration.cpp
+  test_event_queue.cpp
   config_defaults.c
   "${PROJECT_SOURCE_DIR}/src/app/config_store.c"
   "${PROJECT_SOURCE_DIR}/src/drivers/key_calibration.c")
@@ -51,7 +53,7 @@ target_include_directories(striso_tests PRIVATE
   "${PROJECT_SOURCE_DIR}/src/drivers"
   "${PROJECT_SOURCE_DIR}/src/synth")
 target_compile_definitions(striso_tests PRIVATE "STRISO_REC_DIR=\"${PROJECT_SOURCE_DIR}/tools/harness/rec\"")
-target_link_libraries(striso_tests PRIVATE striso::dsp striso_host_options)
+target_link_libraries(striso_tests PRIVATE striso::dsp striso_host_options Threads::Threads)
 # the DSP as the renderers build it (reproducible float results)
 target_compile_options(striso_tests PRIVATE -O2 -ffp-contract=off)
 doctest_discover_tests(striso_tests TEST_PREFIX "unit." PROPERTIES LABELS unit)
@@ -177,21 +179,20 @@ target_compile_options(test_aux_jack PRIVATE -O1 -Wno-unused-parameter -Wno-unus
 add_test(NAME aux_jack COMMAND test_aux_jack)
 set_tests_properties(aux_jack PROPERTIES LABELS unit)
 
-# messaging_model[_small]: src/app/messaging.c's ring never loses or corrupts an accepted message
-# (R2): exhaustively on a 7-slot ring, and under key traffic on the board's 240 slots
-foreach(_m IN ITEMS "messaging_model_small;-DBUFFERSIZE=7" "messaging_model;")
+# messaging_model[_small], messaging_threads: src/app/inbox.hpp (the control thread's event queue)
+# never loses, corrupts or reorders an accepted event, never misses a wakeup, refuses only from a
+# full lane and counts it (R2, B7): exhaustively on a small inbox, under key traffic on the board's,
+# and on real threads
+add_executable(test_messaging_model messaging/test_messaging_model.cpp)
+target_include_directories(test_messaging_model PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/messaging/stubs"
+  "${PROJECT_SOURCE_DIR}/src/app")
+target_link_libraries(test_messaging_model PRIVATE striso_host_options Threads::Threads)
+target_compile_options(test_messaging_model PRIVATE -O2)
+foreach(_m IN ITEMS "messaging_model_small;small" "messaging_model;board" "messaging_threads;threads")
   list(GET _m 0 _name)
-  list(GET _m 1 _def)
-  add_executable(test_${_name} messaging/test_messaging_model.c)
-  target_include_directories(test_${_name} PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/messaging/stubs"
-    "${PROJECT_SOURCE_DIR}/src/app")
-  if(_def)
-    target_compile_definitions(test_${_name} PRIVATE ${_def})
-  endif()
-  target_link_libraries(test_${_name} PRIVATE striso_host_options)
-  target_compile_options(test_${_name} PRIVATE -O2)
-  add_test(NAME ${_name} COMMAND test_${_name})
+  list(GET _m 1 _part)
+  add_test(NAME ${_name} COMMAND test_messaging_model ${_part})
   set_tests_properties(${_name} PROPERTIES LABELS unit)
 endforeach()
 
