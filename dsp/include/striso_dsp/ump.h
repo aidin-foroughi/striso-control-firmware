@@ -177,6 +177,34 @@ struct Packet {
 }
 [[nodiscard]] inline Packet management_packet(int id, uint8_t flags) { return {head(per_note_management, (uint8_t)id, flags), 0}; }
 
+// a note's controls as the profile carries them (before the touch factors)
+struct Controls {
+	float note = 0, pres = 0, vpres = 0, x = 0, y = 0;
+};
+
+// a controller message of the profile (Poly Pressure, an Assignable Per-Note Controller) into
+// c; false if it isn't one
+[[nodiscard]] inline bool apply(Controls& c, int status, int index, uint32_t w1) {
+	if (status == poly_pressure) {
+		c.pres = pres_of(w1);
+		return true;
+	}
+	if (status != pnc_assignable) return false;
+	switch (index) {
+	case ctl_pitch: c.note = pitch_of(w1); break;
+	case ctl_vpres: c.vpres = signed_of(w1); break;
+	case ctl_x: c.x = signed_of(w1); break;
+	case ctl_y: c.y = signed_of(w1); break;
+	case exact_pitch: c.note = bits_float(w1); break;
+	case exact_pres: c.pres = bits_float(w1); break;
+	case exact_vpres: c.vpres = bits_float(w1); break;
+	case exact_x: c.x = bits_float(w1); break;
+	case exact_y: c.y = bits_float(w1); break;
+	default: return false;
+	}
+	return true;
+}
+
 // --- the decoder ---------------------------------------------------------------------------------
 
 template <int Ids> class Decoder {
@@ -201,22 +229,8 @@ public:
 			n.pending |= CHANGED;
 			break;
 		case poly_pressure:
-			n.pres = pres_of(w1);
-			n.pending |= CHANGED;
-			break;
 		case pnc_assignable:
-			switch (index) {
-			case ctl_pitch: n.note = pitch_of(w1); break;
-			case ctl_vpres: n.vpres = signed_of(w1); break;
-			case ctl_x: n.x = signed_of(w1); break;
-			case ctl_y: n.y = signed_of(w1); break;
-			case exact_pitch: n.note = bits_float(w1); break;
-			case exact_pres: n.pres = bits_float(w1); break;
-			case exact_vpres: n.vpres = bits_float(w1); break;
-			case exact_x: n.x = bits_float(w1); break;
-			case exact_y: n.y = bits_float(w1); break;
-			default: return;
-			}
+			if (!apply(n, status, index, w1)) return;
 			n.pending |= CHANGED;
 			break;
 		case per_note_management:
@@ -289,8 +303,7 @@ private:
 		CHANGED = 2,
 		SILENCED = 4,
 		DROPPED = 8 };
-	struct Note {
-		float note = 0, pres = 0, vpres = 0, x = 0, y = 0;
+	struct Note : Controls {
 		bool on = false, strike = false, queued = false;
 		uint8_t pending = 0;
 	};
