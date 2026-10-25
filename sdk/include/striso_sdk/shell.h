@@ -1,8 +1,9 @@
 // The host shell: what a plugin (VST3, CLAP, AU) or a standalone app wraps. One engine and the
-// master effects, played by MIDI/MPE (midi_in.h) or directly by key controls, rendering any number
-// of frames per call (the engines run 32-sample blocks, rendered when the previous one is used
-// up: no latency, and MIDI takes effect at the next block, within 0.67 ms at 48 kHz). Not
-// real-time safe in its constructor and set_engine(); process() and midi() don't allocate.
+// master effects, played by MIDI/MPE (midi_voices.h: the board's own mapping) or directly by key
+// signals, rendering any number of frames per call (the engines run 32-sample blocks, rendered
+// when the previous one is used up). MIDI is taken every 2 ms, as on the board: a message takes
+// effect at the next 2 ms step. Not real-time safe in its constructor and set_engine();
+// process() and midi() don't allocate.
 //
 //   Shell s(*striso::sdk::find_engine("va"), 48000);
 //   s.set_preset(5);
@@ -15,7 +16,7 @@
 #include <vector>
 
 #include "striso_sdk/engines.h"
-#include "striso_sdk/midi_in.h"
+#include "striso_sdk/midi_voices.h"
 
 namespace striso::sdk {
 
@@ -30,7 +31,7 @@ public:
 	void set_fx(bool on) { fx_on_ = on; }
 	void set_preset(int i) { engine_.set_preset(i); }
 
-	// MIDI in (midi_in.h's mapping); takes effect at the start of the next block
+	// MIDI in (midi_voices.h); takes effect at the next 2 ms step
 	void midi(const uint8_t* msg, int len) { midi_.message(msg, len); }
 	void midi(uint8_t status, uint8_t d1, uint8_t d2) { midi_.message(status, d1, d2); }
 
@@ -41,6 +42,10 @@ public:
 	// frames of stereo output
 	void process(float* left, float* right, int frames);
 
+	// the controls the engine got in the last block
+	[[nodiscard]] const VoiceControls* controls() const { return vc_.data(); }
+	[[nodiscard]] const GlobalControls& globals() const { return g_; }
+
 	[[nodiscard]] int sample_rate() const { return sr_; }
 	[[nodiscard]] int voices() const { return nv_; }
 
@@ -49,13 +54,13 @@ private:
 
 	Engine engine_;
 	Effect fx_;
-	MidiIn midi_;
+	MidiVoices midi_;
 	int sr_, nv_;
 	bool fx_on_;
 	bool direct_ = false; // set_controls() was used
 	std::vector<VoiceControls> vc_;
 	GlobalControls g_;
-	double ticks_ = 0.0; // MIDI strike ticks due (in ticks)
+	uint64_t frames_ = 0, steps_ = 0; // frames rendered, MIDI steps run
 	float mono_[dsp::BLOCK], l_[dsp::BLOCK], r_[dsp::BLOCK];
 	int pos_ = dsp::BLOCK; // next frame of l_, r_ to hand out
 };

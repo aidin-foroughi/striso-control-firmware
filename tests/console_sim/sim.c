@@ -287,6 +287,11 @@ void usb_audio_print_status(void *chp) { chprintf((BaseSequentialStream *)chp, "
 /* the settings-key layout (StcX) and the state (StcY, Stcy): synth_control.cpp's, not tested here */
 void synth_settings_keys_print(void *chp) { chprintf((BaseSequentialStream *)chp, "X keys 0\r\nX end\r\n"); }
 void synth_state_print(void *chp) { chprintf((BaseSequentialStream *)chp, "Y 0\r\n"); }
+/* the hero names (StcH): synth_strisy.cpp's, from the engines' EngineInfo (the virtual board's
+ * transcript heroes.txt has the real ones) */
+void synth_heroes_print(void *chp) {
+  chprintf((BaseSequentialStream *)chp, "H %d cutoff res | rvmix dlmix\r\n", cur_voice);
+}
 uint32_t synth_state_counter(void) { return 0; }
 /* the latency marker (Stcl): no stream here */
 bool usb_audio_marker_request(void) { sim_logf("ua_marker\n"); return true; }

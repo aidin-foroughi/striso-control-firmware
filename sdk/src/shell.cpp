@@ -29,14 +29,21 @@ void Shell::set_controls(const VoiceControls* vc, const GlobalControls& g) {
 
 void Shell::render_block() {
 	if (!direct_) {
-		// the strikes fade every 2 ms
-		ticks_ += static_cast<double>(dsp::BLOCK) / sr_ / MidiIn::TICK_SECONDS;
-		for (; ticks_ >= 1.0; ticks_ -= 1.0) midi_.tick();
-		for (int v = 0; v < nv_; v++) vc_[static_cast<size_t>(v)] = midi_.voices()[v];
+		// the MIDI steps due by this block's start (every 2 ms from the start)
+		for (; static_cast<double>(steps_) * midi::TICK_SECONDS * sr_ <= static_cast<double>(frames_); steps_++) midi_.step();
+		for (int v = 0; v < nv_; v++) {
+			VoiceControls& c = vc_[static_cast<size_t>(v)];
+			const VoiceControls& m = midi_.voices()[v];
+			c.note = m.note;
+			c.pres = m.pres;
+			c.vpres = m.vpres;
+			c.but_x = m.but_x;
+			c.but_y = m.but_y;
+		}
 		g_ = midi_.globals();
-	} else {
-		for (VoiceControls& c : vc_) dsp::track_key(c);
 	}
+	for (VoiceControls& c : vc_) dsp::track_key(c);
+	frames_ += dsp::BLOCK;
 	float* const eo[1] = {mono_};
 	engine_.process(vc_.data(), g_, eo);
 	if (fx_on_) {

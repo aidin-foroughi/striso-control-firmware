@@ -315,6 +315,18 @@ static void inbox_stats(void) {
 	free(p);
 }
 
+/* StcH: one line, the current voice's hero names, a bar, the effects' (read only) */
+static void heroes(void) {
+	fresh();
+	host_cmd("Stc\x83", 4); /* voice 3 */
+	PExReceive();
+	host_cmd("StcH", 4);
+	PExReceive();
+	sim_host_drain();
+	check("StcH: \"H <voice> <names> | <fx names>\" for the current voice, one line",
+	    !sim_halted && contains(host_in[2], host_in_len[2], "H 3 cutoff res | rvmix dlmix\r\n"));
+}
+
 int main(void) {
 	setvbuf(stdout, NULL, _IONBF, 0);
 	fresh();
@@ -344,6 +356,7 @@ int main(void) {
 	midi_case("R8: CC7 = 100: passed", 0x0b, 0xb0, 0x07, 0x64, 1);
 	midi_case("R8: program change (CIN 0xC): passed", 0x0c, 0xc0, 0x05, 0x00, 1);
 	out_64();
+	heroes();
 	host_stops_reading();
 	inbox_stats();
 	printf(failures ? "console sim: %d FAILED\n" : "console sim: all passed\n", failures);

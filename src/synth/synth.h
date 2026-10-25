@@ -83,6 +83,9 @@ int synth_select_voice(int n);
 void synth_params_print(void *chp, int target);
 // queue a parameter write, applied at the next audio block; returns 0 if out of range or queue full
 int synth_param_set(int target, int index, float value);
+// The hero parameters of the current voice (its preset's, else its engine's: EngineInfo::heroes)
+// and of the effects, by name, in display order: one line "H <voice> <name>... | <fx name>...".
+void synth_heroes_print(void *chp);
 // a hash of the live parameters of both targets (their values) and of the writes queued so far:
 // changes when a value changes or a write is queued (the change counter, Stcy)
 uint32_t synth_params_signature(void);

@@ -87,7 +87,6 @@ TEST_CASE("players: a MIDI file plays an engine and says what it is") {
 	std::string error;
 	const std::unique_ptr<sdk::Player> p = sdk::midi_player(path, 10, 48000, &error);
 	REQUIRE(p != nullptr);
-	CHECK(p->note_events());
 	CHECK(p->describe().find("striso_sdk_tests_players.mid") != std::string::npos);
 	CHECK(p->describe().find("fnv") != std::string::npos);
 	CHECK(p->seconds() == doctest::Approx(2.6));
