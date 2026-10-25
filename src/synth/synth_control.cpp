@@ -34,6 +34,7 @@ extern "C" {
 #include "config.h"
 #include "config_store.h"
 #include "config_table.hpp"
+#include "preset_loader.hpp"
 #include "striso.h"
 #include "midi_usb.h"
 #include "midi_serial.h"
@@ -682,37 +683,8 @@ class Instrument {
             }
         }
 
-        void load_tuning(int n) {
-            if (cur_tuning == n) {
-                led_rgb(tuning_color);
-                return;
-            }
-            if (n == 0) {
-                // tuning 0 hard coded to 12tet
-                notegen0 = 12.0f;
-                set_notegen1(7.0f);
-                reset_note_offsets();
-                tuning_note_offset = 0.0f;
-                note_offset = tuning_note_offset + midi_in.bend();
-                led_rgb(tuning_color);
-                cur_tuning = n;
-                return;
-            }
-            using settings::KeyName;
-            const settings::ConfigTable cfg = settings::board();
-            notegen1 = cfg.get_float(KeyName::tuning(n, "fifth")).value_or(700.0f) / 100;
-            notegen0 = cfg.get_float(KeyName::tuning(n, "oct")).value_or(1200.0f) / 100;
-            tuning_note_offset = cfg.get_float(KeyName::tuning(n, "off")).value_or(0.0f) / 100;
-            note_offset = tuning_note_offset + midi_in.bend();
-            for (int k = 0; k < 61; k++) {
-                // the key that plays note k: on a flipped layout, the mirrored one (SC-12)
-                int but = button_number_map[flipdir == 1 ? k : 60 - k];
-                buttons[but].tuning_note_offset = cfg.get_float(KeyName::tuning_key(n, k)).value_or(0.0f) / 100;
-            }
-            tuning_color = cfg.get_hex(KeyName::tuning(n, "color")).value_or(0);
-            led_rgb(tuning_color);
-            cur_tuning = n;
-        }
+        // tuning n (PresetLoader::load_tuning, after the class)
+        void load_tuning(int n);
 
         /* Rotate the layout 180 degrees */
         void flip(void) {
@@ -1559,187 +1531,85 @@ int synth_message(int size, int* msg) {
     return 0;
 }
 
+// The instrument as PresetLoader sees it (preset_loader.hpp): the control logic's state and effects
+struct InstrumentBoard {
+    Instrument& in;
+
+    void led(uint32_t rgb) { led_rgb(rgb); }
+    void message_interval(int ms) { config.message_interval = ms; }
+    void motion_interval(int i) { config.send_motion_interval = i; }
+    midi_mode_t midi_mode() const { return config.midi_mode; }
+    void set_midi_mode(midi_mode_t m) { ::set_midi_mode(m); }
+    void midinote_mode(midinote_mode_t m) { config.midinote_mode = m; }
+    void jack2(jack2_mode_t m) { aux_jack_switch_mode_setting(m); }
+    int flipdir() const { return in.flipdir; }
+    void flip() { in.flip(); }
+    void load_tuning(int n) { in.load_tuning(n); }
+    void preset_offset(float semitones) { in.note_offset = in.tuning_note_offset + semitones + in.midi_in.bend(); }
+    void axis_cc(MidiAxis a, bool normal, int cc) {
+        uint8_t& v = a == MidiAxis::pressure ? (normal ? config.midi_pres : config.mpe_pres)
+                   : a == MidiAxis::x        ? (normal ? config.midi_x : config.mpe_x)
+                                             : (normal ? config.midi_y : config.mpe_y);
+        v = cc;
+    }
+    void contvelo(int cc) { config.mpe_contvelo = cc; }
+    int channel_offset() const { return in.midi_channel_offset; }
+    void channel_offset(int c) { in.midi_channel_offset = c; }
+    void bend_range(int semitones) { in.midi_bend_range = semitones; }
+    int voicecount() const { return in.voicecount; }
+    void voicecount(int n) { in.voicecount = n; }
+    void channels_changed() { in.channels_changed(); }
+    void zero_offset(int v) { config.zero_offset = v; }
+    void bend_sensitivity(float f) { in.bend_sensitivity = f; }
+    void pres_sensitivity(float f) { in.pres_sensitivity = f; }
+    void velo_sensitivity(float f) { in.velo_sensitivity = f; }
+    void tilt_sensitivity(float f) { in.y_sensitivity = f; }
+    void velo_offset(int v) { in.midi_velo_offset = v; }
+    void volume(float v) { set_volume(v); }
+    void decay(float v) {
+        config.pedal_sw1_values[0] = v;
+        *in.synth_pedal() = v * (1.0f/127.0f);
+    }
+    void pedal_decay(float v) { config.pedal_sw1_values[1] = v; }
+    void midi_config() { ::midi_config(); }
+    int voice_channel(int i) const { return in.voice_channel(i); }
+    void program_change(int channel, int program) { MidiSend2(MIDI_PROGRAM_CHANGE | channel, program); }
+
+    int tuning() const { return in.cur_tuning; }
+    int tuning_color() const { return in.tuning_color; }
+    void equal_temperament() {
+        in.notegen0 = 12.0f;
+        in.set_notegen1(7.0f);
+        in.reset_note_offsets();
+        in.tuning_note_offset = 0.0f;
+        in.note_offset = in.tuning_note_offset + in.midi_in.bend();
+    }
+    void generators(float fifth, float octave) {
+        in.notegen1 = fifth;
+        in.notegen0 = octave;
+    }
+    void tuning_offset(float semitones) {
+        in.tuning_note_offset = semitones;
+        in.note_offset = in.tuning_note_offset + in.midi_in.bend();
+    }
+    // the key that plays note k: on a flipped layout, the mirrored one (SC-12)
+    void key_offset(int k, float semitones) {
+        in.buttons[button_number_map[in.flipdir == 1 ? k : 60 - k]].tuning_note_offset = semitones;
+    }
+    void set_tuning(int n, int color) {
+        in.tuning_color = color;
+        in.cur_tuning = n;
+    }
+};
+
+void Instrument::load_tuning(int n) {
+    InstrumentBoard b{*this};
+    PresetLoader<InstrumentBoard>(settings::board(), b).load_tuning(n);
+}
+
 void load_preset(int n) {
-    bool sendcfg = false;
-    using settings::KeyName;
-    const settings::ConfigTable cfg = settings::board();
-    // preset n's setting; the integer or decimal if it is in [lo, hi]
-    auto P = [n](settings::PresetField f) { return KeyName::preset(n, f); };
-    auto int_in = [&cfg](KeyName k, int lo, int hi) {
-        const std::optional<int> i = cfg.get_int(k);
-        return i && *i >= lo && *i <= hi ? i : std::nullopt;
-    };
-    auto float_in = [&cfg](KeyName k, float lo, float hi) {
-        const std::optional<float> f = cfg.get_float(k);
-        return f && *f >= lo && *f <= hi ? f : std::nullopt;
-    };
-    // below 255 (volume, decays)
-    auto float_below = [&cfg](KeyName k, float lo, float hi) {
-        const std::optional<float> f = cfg.get_float(k);
-        return f && *f >= lo && *f < hi ? f : std::nullopt;
-    };
-    const uint32_t led = cfg.get_hex(P("color")).value_or(0);
-    led_rgb(led);
-
-    if (auto i = int_in(P("Mint"), 1, 127)) {
-        config.message_interval = *i;
-    }
-
-    if (auto i = int_in(P("Mmint"), 0, 127)) {
-        config.send_motion_interval = *i;
-    }
-
-    // (cfg.is: no values kept, the frame is on the 1 kB stacks of main and the key thread)
-    if (cfg.is(P("Mmode"), "mpe")) {
-        set_midi_mode(MIDI_MODE_MPE);
-        sendcfg = true;
-    } else if (cfg.is(P("Mmode"), "normal")) {
-        set_midi_mode(MIDI_MODE_POLY);
-        sendcfg = true;
-    } else if (cfg.is(P("Mmode"), "mono")) {
-        set_midi_mode(MIDI_MODE_MONO);
-        sendcfg = true;
-    }
-
-    if (cfg.is(P("Mnote"), "default")) {
-        config.midinote_mode = MIDINOTE_MODE_DEFAULT;
-    } else if (cfg.is(P("Mnote"), "tuning")) {
-        config.midinote_mode = MIDINOTE_MODE_TUNING;
-    } else if (cfg.is(P("Mnote"), "button")) {
-        config.midinote_mode = MIDINOTE_MODE_BUTTON;
-    }
-
-    if (cfg.is(P("jack2"), "pedal_ex")) {
-        aux_jack_switch_mode_setting(JACK2_MODE_PEDAL_EXPRESSION);
-    } else if (cfg.is(P("jack2"), "pedal_sw")) {
-        aux_jack_switch_mode_setting(JACK2_MODE_PEDAL_SWITCH);
-    } else if (cfg.is(P("jack2"), "midi")) {
-        aux_jack_switch_mode_setting(JACK2_MODE_MIDI);
-    } else if (cfg.is(P("jack2"), "linein")) {
-        aux_jack_switch_mode_setting(JACK2_MODE_LINEIN);
-    } else if (cfg.is(P("jack2"), "auto")) {
-        aux_jack_switch_mode_setting(JACK2_MODE_AUTODETECT);
-    }
-
-    if ((cfg.is(P("flip"), "yes") && dis.flipdir == 1) || (cfg.is(P("flip"), "no") && dis.flipdir == -1)) {
-        dis.flip();
-    }
-
-    const std::optional<int> tuning = int_in(P("tunin"), 0, 8);
-    if (tuning) {
-        dis.load_tuning(*tuning);
-    }
-
-    const std::optional<float> toff = float_in(P("Toff"), -4800.0f, 4800.0f);
-    if (tuning || toff) {
-        // the tuning's offset plus the preset's: a preset with a tuning and no Toff also clears an
-        // earlier preset's Toff and the fine tune (load_tuning keeps them for the same tuning, SC-04)
-        dis.note_offset = dis.tuning_note_offset + (toff ? *toff / 100.0f : 0.0f) + dis.midi_in.bend();
-    }
-
-    if (auto i = int_in(P("Mpres"), 0, 127)) {
-        if (config.midi_mode == MIDI_MODE_POLY) {
-            config.midi_pres = *i;
-        } else {
-            config.mpe_pres = *i;
-        }
-    }
-
-    if (auto i = int_in(P("Mx"), 0, 127)) {
-        if (config.midi_mode == MIDI_MODE_POLY) {
-            config.midi_x = *i;
-        } else {
-            config.mpe_x = *i;
-        }
-    }
-
-    if (auto i = int_in(P("My"), 0, 127)) {
-        if (config.midi_mode == MIDI_MODE_POLY) {
-            config.midi_y = *i;
-        } else {
-            config.mpe_y = *i;
-        }
-    }
-
-    if (auto i = int_in(P("Mvelo"), 0, 127)) {
-        config.mpe_contvelo = *i;
-    }
-
-    if (auto i = int_in(P("MChan"), 1, 16)) {
-        dis.midi_channel_offset = *i - 1;
-        sendcfg = true;
-    }
-
-    if (auto i = int_in(P("MPEpb"), 1, 127)) {
-        dis.midi_bend_range = *i;
-        sendcfg = true;
-    }
-
-    if (auto i = int_in(P("voice"), 1, MAX_VOICECOUNT); i && config.midi_mode == MIDI_MODE_MPE) {
-        dis.voicecount = *i;
-        sendcfg = true;
-    }
-    dis.channels_changed();
-
-    if (auto f = float_in(P("thres"), 0.0f, 1.0f)) {
-        config.zero_offset = clamp(*f, 0.0f, 0.5f) * (1 << 24);
-    }
-
-    if (auto f = float_in(P("bendS"), -10.0f, 10.0f)) {
-        dis.bend_sensitivity = *f * 2;
-    }
-
-    if (auto f = float_in(P("presS"), 0.0f, 10.0f)) {
-        dis.pres_sensitivity = *f;
-    }
-
-    if (auto f = float_in(P("veloS"), 0.0f, 10.0f)) {
-        dis.velo_sensitivity = *f;
-    }
-
-    if (auto f = float_in(P("tiltS"), -10.0f, 10.0f)) {
-        dis.y_sensitivity = *f;
-    }
-
-    // volume and decays are 0..127 (config.h); up to 254 gave 4x the knob's maximum gain (+12 dB)
-    // and a pedal value of 2 (SC-13)
-    if (auto f = float_below(P("volum"), 0.0f, 255.0f)) {
-        set_volume(min(*f, 127.0f));
-    }
-
-    if (auto f = float_below(P("decay"), 0.0f, 255.0f)) {
-        f = min(*f, 127.0f);
-        config.pedal_sw1_values[0] = *f;
-        *dis.synth_pedal() = *f * (1.0f/127.0f);
-    }
-
-    if (auto f = float_below(P("decaP"), 0.0f, 255.0f)) {
-        config.pedal_sw1_values[1] = min(*f, 127.0f);
-    }
-
-    if (auto i = int_in(P("veloO"), 0, 127)) {
-        dis.midi_velo_offset = *i;
-    }
-
-    if (sendcfg) {
-        midi_config();
-    }
-
-    if (auto i = int_in(P("Mpgm"), 0, 127)) {
-        if (config.midi_mode == MIDI_MODE_POLY) {
-            // Normal mode has one channel (it went to voicecount channels, SC-19)
-            MidiSend2(MIDI_PROGRAM_CHANGE | dis.voice_channel(0), *i);
-        } else {
-            if (dis.midi_channel_offset == 1) {
-                MidiSend2(MIDI_PROGRAM_CHANGE, *i);
-            }
-            for (int c = 0; c < dis.voicecount; c++) {
-                MidiSend2(MIDI_PROGRAM_CHANGE | dis.voice_channel(c), *i);
-            }
-        }
-    }
-
-    led_rgb(led);
+    InstrumentBoard b{dis};
+    PresetLoader<InstrumentBoard>(settings::board(), b).load_preset(n);
 }
 
 

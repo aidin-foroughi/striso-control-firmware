@@ -23,6 +23,7 @@ add_executable(striso_tests
   main.cpp
   test_bowed_bounds.cpp
   test_config_store.cpp
+  test_preset_loader.cpp
   test_tuning.cpp
   test_key_calibration.cpp
   test_event_queue.cpp

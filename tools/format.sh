@@ -11,7 +11,7 @@ FILES='dsp/include/striso_dsp/strisy.h dsp/include/striso_dsp/fx.h dsp/include/s
   dsp/include/striso_dsp/controls.h dsp/include/striso_dsp/dspmath.h dsp/include/striso_dsp/params.h
   dsp/include/striso_dsp/svf.h dsp/include/striso_dsp/engine.h dsp/include/striso_dsp/adapter.h
   dsp/include/striso_dsp/engine_set.h dsp/include/striso_dsp/midi_in.h dsp/include/striso_dsp/engines/*.h dsp/include/striso_dsp/effects/*.h
-  src/synth/synth_strisy.cpp src/synth/tuning.h
+  src/synth/synth_strisy.cpp src/synth/tuning.h src/synth/preset_loader.hpp
   src/drivers/key_scanner.h src/drivers/key_scanner.hpp src/drivers/key_scanner_capture.hpp src/drivers/key_scanner.cpp
   src/app/console.hpp src/app/console.cpp src/app/midi_in_parser.hpp src/app/out_stream.hpp virtual/board/fw_console.cpp
   src/app/app.cpp virtual/board/fw_app.cpp tests/console_sim/messaging_stub.cpp
