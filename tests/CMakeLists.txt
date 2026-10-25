@@ -83,6 +83,17 @@ target_compile_options(test_key_scanner PRIVATE -O2 -ffp-contract=off)
 set_source_files_properties(ref/button_read_ref.c PROPERTIES COMPILE_OPTIONS "-fwrapv")
 doctest_discover_tests(test_key_scanner TEST_PREFIX "scanner." PROPERTIES LABELS unit)
 
+# --- the USB console's grammar and USB MIDI in (src/app/console.hpp, midi_in_parser.hpp) --------
+# console.*: the command table, the parser against a reference on random streams (the fuzz), the
+# MIDI event checks; the board's handlers end to end: console_sim, console_fuzz below
+add_executable(test_console main.cpp test_console.cpp)
+target_include_directories(test_console PRIVATE
+  "${PROJECT_SOURCE_DIR}/third_party/doctest"
+  "${PROJECT_SOURCE_DIR}/src/app")
+target_link_libraries(test_console PRIVATE striso_host_options)
+target_compile_options(test_console PRIVATE -O2)
+doctest_discover_tests(test_console TEST_PREFIX "console." PROPERTIES LABELS unit)
+
 # scan_replay: the board's raw recordings (tests/scan/<name>.ksr, with the StcS stream recorded in
 # the same session, <name>.csv: tools/record_raw.py) replay to exactly the board's messages
 add_executable(scan_replay scan_replay.cpp)
