@@ -15,12 +15,13 @@ FILES='dsp/include/striso_dsp/strisy.h dsp/include/striso_dsp/fx.h dsp/include/s
   src/drivers/key_scanner.h src/drivers/key_scanner.hpp src/drivers/key_scanner_capture.hpp src/drivers/key_scanner.cpp
   src/app/console.hpp src/app/console.cpp src/app/midi_in_parser.hpp src/app/out_stream.hpp virtual/board/fw_console.cpp
   src/app/event_queue.hpp src/app/wire.hpp src/app/inbox.hpp src/app/messaging.hpp src/app/messaging.cpp
-  src/app/control_thread.cpp
+  src/app/control_thread.cpp src/drivers/jack_detector.hpp src/drivers/aux_jack.cpp
+  src/drivers/led_presenter.hpp src/drivers/led.cpp src/drivers/motion_filter.hpp src/drivers/motion_filter.cpp
   src/usb/usb_audio.c src/usb/usb_audio.h src/usb/usb_audio_core.h
   sdk/include/striso_sdk/*.h sdk/src/*.h sdk/src/*.cpp sdk/tools/*.cpp sdk/tests/*.cpp
   tools/harness/harness_util.h tools/harness/fx_test.cpp
   tools/target_render/render_target.cpp tools/target_render/startup.c
-  tests/*.cpp tests/*.hpp tests/*.c tests/synth_control/*.cpp tests/messaging/*.cpp'
+  tests/*.cpp tests/*.hpp tests/*.c tests/synth_control/*.cpp tests/messaging/*.cpp tests/aux_jack/*.cpp tests/led/*.cpp tests/motion/*.cpp tests/motion/*.hpp'
 FILES="${FILES//$'\n'/ }"  # one line: the list goes into a bash -c command (its globs expand there)
 if [ "$MODE" = --check ]; then
   in_docker bash -c "clang-format --dry-run -Werror $FILES"

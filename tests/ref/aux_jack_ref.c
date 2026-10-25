@@ -1,3 +1,8 @@
+/*
+ * aux_jack.c as it was at cc47a4d, before the JackDetector (src/drivers/jack_detector.hpp): the
+ * reference that tests/aux_jack/test_jack_detector.cpp compares the new code with, call for call.
+ * Unchanged; tests/aux_jack/ref_wrap.c compiles it.
+ */
 #include "ch.h"
 #include "hal.h"
 

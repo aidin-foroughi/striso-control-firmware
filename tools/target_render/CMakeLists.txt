@@ -26,6 +26,21 @@ foreach(v IN LISTS STRISO_VOICES)
     LINK_DEPENDS "${_dir}/target.ld" EXCLUDE_FROM_ALL ON)
   list(APPEND _targets target_render_${v})
 endforeach()
+# the motion filter against the old motion math (tests/motion/target_motion.cpp), each compiled
+# with the firmware's flags for its language: the old as motionsensor.c, the filter as
+# motion_filter.cpp
+set(_tests "${PROJECT_SOURCE_DIR}/tests")
+add_executable(target_motion "${_tests}/motion/target_motion.cpp" "${_tests}/ref/motion_ref.c" "${_dir}/startup.c")
+target_include_directories(target_motion PRIVATE "${_tests}/motion" "${_tests}/ref" "${PROJECT_SOURCE_DIR}/src/drivers")
+target_compile_options(target_motion PRIVATE ${_mcflags} ${_opt}
+  "$<$<COMPILE_LANGUAGE:CXX>:${_cppopt}>" "$<$<COMPILE_LANGUAGE:C>:${_copt}>")
+target_link_options(target_motion PRIVATE ${_mcflags} ${_opt} --specs=rdimon.specs -nostartfiles
+  "-T${_dir}/target.ld" -Wl,--gc-sections
+  $<$<VERSION_GREATER_EQUAL:${CMAKE_C_COMPILER_VERSION},12>:-Wl,--no-warn-rwx-segments>)
+set_target_properties(target_motion PROPERTIES LINKER_LANGUAGE CXX SUFFIX ".elf"
+  LINK_DEPENDS "${_dir}/target.ld" EXCLUDE_FROM_ALL ON)
+list(APPEND _targets target_motion)
+
 # not part of the firmware build: cmake --build --preset firmware --target target_renders
 add_custom_target(target_renders DEPENDS ${_targets})
 
@@ -51,6 +66,11 @@ if(NOT QEMU_SYSTEM_ARM)
   message(STATUS "qemu-system-arm not found: no target render tests")
   return()
 endif()
+
+add_test(NAME target.motion COMMAND "${QEMU_SYSTEM_ARM}" -M mps2-an500 -nographic -monitor none -serial none
+  -semihosting-config "enable=on,target=native,arg=target_motion" -kernel "$<TARGET_FILE:target_motion>")
+set_tests_properties(target.motion PROPERTIES LABELS target_render TIMEOUT 900
+  PASS_REGULAR_EXPRESSION "motion: [0-9]+ readings, 0 differences")
 
 set(_golden_file "${PROJECT_SOURCE_DIR}/tests/golden/target_renders.txt")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_golden_file}")

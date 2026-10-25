@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """The virtual board's copies of firmware code that can't be built for the PC as files.
 
-main.c (fwinfo casts pointers to 32 bits, vsqrtf is Cortex-M7 assembly) and motionsensor.c
-(I2C) are not compiled into striso_virtual; virtual/board/main_host.c and motion_host.c carry
-their thread loops (the blinker and the main loop; the LSM6DSL reader), copied verbatim between
-marker comments. The control thread is compiled as it is (src/app/control_thread.cpp). This test fails when the firmware's
-code and the copy differ (whitespace and line endings aside), so a change in main.c or
-motionsensor.c is made in the virtual board too.
+main.c (fwinfo casts pointers to 32 bits, vsqrtf is Cortex-M7 assembly) is not compiled into
+striso_virtual; virtual/board/main_host.c carries its thread loops (the blinker and the main loop),
+copied verbatim between marker comments. The control thread (src/app/control_thread.cpp) and the
+motion math (src/drivers/motion_filter.cpp) are compiled as they are. This test fails when the firmware's
+code and the copy differ (whitespace and line endings aside), so a change in main.c is made in
+the virtual board too.
 """
 import re
 import sys
@@ -61,15 +61,6 @@ def main():
         print("main.c and virtual/board/main_host.c differ in the main loop")
         fails += 1
 
-    ms = (ROOT / "src/drivers/motionsensor.c").read_text()
-    mhost = (ROOT / "virtual/board/motion_host.c").read_text()
-    copy = between(mhost, "/* motionsensor.c: --- copied from here (the LSM6DSL reader loop) --- */", "/* motionsensor.c: --- copied up to here --- */")
-    start = ms.index("  /* Reader thread loop.*/\r\n  int16_t motion[6];" if "\r\n" in ms else "  /* Reader thread loop.*/\n  int16_t motion[6];")
-    loop = function(ms[start:], "while (TRUE) {")
-    want = ms[start:ms.index(loop, start) + len(loop)]
-    if norm(want) != norm(copy):
-        print("motionsensor.c and virtual/board/motion_host.c differ in the LSM6DSL reader loop")
-        fails += 1
     print("mirror check:", "ok" if not fails else f"{fails} difference(s)")
     return 1 if fails else 0
 

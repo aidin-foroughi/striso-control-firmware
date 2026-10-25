@@ -41,7 +41,6 @@ static void AuxJack(void* arg) {
 	for (;;) chSchGoSleepS(CH_STATE_SUSPENDED);
 }
 void aux_jack_init(void) { chThdCreateStatic(waAuxJack, sizeof(waAuxJack), NORMALPRIO, AuxJack, NULL); }
-void aux_jack_switch_mode(jack2_mode_t mode) { config.jack2_mode = mode; }
 void aux_jack_switch_mode_setting(jack2_mode_t mode) { config.jack2_mode_setting = mode; }
 void aux_power_enable(void) {}
 void aux_power_disable(void) {}

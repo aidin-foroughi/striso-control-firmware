@@ -1,7 +1,11 @@
 #pragma once
 #include "ch.h"
+#ifdef __cplusplus
+extern "C" { /* as the real headers */
+#endif
 typedef uint16_t adcsample_t;
 typedef int ioline_t;
+typedef int iomode_t;
 typedef struct { uint32_t difsel, calibration; } ADCConfig;
 typedef struct { bool circular; int num_channels; void *end_cb, *error_cb; uint32_t cfgr, cfgr2, ccr, pcsel,
   ltr1, htr1, ltr2, htr2, ltr3, htr3; uint32_t smpr[2]; uint32_t sqr[4]; } ADCConversionGroup;
@@ -31,3 +35,6 @@ void palSetLineMode(ioline_t l, int mode);
 void palSetLine(ioline_t l);
 void palClearLine(ioline_t l);
 int palReadLine(ioline_t l);
+#ifdef __cplusplus
+}
+#endif

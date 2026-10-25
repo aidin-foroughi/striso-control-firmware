@@ -55,7 +55,8 @@ add_library(striso_virtual SHARED
   "${_fw}/app/messaging.cpp"
   "${_fw}/app/control_thread.cpp"
   "${_fw}/drivers/key_calibration.c"
-  "${_fw}/drivers/led.c")
+  "${_fw}/drivers/led.cpp"
+  "${_fw}/drivers/motion_filter.cpp")
 add_dependencies(striso_virtual striso_virtual_fwversion)
 target_include_directories(striso_virtual
   PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include"
@@ -85,14 +86,6 @@ target_link_libraries(striso_virtual PRIVATE striso::dsp striso_host_options)
 target_compile_options(striso_virtual PRIVATE -O2 -ffp-contract=off -fno-strict-aliasing
   -Wno-unused-parameter -Wno-missing-field-initializers -Wno-sign-compare -Wno-unused-function
   -Wno-unused-variable -Wno-unused-but-set-variable -Wno-implicit-fallthrough)
-# led.c: 'inline' functions in C, which GCC on the board emits (led.c inlines them); clang for
-# Windows treats C inline as MSVC does
-set_source_files_properties("${_fw}/drivers/led.c" PROPERTIES COMPILE_OPTIONS "-fgnu89-inline")
-if(STRISO_SANITIZE)
-  # led.c led_updown_dial: 0xffff << 16 for a dial position of 8 overflows int (the board's GCC gives
-  # 0xffff0000, as meant): reported, not changed here
-  set_source_files_properties("${_fw}/drivers/led.c" PROPERTIES COMPILE_OPTIONS "-fgnu89-inline;-fno-sanitize=shift")
-endif()
 if(APPLE)
   target_compile_options(striso_virtual PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/board/sv_macho_sections.h")
 elseif(UNIX)
