@@ -50,9 +50,6 @@ struct NoteSignals {
 // deselects it). 0x7f/0x7f: none, as at the start, so a bare Data Entry (CC 6) selects nothing.
 class RpnSelect {
 public:
-	RpnSelect() {
-		for (int c = 0; c < 16; c++) lsb_[c] = msb_[c] = 0x7f;
-	}
 	// a control change: true if it was one of the selects
 	bool control(int channel, uint8_t cc, uint8_t value) {
 		switch (cc) {
@@ -67,7 +64,9 @@ public:
 	[[nodiscard]] bool is(int channel, uint8_t msb, uint8_t lsb) const { return lsb_[channel] == lsb && msb_[channel] == msb; }
 
 private:
-	uint8_t lsb_[16], msb_[16];
+	// (constant initialized: a function's static needs no guard)
+	uint8_t lsb_[16] = {0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f};
+	uint8_t msb_[16] = {0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f};
 };
 
 class NoteInput {

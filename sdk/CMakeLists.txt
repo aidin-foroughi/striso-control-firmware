@@ -39,6 +39,7 @@ add_library(striso_sdk_options INTERFACE)
 target_compile_options(striso_sdk_options INTERFACE -O2 -ffp-contract=off)
 target_include_directories(striso_sdk_options INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include" "${CMAKE_CURRENT_SOURCE_DIR}/src")
 target_link_libraries(striso_sdk_options INTERFACE striso::dsp striso_host_options)
+target_compile_definitions(striso_sdk_options INTERFACE _USE_MATH_DEFINES) # (M_PI with the MSVC libraries)
 
 # --- one library per engine -----------------------------------------------------------------------
 set(_entries "")
