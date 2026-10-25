@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstring>
 #include <initializer_list>
+#include <iterator>
 #include <vector>
 
 #include "board.h"
@@ -80,7 +81,7 @@ void ump(Board& bd, const Ump& u) {
 // the voice playing the note nearest to `note`
 int voice_near(const sv_state& s, float note) {
 	int best = 0;
-	for (int v = 1; v < s.voices; v++)
+	for (int v = 1; v < s.voices && v < static_cast<int>(std::size(s.controls)); v++)
 		if (std::fabs(s.controls[v][0] - note) < std::fabs(s.controls[best][0] - note)) best = v;
 	return best;
 }
@@ -88,7 +89,7 @@ int voice_near(const sv_state& s, float note) {
 void same_controls(Board& a, Board& b, const char* when) {
 	const sv_state sa = state(a), sb = state(b);
 	INFO(when);
-	for (int v = 0; v < 10; v++)
+	for (size_t v = 0; v < std::size(sa.controls); v++)
 		for (int c = 0; c < 5; c++) {
 			INFO("voice " << v << " control " << c);
 			CHECK(std::memcmp(&sa.controls[v][c], &sb.controls[v][c], sizeof(float)) == 0);

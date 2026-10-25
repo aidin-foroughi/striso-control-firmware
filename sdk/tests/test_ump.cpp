@@ -2,7 +2,6 @@
 // arrives exactly (in the scale, or as an exact value), the decoder's callbacks and their order,
 // the touch factors, the strike fade.
 #include <cstdint>
-#include <cstring>
 #include <string>
 #include <vector>
 
@@ -13,7 +12,7 @@ namespace {
 
 namespace ump = striso::ump;
 
-bool same(float a, float b) { return std::memcmp(&a, &b, sizeof a) == 0; }
+bool same(float a, float b) { return ump::float_bits(a) == ump::float_bits(b); } // bit for bit
 
 // the index byte of a packet (an assignable controller's number)
 int index_of(const ump::Packet& p) { return static_cast<int>(p.w0 & 0xff); }
@@ -82,7 +81,7 @@ TEST_CASE("ump: a value the scale can't hold goes as an exact value (its float b
 	d.flush(h);
 	CHECK(same(h.last.but_y, avg));
 	CHECK(index_of(ump::pitch_packet(3, 60.0000001f)) == ump::ctl_pitch); // (the float is 60)
-	CHECK(index_of(ump::pitch_packet(3, 0.1f)) == ump::exact_pitch);     // 0.1 needs 2^-27
+	CHECK(index_of(ump::pitch_packet(3, 0.1f)) == ump::exact_pitch);      // 0.1 needs 2^-27
 }
 
 TEST_CASE("ump: a packet's length from its message type") {
