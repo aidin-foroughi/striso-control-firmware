@@ -48,11 +48,11 @@ struct KeyEvent {
 	}
 
 	// this event: src, id and the first kMaxValues values (the rest 0)
-	constexpr void assign(Source s, int ident, std::span<const int> values) {
+	constexpr void assign(Source s, int ident, std::span<const int> vals) {
 		src = s;
 		id = static_cast<uint8_t>(ident);
-		n = static_cast<uint8_t>(std::min(values.size(), kMaxValues));
-		for (std::size_t i = 0; i < kMaxValues; i++) v[i] = i < n ? saturate(values[i]) : int16_t{0};
+		n = static_cast<uint8_t>(std::min(vals.size(), kMaxValues));
+		for (std::size_t i = 0; i < kMaxValues; i++) v[i] = i < n ? saturate(vals[i]) : int16_t{0};
 	}
 
 	static constexpr KeyEvent make(Source src, int id, std::span<const int> values) {
