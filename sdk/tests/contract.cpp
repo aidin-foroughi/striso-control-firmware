@@ -1,4 +1,4 @@
-// The engine contract (docs/engines.md) checked on one engine: this file is compiled once per
+// The engine contract (doc/engines.md) checked on one engine: this file is compiled once per
 // engine and linked to that engine's library, striso_engine_<name> (STRISO_ENGINE_ENTRY names its
 // entry), so every engine gets every check without a line of its own (sdk/CMakeLists.txt).
 //   info              the declaration is complete and consistent
@@ -10,6 +10,7 @@
 //   independence      two instances don't share state (no globals)
 //   fuzz              random playing and parameter writes, every preset: finite and bounded
 //   parameters        the table is sane; writes are clamped, rounded, NaN ignored
+//   heroes            every hero parameter is one of the engine's, every preset override a preset
 //   presets           names, numbering; switching while notes sound stays finite and bounded
 //   voice stealing    note jumps on held voices, instant re-strikes, every voice at once
 //   inputs            an input it doesn't declare makes no difference to its output
@@ -38,22 +39,23 @@ using dsp::GlobalControls;
 using dsp::VoiceControls;
 
 constexpr int SR = 48000;
-constexpr float SILENT = 1e-4f;      // the render checks' silence
+constexpr float SILENT = 1e-4f;       // the render checks' silence
 constexpr float PEAK_PLAYING = 32.0f; // every voice at full pressure (the board clips at 4 after its x0.25 volume)
-constexpr float PEAK_FUZZ = 64.0f;   // extreme but legal parameters may be loud: only blow-ups fail
+constexpr float PEAK_FUZZ = 64.0f;    // extreme but legal parameters may be loud: only blow-ups fail
 
 [[nodiscard]] const sdk::EngineEntry& entry() { return STRISO_ENGINE_ENTRY(); }
 [[nodiscard]] const dsp::EngineInfo& info() { return *entry().info; }
 [[nodiscard]] int nvoices() { return std::min(10, info().budget.max_voices); }
 [[nodiscard]] int blocks(double s) { return static_cast<int>(s * SR / dsp::BLOCK); }
 
-// engines that are known not to keep the contract yet, and why (docs/engines.md); their check
+// engines that are known not to keep the contract yet, and why (doc/engines.md); their check
 // is expected to fail, and fails once they keep it, so the entry gets removed
 [[nodiscard]] bool shares_static_memory() { return std::strcmp(info().name, "trumpet") == 0; }
 
 // every preset, or -1 for an engine without presets
 [[nodiscard]] std::vector<int> presets() {
 	std::vector<int> p;
+	p.reserve(static_cast<size_t>(info().num_presets) + 1);
 	for (int i = 0; i < info().num_presets; i++) p.push_back(i);
 	if (p.empty()) p.push_back(-1);
 	return p;
@@ -73,7 +75,8 @@ struct Keys {
 	std::vector<VoiceControls> vc;
 	std::vector<float> target;
 	GlobalControls g = dsp::globals_at_rest;
-	explicit Keys(int nv) : vc(static_cast<size_t>(nv), dsp::voice_at_rest), target(static_cast<size_t>(nv), 0.0f) {}
+	explicit Keys(int nv) :
+	    vc(static_cast<size_t>(nv), dsp::voice_at_rest), target(static_cast<size_t>(nv), 0.0f) {}
 	void press(int v, float note, float pres) {
 		vc[static_cast<size_t>(v)].note = note;
 		target[static_cast<size_t>(v)] = pres;
@@ -244,7 +247,7 @@ TEST_CASE("info: the declaration is complete") {
 	CHECK(e.voices() == nvoices());
 	CHECK((in.num_presets > 0 ? e.preset() >= 0 && e.preset() < in.num_presets : e.preset() == -1));
 	MESSAGE(std::string(in.name) << ": " << in.num_presets << " presets, " << in.num_params << " parameters, state " << in.state_bytes
-	                << " B, fast " << in.fast_bytes << " B, large " << in.large_bytes << " B");
+	                             << " B, fast " << in.fast_bytes << " B, large " << in.large_bytes << " B");
 }
 
 TEST_CASE("init: silent and idle with no input; a note sounds") {
@@ -425,6 +428,45 @@ TEST_CASE("parameters: a sane table; writes clamp, round and ignore NaN") {
 	}
 }
 
+// the names of a hero list: up to MAX_HEROES, no gaps, distinct, each a parameter of the engine
+void check_heroes(const sdk::Engine& e, const dsp::Heroes& h) {
+	std::set<std::string> seen;
+	bool ended = false;
+	for (const char* n : h.name) {
+		if (!n) {
+			ended = true;
+			continue;
+		}
+		CAPTURE(std::string(n));
+		CHECK(!ended); // (no gaps)
+		CHECK(seen.insert(n).second);
+		bool found = false;
+		for (int i = 0; i < e.num_params(); i++) found |= std::strcmp(e.param_desc(i)->name, n) == 0;
+		CHECK(found);
+	}
+	if (e.num_params() > 0) CHECK(!seen.empty());
+}
+
+TEST_CASE("heroes: every hero is a live parameter of the engine; overrides name presets") {
+	CAPTURE(std::string(info().name));
+	sdk::Engine e = fresh(-1);
+	check_heroes(e, info().heroes);
+	for (int i = 0; i < info().num_preset_heroes; i++) {
+		const dsp::PresetHeroes& ph = info().preset_heroes[i];
+		REQUIRE(ph.preset != nullptr);
+		CAPTURE(std::string(ph.preset));
+		bool found = false;
+		for (int p = 0; p < info().num_presets; p++) found |= std::strcmp(e.preset_name(p), ph.preset) == 0;
+		CHECK(found);
+		check_heroes(e, ph.heroes);
+	}
+	// what a host reads: the current preset's list
+	for (int p : presets()) {
+		sdk::Engine f = fresh(p);
+		CHECK(&f.heroes() == &dsp::heroes_of(info(), p >= 0 ? f.preset_name(p) : nullptr));
+	}
+}
+
 TEST_CASE("presets: names and numbering; switching while notes sound") {
 	const int np = info().num_presets;
 	sdk::Engine e = fresh(-1);
@@ -551,7 +593,7 @@ TEST_CASE("cpu: the worst case runs much faster than real time on the PC") {
 	const double host = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 	const double rt = host / 2.0;
 	MESSAGE(std::string(info().name) << ": " << e.voices() << " voices at full pressure: " << 100.0 * rt << " % of real time on this PC (the board: "
-	                    << 100.0 * info().budget.instr_per_block / 314000 << " % declared)");
+	                                 << 100.0 * info().budget.instr_per_block / 314000 << " % declared)");
 	CHECK(s.nonfinite == 0);
 #ifndef __SANITIZE_ADDRESS__
 	CHECK(rt < 0.5); // (no timing under the sanitizers)

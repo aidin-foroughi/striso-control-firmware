@@ -1,6 +1,6 @@
 // The trumpet engine (voice_trumpet.h) as a striso::dsp::VoiceEngine: striso::dsp::engines::trumpet.
 // (voice_trumpet.h still keeps its delay lines in static arrays, cyl_f, cyl_b, room_buf: two
-// instances share them. Its rewrite moves them into trumpet::FastMemory, docs/engines.md.)
+// instances share them. Its rewrite moves them into trumpet::FastMemory, doc/engines.md.)
 #ifndef STRISO_DSP_ENGINES_TRUMPET_H_
 #define STRISO_DSP_ENGINES_TRUMPET_H_
 
@@ -18,6 +18,15 @@ struct trumpet {
 	static constexpr const char* summary = "trumpet family: lips locked to a physical bore at 96 kHz, valves, mutes (9 presets)";
 	static constexpr uint32_t inputs = in_pressure | in_velocity | in_tilt_x | in_tilt_y | in_shake | in_pedal;
 	static constexpr Budget budget = {::trumpet::MAX_VOICES, 94000, 2.0f};
+	// the hero parameters (seeded from Striso Live's hero.dart; the contract suite checks the names)
+	static constexpr Heroes heroes = {{"brassy", "bell", "attack", "p_loud", "breath", "vibrato", "release", "room"}};
+	static constexpr PresetHeroes preset_heroes[] = {
+	    {"bb jazz", {{"brassy", "bell", "growl", "fall", "doit", "shake", "vibrato", "breath"}}},
+	    {"harmon", {{"mute", "wah", "brassy", "bell", "attack", "breath", "vibrato", "room"}}},
+	    {"cup mute", {{"mute", "wah", "brassy", "bell", "attack", "breath", "vibrato", "room"}}},
+	    {"straight", {{"mute", "wah", "brassy", "bell", "attack", "breath", "vibrato", "room"}}},
+	    {"plunger", {{"mute", "wah", "growl", "brassy", "bell", "fall", "vibrato", "breath"}}},
+	};
 };
 } // namespace traits
 

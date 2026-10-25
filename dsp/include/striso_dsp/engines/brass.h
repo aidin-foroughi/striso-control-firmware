@@ -16,6 +16,13 @@ struct brass {
 	static constexpr const char* summary = "brass: a lip source and a physical bore, bell, mutes (9 presets)";
 	static constexpr uint32_t inputs = in_pressure | in_velocity | in_tilt_y | in_shake | in_pedal;
 	static constexpr Budget budget = {::brass::MAX_VOICES, 30000, 2.0f};
+	// the hero parameters (seeded from Striso Live's hero.dart; the contract suite checks the names)
+	static constexpr Heroes heroes = {{"brassiness", "lip_loud", "tone_hz", "breath", "mute", "release", "vibrato", "pair"}};
+	static constexpr PresetHeroes preset_heroes[] = {
+	    {"harmon", {{"mute", "mute_bp", "mute_hz", "wah", "brassiness", "tone_hz", "vibrato", "release"}}},
+	    {"plunger", {{"mute", "mute_lp", "mute_hz", "wah", "brassiness", "tone_hz", "vibrato", "release"}}},
+	    {"section", {{"pair", "detune", "brassiness", "lip_loud", "tone_hz", "breath", "vibrato", "release"}}},
+	};
 };
 } // namespace traits
 

@@ -61,13 +61,15 @@ struct EffectEntry {
 // An engine instance: the engine object and its memory, owned.
 class Engine {
 public:
-	explicit Engine(const EngineEntry& entry) : e_(&entry), p_(entry.create()) {}
+	explicit Engine(const EngineEntry& entry) :
+	    e_(&entry), p_(entry.create()) {}
 	~Engine() {
 		if (p_) e_->destroy(p_);
 	}
 	Engine(const Engine&) = delete;
 	Engine& operator=(const Engine&) = delete;
-	Engine(Engine&& o) noexcept : e_(o.e_), p_(o.p_) { o.p_ = nullptr; }
+	Engine(Engine&& o) noexcept :
+	    e_(o.e_), p_(o.p_) { o.p_ = nullptr; }
 	Engine& operator=(Engine&& o) noexcept {
 		if (this != &o) {
 			if (p_) e_->destroy(p_);
@@ -93,6 +95,8 @@ public:
 	[[nodiscard]] const ParamDesc* param_desc(int i) const { return e_->param_desc(i); }
 	[[nodiscard]] float* param(int i) { return e_->param(p_, i); }
 	bool set_param(int i, float v) { return e_->set_param(p_, i, v); }
+	// the hero parameters of the current preset (its own, or the engine's)
+	[[nodiscard]] const dsp::Heroes& heroes() const { return dsp::heroes_of(*e_->info, preset() >= 0 ? preset_name(preset()) : nullptr); }
 
 private:
 	const EngineEntry* e_;
@@ -102,7 +106,8 @@ private:
 // An effect instance.
 class Effect {
 public:
-	explicit Effect(const EffectEntry& entry) : e_(&entry), p_(entry.create()) {}
+	explicit Effect(const EffectEntry& entry) :
+	    e_(&entry), p_(entry.create()) {}
 	~Effect() {
 		if (p_) e_->destroy(p_);
 	}

@@ -11,6 +11,8 @@
 //       static constexpr const char* name = "<name>", *summary = "...";
 //       static constexpr uint32_t inputs = in_pressure | ...;
 //       static constexpr Budget budget = {max_voices, instructions per block, tail seconds};
+//       static constexpr Heroes heroes = {{"cutoff", ...}};                        // optional, up to 8
+//       static constexpr PresetHeroes preset_heroes[] = {{"pad", {{...}}}, ...};  // optional
 //   };
 //
 // The engine's struct Engine has `strisy::GlobalControls g; strisy::VoiceControls vc[MAX_VOICES];
@@ -61,6 +63,20 @@ template <class Native> struct SavedParams {
 		}
 	}
 };
+
+// the optional hero declarations of a traits struct
+template <class T> constexpr Heroes heroes() {
+	if constexpr (requires { T::heroes; }) return T::heroes;
+	else return {};
+}
+template <class T> constexpr const PresetHeroes* preset_heroes() {
+	if constexpr (requires { T::preset_heroes; }) return T::preset_heroes;
+	else return nullptr;
+}
+template <class T> constexpr int num_preset_heroes() {
+	if constexpr (requires { T::preset_heroes; }) return static_cast<int>(std::extent_v<decltype(T::preset_heroes)>);
+	else return 0;
+}
 
 } // namespace detail
 
@@ -136,7 +152,7 @@ template <class T>
 constexpr EngineInfo Adapter<T>::info = {T::name, T::summary, 1, T::inputs, T::budget, sizeof(Adapter<T>),
     std::is_empty_v<typename T::FastMemory> ? 0 : sizeof(typename T::FastMemory),
     std::is_empty_v<typename T::LargeMemory> ? 0 : sizeof(typename T::LargeMemory), Adapter<T>::num_presets(),
-    strisy::EngineParams<typename T::Engine>::count};
+    strisy::EngineParams<typename T::Engine>::count, detail::heroes<T>(), detail::preset_heroes<T>(), detail::num_preset_heroes<T>()};
 
 // An effect in the fx.h shape: struct traits::<name> {
 //     using Engine; using FastMemory; using LargeMemory;
@@ -184,7 +200,7 @@ template <class T>
 constexpr EffectInfo EffectAdapter<T>::info = {T::name, T::summary, T::inputs, T::outputs, T::instr_per_block,
     sizeof(EffectAdapter<T>), std::is_empty_v<typename T::FastMemory> ? 0 : sizeof(typename T::FastMemory),
     std::is_empty_v<typename T::LargeMemory> ? 0 : sizeof(typename T::LargeMemory),
-    strisy::EngineParams<typename T::Engine>::count};
+    strisy::EngineParams<typename T::Engine>::count, detail::heroes<T>()};
 
 } // namespace striso::dsp
 

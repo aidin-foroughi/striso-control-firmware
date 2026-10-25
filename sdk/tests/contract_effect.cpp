@@ -1,4 +1,4 @@
-// The effect contract (docs/engines.md) checked on the master effects (striso_effect_fx):
+// The effect contract (doc/engines.md) checked on the master effects (striso_effect_fx):
 //   info, parameters (a sane table; writes clamp, round, ignore NaN), fuzz (random parameter
 //   writes over bursts of loud noise and silence: finite and bounded), silence (silence in,
 //   silence out after the tails), reset (silent, parameters kept), determinism, independence.
@@ -45,6 +45,8 @@ std::vector<float> run(sdk::Effect& f, int n, uint32_t seed, bool noise, bool wr
 	std::vector<float> ib(static_cast<size_t>(in.inputs) * dsp::BLOCK), ob(static_cast<size_t>(in.outputs) * dsp::BLOCK);
 	std::vector<const float*> ip;
 	std::vector<float*> op;
+	ip.reserve(static_cast<size_t>(in.inputs));
+	op.reserve(static_cast<size_t>(in.outputs));
 	for (int c = 0; c < in.inputs; c++) ip.push_back(&ib[static_cast<size_t>(c) * dsp::BLOCK]);
 	for (int c = 0; c < in.outputs; c++) op.push_back(&ob[static_cast<size_t>(c) * dsp::BLOCK]);
 	for (int b = 0; b < n; b++) {
@@ -105,6 +107,20 @@ TEST_CASE("effect: info and parameters") {
 	}
 }
 
+TEST_CASE("effect: every hero is one of its parameters") {
+	sdk::Effect f(sdk::fx_effect());
+	int n = 0;
+	for (const char* h : f.info().heroes.name) {
+		if (!h) continue;
+		n++;
+		CAPTURE(std::string(h));
+		bool found = false;
+		for (int i = 0; i < f.num_params(); i++) found |= std::strcmp(f.param_desc(i)->name, h) == 0;
+		CHECK(found);
+	}
+	CHECK(n > 0);
+}
+
 TEST_CASE("effect: random parameter writes over noise and silence stay finite and bounded") {
 	sdk::Effect f(sdk::fx_effect());
 	f.init(SR);
@@ -123,6 +139,7 @@ TEST_CASE("effect: silence in, silence out; reset keeps the parameters") {
 		if (f.param_desc(i)->kind == dsp::ParamKind::continuous && std::strcmp(f.param_desc(i)->name, "bypass") != 0)
 			f.set_param(i, *f.param(i) + 0.3f * (f.param_desc(i)->max - *f.param(i)));
 	std::vector<float> want;
+	want.reserve(static_cast<size_t>(f.num_params()));
 	for (int i = 0; i < f.num_params(); i++) want.push_back(*f.param(i));
 	run(f, SR / dsp::BLOCK, 3u, true, false);
 	f.reset();
