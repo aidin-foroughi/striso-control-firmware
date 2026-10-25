@@ -9,6 +9,8 @@
 //   test_synth_control list             the scenario names
 //   test_synth_control replay <take.csv> [--mode mpe|normal|mono] [--trace FILE] [--expect HASH]
 //                                       [--golden-name N]
+//   test_synth_control settings <presets|keys> [--trace FILE] [--expect HASH] [--golden-name N]
+//       every settings preset in every tuning, every settings key: the state after each step
 //       a recorded key stream (tools/harness/rec, tools/record_keys.py) through synth_message, as
 //       the board's key thread gets it, with synth_tick every 2 ms. The trace is every MIDI message
 //       sent and every change of the internal synth's voice controls, per key message. Checks that
@@ -26,6 +28,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <map>
 #include <string>
 #include <utility>
@@ -71,7 +74,12 @@ static uint32_t last_updown = 0;
 void led_updown(uint32_t state) { last_updown = state; }
 uint32_t led_updown_get(void) { return last_updown; }
 void led_updown_dial(int angle) { last_dial = angle; }
-void aux_jack_switch_mode_setting(jack2_mode_t /*mode*/) {}
+static int jack_setting_now = -1;
+static std::string jack_calls;
+void aux_jack_switch_mode_setting(jack2_mode_t mode) {
+	jack_setting_now = mode;
+	jack_calls += " " + std::to_string(static_cast<int>(mode));
+}
 float volume = 0;
 synth_interface_t synth_interface;
 int synth_num_voices(void) { return 2; }
@@ -1356,6 +1364,156 @@ static int replay(int argc, char** argv) {
 	return rc;
 }
 
+// ------------------------------------------------------------------- settings presets and keys
+// test_synth_control settings <presets|keys> [--trace FILE] [--expect HASH] [--golden-name N]:
+// every settings preset in every tuning from a user config (presets), every settings key pressed,
+// nudged and circled (keys); after each step the state the control logic keeps (the config, the
+// instrument, the leds, the jack setting, floats as bits) and the MIDI it sent, hashed as the replays
+// are (tests/golden/control_replay.txt). Recorded before load_preset and config_but left
+// synth_control.cpp (PresetLoader, SettingsKeys): the split must not change a bit.
+
+static uint32_t fbits(float f) { return std::bit_cast<uint32_t>(f); }
+
+// a user config: every preset setting in range, out of range, malformed or blank somewhere, and
+// tunings of its own (virtual/tests/test_protocol.cpp preset_config, the same records)
+static void preset_config() {
+	static const char* const recs[][2] = {
+	    {"sP2name", "normal"}, {"hP2color", "#102030"}, {"sP2Mmode", "normal"}, {"iP2MChan", "5"}, {"iP2Mpres", "10"},
+	    {"iP2Mx", "11"}, {"iP2My", "12"}, {"iP2Mvelo", "13"}, {"iP2voice", "4"}, {"iP2MPEpb", "24"}, {"iP2tunin", "2"},
+	    {"fP2Toff", "25.5"}, {"sP2flip", "yes"}, {"fP2thres", "0.2"}, {"fP2bendS", "1.5"}, {"fP2presS", "2.0"},
+	    {"fP2veloS", "0.5"}, {"fP2tiltS", "-1.0"}, {"iP2veloO", "10"}, {"fP2volum", "100"}, {"fP2decay", "200"},
+	    {"fP2decaP", "300"}, {"iP2Mpgm", "5"}, {"iP2Mint", "3"}, {"iP2Mmint", "20"}, {"sP2Mnote", "tuning"},
+	    {"sP2jack2", "midi"},
+	    {"sP3Mmode", "mono"}, {"iP3MChan", "17"}, {"iP3Mint", "0"}, {"iP3tunin", "9"}, {"fP3Toff", "5000"},
+	    {"iP3voice", "15"}, {"fP3thres", "0.8"}, {"fP3bendS", "-3"}, {"fP3tiltS", "12"}, {"sP3flip", "no"},
+	    {"sP3Mnote", "button"}, {"sP3jack2", "pedal_ex"}, {"iP3Mpgm", "127"}, {"fP3presS", "1.2.3"},
+	    {"fP3veloS", "abc"}, {"iP3Mpres", "-1"}, {"fP3volum", "255"}, {"hP3color", "#zz0000"},
+	    {"sP4Mmode", "mpe"}, {"iP4voice", "15"}, {"iP4MChan", "2"}, {"iP4MPEpb", "96"}, {"fP4Toff", "-4800"},
+	    {"sP4flip", "yes"}, {"sP4Mnote", "default"}, {"sP4jack2", "pedal_sw"}, {"iP4Mpgm", "0"}, {"fP4decay", "0"},
+	    {"fP5Toff", "12.5"}, {"sP5jack2", "linein"}, {"iP5MChan", "1"}, {"fP5presS", "10"},
+	    {"iP6tunin", "0"}, {"sP6jack2", "auto"}, {"sP6flip", "no"}, {"sP6Mmode", "mpe"}, {"iP6voice", "1"},
+	    {"fP6decaP", "254.9"},
+	    {"iP7tunin", "8"}, {"sP7Mmode", "normal"}, {"iP7MChan", "16"}, {"iP7Mpgm", "64"}, {"fP7volum", "0"},
+	    {"sT1name", "17 tet"}, {"fT1fifth", "705.8824"}, {"fT1oct", "1199.0"}, {"fT1off", "-10.5"},
+	    {"hT1color", "#123456"}, {"fT3F_1", "12.5"}, {"fT3C_3", "-30"}, {"fT3B_4", "7.25"}, {"fT8off", "3.0"},
+	    // the boot: preset 3 and an octave up
+	    {"iGpreset", "3"}, {"iGoct", "1"}};
+	for (const auto& r : recs) set_cfg(r[0], r[1]);
+}
+
+// the state after a step, and the MIDI sent since the last
+static void settings_state(const std::function<void(const char*)>& out, const char* step, size_t& sent) {
+	char buf[1024];
+	int n = snprintf(buf, sizeof buf,
+	    "%s mode=%d note=%d int=%d motion=%d pres=%d,%d x=%d,%d y=%d,%d cv=%d zero=%d pedal=%d,%d debug=%d "
+	    "jack=%d flip=%d tuning=%d color=%06x ng=%08x,%08x off=%08x,%08x start=%08x ch=%d br=%08x voices=%d "
+	    "sens=%08x,%08x,%08x,%08x vo=%d syp=%08x vol=%08x porta=%d reset=%d led=%d,%d,%d dial=%d updown=%08x",
+	    step, (int)config.midi_mode, (int)config.midinote_mode, config.message_interval, config.send_motion_interval,
+	    config.midi_pres, config.mpe_pres, config.midi_x, config.mpe_x, config.midi_y, config.mpe_y, config.mpe_contvelo,
+	    config.zero_offset, config.pedal_sw1_values[0], config.pedal_sw1_values[1], config.debug, jack_setting_now,
+	    dis.flipdir, dis.cur_tuning, dis.tuning_color & 0xffffff, fbits(dis.notegen0), fbits(dis.notegen1),
+	    fbits(dis.note_offset), fbits(dis.tuning_note_offset), fbits(dis.start_note_offset), dis.midi_channel_offset,
+	    fbits(dis.midi_bend_range), dis.voicecount, fbits(dis.bend_sensitivity), fbits(dis.pres_sensitivity),
+	    fbits(dis.velo_sensitivity), fbits(dis.y_sensitivity), dis.midi_velo_offset, fbits(*dis.synth_pedal()),
+	    fbits(volume_linear), dis.portamento, reset_on_release ? 1 : 0, last_r, last_g, last_b, last_dial, last_updown);
+	uint64_t h = 0xcbf29ce484222325ULL;
+	for (int b = 0; b < BUTTONCOUNT; b++) {
+		const Button& k = dis.buttons[b];
+		char kb[96];
+		snprintf(kb, sizeof kb, "%08x %d %d %d %d", fbits(k.tuning_note_offset), k.coord0, k.coord1, k.midinote_base, k.midinote);
+		h = fnv(h, kb);
+	}
+	n += snprintf(buf + n, sizeof buf - n, " keys=%016llx\n", static_cast<unsigned long long>(h));
+	out(buf);
+	for (; sent < midi_log.size(); sent++) {
+		int m = snprintf(buf, sizeof buf, "M");
+		for (auto b : midi_log[sent]) m += snprintf(buf + m, sizeof buf - m, " %02X", b);
+		snprintf(buf + m, sizeof buf - m, "\n");
+		out(buf);
+	}
+	if (!jack_calls.empty()) {
+		out(("J" + jack_calls + "\n").c_str());
+		jack_calls.clear();
+	}
+}
+
+static int settings_trace(int argc, char** argv) {
+	const std::string what = argv[2];
+	const char *trace_path = nullptr, *expect = nullptr, *golden_name = nullptr;
+	for (int i = 3; i + 1 < argc; i += 2) {
+		const std::string a = argv[i];
+		if (a == "--trace") trace_path = argv[i + 1];
+		else if (a == "--expect") expect = argv[i + 1];
+		else if (a == "--golden-name") golden_name = argv[i + 1];
+		else {
+			std::fprintf(stderr, "unknown argument %s\n", argv[i]);
+			return 2;
+		}
+	}
+	FILE* tr = trace_path ? std::fopen(trace_path, "w") : nullptr;
+	uint64_t h = 0xcbf29ce484222325ULL;
+	const std::function<void(const char*)> out = [&](const char* line) {
+		h = fnv(h, line);
+		if (tr) std::fputs(line, tr);
+	};
+	size_t sent = 0;
+	char step[64];
+	preset_config();
+	synth_control_init();
+	settings_state(out, "boot", sent);
+	if (what == "presets") {
+		for (int tuning : {34, 36, 38, 23, 25, 27, 29, 31, 33}) {
+			config_but(tuning, 0, 0);
+			snprintf(step, sizeof step, "tuning %d", tuning);
+			settings_state(out, step, sent);
+			for (int preset : {35, 37, 39, 41, 43, 45, 30, 32}) {
+				config_but(preset, 0, 0);
+				snprintf(step, sizeof step, "tuning %d preset %d", tuning, preset);
+				settings_state(out, step, sent);
+			}
+		}
+	} else if (what == "keys") {
+		static const struct {
+			int type;
+			float adjust;
+		} moves[] = {{0, 0}, {1, 1}, {1, -1}, {1, 0.5f}, {2, 3}, {2, -5}, {1, 20}, {2, -40}, {0, 0}};
+		for (int id = 0; id < 70; id++) {
+			for (const auto& m : moves) {
+				const float rem = config_but(id, m.type, m.adjust);
+				snprintf(step, sizeof step, "key %d %d %08x rem=%08x", id, m.type, fbits(m.adjust), fbits(rem));
+				settings_state(out, step, sent);
+			}
+			reset_on_release = false;
+		}
+	} else {
+		std::fprintf(stderr, "settings presets|keys\n");
+		return 2;
+	}
+	if (tr) std::fclose(tr);
+	std::printf("settings %s: hash %016llx\n", what.c_str(), static_cast<unsigned long long>(h));
+	const char* golden_out = std::getenv("STRISO_GOLDEN_OUT");
+	if (golden_name && golden_out && *golden_out) {
+		const std::string path = std::string(golden_out) + "/" + golden_name + ".hash";
+		FILE* g = std::fopen(path.c_str(), "w");
+		if (!g) {
+			std::perror(path.c_str());
+			return 1;
+		}
+		std::fprintf(g, "%s %016llx\n", golden_name, static_cast<unsigned long long>(h));
+		std::fclose(g);
+		expect = nullptr;
+	}
+	if (expect) {
+		char got[17];
+		snprintf(got, sizeof got, "%016llx", static_cast<unsigned long long>(h));
+		if (std::string(expect) != got) {
+			std::printf("FAIL: hash %s, golden %s (tests/golden/control_replay.txt)\n", got, expect);
+			return 1;
+		}
+	}
+	return 0;
+}
+
 // ------------------------------------------------------------------------------------------- main
 struct Scenario {
 	const char* name;
@@ -1426,6 +1584,7 @@ int main(int argc, char** argv) {
 		return 0;
 	}
 	if (t == "replay" && argc > 2) return replay(argc, argv);
+	if (t == "settings" && argc > 2) return settings_trace(argc, argv);
 	for (auto& s : scenarios)
 		if (t == s.name) {
 			s.fn();
