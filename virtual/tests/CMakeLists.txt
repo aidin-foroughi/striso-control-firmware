@@ -27,7 +27,7 @@ doctest_discover_tests(striso_virtual_tests TEST_PREFIX "virtual." PROPERTIES LA
 # --- every engine and preset of the VOICE=all firmware, rendered through the board -------------------
 # virtual.render.<golden name>: the default, stale and recorded performances (and the two effects
 # renders) through the firmware's synth thread, each bit for bit against its host golden. The
-# firmware's engines: VOICE_LIST of the all-voices build in src/synth/synth_strisy.cpp.
+# firmware's engines: SYNTH_ENGINES_ALL, the all-voices build's list in src/synth/synth_strisy.cpp.
 add_executable(virtual_render virtual_render.cpp perf_default.cpp perf_stale.cpp)
 target_include_directories(virtual_render PRIVATE "${PROJECT_SOURCE_DIR}/tools/harness")
 target_link_libraries(virtual_render PRIVATE striso_virtual striso::dsp striso_host_options)
@@ -38,9 +38,9 @@ if(APPLE)
   target_compile_options(virtual_render PRIVATE -include "${CMAKE_CURRENT_SOURCE_DIR}/../board/sv_macho_sections.h")
 endif()
 
-file(STRINGS "${PROJECT_SOURCE_DIR}/src/synth/synth_strisy.cpp" _vl REGEX "^#define VOICE_LIST[(]X, XP[)] X[(]strisy[)] XP")
+file(STRINGS "${PROJECT_SOURCE_DIR}/src/synth/synth_strisy.cpp" _vl REGEX "^#define SYNTH_ENGINES_ALL ")
 list(GET _vl 0 _vl)
-string(REGEX MATCHALL "XP?[(][a-z_0-9]+[)]" _fw_voices "${_vl}")
+string(REGEX MATCHALL "E::[a-z_0-9]+" _fw_voices "${_vl}")
 set(_golden_file "${PROJECT_SOURCE_DIR}/tests/golden/renders.txt")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_golden_file}"
   "${PROJECT_SOURCE_DIR}/src/synth/synth_strisy.cpp")
@@ -65,7 +65,7 @@ endfunction()
 set(STRISO_VIRTUAL_ENGINES "")
 set(_entries 0) # the voice list's entries: an engine without presets, or one preset
 foreach(x IN LISTS _fw_voices)
-  string(REGEX REPLACE "^XP?[(]([a-z_0-9]+)[)]$" "\\1" v "${x}")
+  string(REGEX REPLACE "^E::" "" v "${x}")
   list(APPEND STRISO_VIRTUAL_ENGINES ${v})
   set(np "${STRISO_VOICE_${v}_PRESETS}")
   if(np)

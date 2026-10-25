@@ -49,7 +49,9 @@
 
 #include <stdint.h>
 #include <math.h>
-#include "strisy.h"
+#include "controls.h"
+#include "dspmath.h"
+#include "svf.h"
 
 namespace reed {
 
@@ -242,10 +244,18 @@ struct VoiceState {
 	real outg;        // output gain at the end of the last block
 };
 
+// the delay lines, 16 KB per voice: the host gives them to the engine (engine contract,
+// engines/reed.h; the board: AXI SRAM, outside the DTCM Engine)
+struct LargeMemory {
+	float main[MAX_VOICES][MAIN_LEN];
+	float tube[MAX_VOICES][SHORT_LEN]; // the short tube
+};
+
 struct Engine {
 	strisy::GlobalControls g;
 	strisy::VoiceControls vc[MAX_VOICES];
 	int nvoices;
+	LargeMemory* large; // the host's (init)
 	real sr;
 	real shake; // smoothed shake amount from acc_abs
 	real dc1;   // master DC blocker state
@@ -253,10 +263,6 @@ struct Engine {
 	VoiceState vs[MAX_VOICES];
 	real mix[BLOCK];
 };
-
-// delay lines in normal (cached AXI) RAM, outside the DTCM Engine
-static float reed_main[MAX_VOICES][MAIN_LEN];
-static float reed_short[MAX_VOICES][SHORT_LEN];
 
 static inline void reset_voice(Engine& e, int v) {
 	VoiceState& s = e.vs[v];
@@ -267,8 +273,8 @@ static inline void reset_voice(Engine& e, int v) {
 	s.note_prev = note;
 	s.d1 = 100.0f;
 	s.d2 = 100.0f;
-	for (int i = 0; i < MAIN_LEN; i++) reed_main[v][i] = 0.0f;
-	for (int i = 0; i < SHORT_LEN; i++) reed_short[v][i] = 0.0f;
+	for (int i = 0; i < MAIN_LEN; i++) e.large->main[v][i] = 0.0f;
+	for (int i = 0; i < SHORT_LEN; i++) e.large->tube[v][i] = 0.0f;
 }
 
 static inline void init(Engine& e, int sample_rate, int nvoices) {
@@ -413,8 +419,8 @@ static inline void process_voice(Engine& e, int v) {
 	const real doutg = (outg_t - outg0) * (1.0f / BLOCK);
 
 	// ---- per-sample loop
-	float* __restrict__ mb = reed_main[v];
-	float* __restrict__ sb = reed_short[v];
+	float* __restrict__ mb = e.large->main[v];
+	float* __restrict__ sb = e.large->tube[v];
 	real* __restrict__ mix = e.mix;
 	uint32_t widx = s.widx, rng = s.rng, gph = s.gph;
 	real pr1 = s.pr1, pr2 = s.pr2;

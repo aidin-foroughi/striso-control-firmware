@@ -20,19 +20,16 @@
 #include <cmath>
 #include <algorithm>
 #include <xmmintrin.h>
-#include "striso_dsp/strisy.h"
-#ifdef SYNTH_VOICE_HEADER
-#include SYNTH_VOICE_HEADER
-namespace eng = SYNTH_VOICE_NS;
-
-#else
-namespace eng = strisy;
-#endif
+#include "striso_dsp/engine.h"
+#include SYNTH_ENGINE_HEADER
+using Engine = striso::dsp::engines::SYNTH_VOICE_NS;
 #ifndef PERF_HEADER
 #define PERF_HEADER "performance.h"
 #endif
-#include "striso_dsp/fx.h"
+#include "striso_dsp/effects/fx.h"
 #include PERF_HEADER
+
+using Fx = striso::dsp::effects::fx;
 
 static int param_index(const char* name) {
 	for (int i = 0; i < fx::NPARAM; i++)
@@ -42,15 +39,7 @@ static int param_index(const char* name) {
 }
 
 // writes go through the same path as the firmware: clamp to [min, max], round non-continuous
-static void param_write(fx::Engine& e, int i, float value) {
-	const strisy::ParamDesc* d = strisy::EngineParams<fx::Engine>::desc(i);
-	float* p = strisy::EngineParams<fx::Engine>::ptr(e, i);
-	if (!d || !p || value != value) return;
-	float v = value < d->min ? d->min : (value > d->max ? d->max : value);
-	if (d->kind != strisy::ParamKind::continuous) v = (float)(int)(v + (v >= 0 ? 0.5f : -0.5f));
-	*p = v;
-	strisy::EngineParams<fx::Engine>::changed(e, i);
-}
+static void param_write(Fx& f, int i, float value) { (void)f.set_param(i, value); }
 
 struct Event {
 	double t;
@@ -114,8 +103,10 @@ int main(int argc, char** argv) {
 	double log0 = -1, log1 = -1;
 	std::vector<Event> events;
 	std::vector<Ramp> ramps;
-	static fx::Engine fe;
-	fx::init(fe, SAMPLERATE);
+	static Fx fxa;
+	static striso::dsp::Memory<Fx> fxmem;
+	fxa.init(fxmem.fast, fxmem.large, SAMPLERATE);
+	fx::Engine& fe = fxa.e; // (its internals: the parameters at time 0 apply without a fade)
 	for (int a = 2; a < argc; a++) {
 		std::string s = argv[a];
 		size_t eq = s.find('=');
@@ -145,20 +136,20 @@ int main(int argc, char** argv) {
 				return 1;
 			}
 			ramps.push_back(r);
-		} else param_write(fe, param_index(k.c_str()), (float)atof(v.c_str()));
+		} else param_write(fxa, param_index(k.c_str()), (float)atof(v.c_str()));
 	}
 	// parameters given at time 0 apply from the start (no fade in)
 	for (int i = 0; i < fx::NPARAM; i++) fe.s[i] = fe.sp[i] = fe.p[i];
 	fx::update_stages(fe);
 
-	static eng::Engine e;
+	static Engine e;
+	static striso::dsp::Memory<Engine> mem;
 	const int nv = 6;
-	eng::init(e, SAMPLERATE, nv);
-#ifdef SYNTH_VOICE_PRESETS
-	if (preset >= 0) eng::set_preset(e, preset);
-#else
-	(void)preset;
-#endif
+	e.init(mem.fast, mem.large, SAMPLERATE, nv);
+	if (preset >= 0 && preset < Engine::num_presets()) e.set_preset(preset);
+	striso::dsp::VoiceControls vc[NVOICES_MAX];
+	for (int i = 0; i < nv; i++) vc[i] = striso::dsp::voice_at_rest;
+	striso::dsp::GlobalControls gc = striso::dsp::globals_at_rest;
 	const int nin = (int)(seconds * SAMPLERATE / BLOCK);
 	const int nblocks = nin + (int)(tail * SAMPLERATE / BLOCK);
 	std::vector<float> dry((size_t)nblocks * BLOCK), wet((size_t)nblocks * BLOCK * 2);
@@ -175,15 +166,23 @@ int main(int argc, char** argv) {
 		if (src == "voice") {
 			if (b < nin) {
 				block_controls(b % perf_blocks, v, nv, g);
-				for (int i = 0; i < nv; i++) e.vc[i] = {v[i].note, v[i].pres, v[i].vpres, v[i].but_x, v[i].but_y};
-				e.g = {g[0], g[1], g[2], g[3], g[4], g[5], g[6], g[7]};
+				for (int i = 0; i < nv; i++) {
+					vc[i].note = v[i].note;
+					vc[i].pres = v[i].pres;
+					vc[i].vpres = v[i].vpres;
+					vc[i].but_x = v[i].but_x;
+					vc[i].but_y = v[i].but_y;
+				}
+				gc = {g[0], g[1], g[2], g[3], g[4], g[5], g[6], g[7]};
 			} else {
 				for (int i = 0; i < nv; i++) {
-					e.vc[i].pres = 0;
-					e.vc[i].vpres = 0;
+					vc[i].pres = 0;
+					vc[i].vpres = 0;
 				}
 			}
-			eng::process(e, in);
+			for (int i = 0; i < nv; i++) striso::dsp::track_key(vc[i]);
+			float* const eo[1] = {in};
+			e.process(vc, gc, eo);
 			for (int n = 0; n < BLOCK; n++) in[n] *= (float)gain;
 		} else {
 			for (int n = 0; n < BLOCK; n++) {
@@ -201,11 +200,11 @@ int main(int argc, char** argv) {
 		}
 		// parameter writes between blocks, as apply_params() does in the firmware
 		while (ev < events.size() && events[ev].t <= t) {
-			param_write(fe, events[ev].i, events[ev].v);
+			param_write(fxa, events[ev].i, events[ev].v);
 			ev++;
 		}
 		for (const Ramp& r : ramps)
-			if (t >= r.t0 && t <= r.t1) param_write(fe, r.i, (float)(r.a + (r.b - r.a) * (t - r.t0) / (r.t1 - r.t0)));
+			if (t >= r.t0 && t <= r.t1) param_write(fxa, r.i, (float)(r.a + (r.b - r.a) * (t - r.t0) / (r.t1 - r.t0)));
 		if (random) {
 			// stress: 1..4 random writes per block, sometimes extremes, sometimes bypass
 			const int nw = 1 + (int)(frand() * 4);
@@ -214,14 +213,18 @@ int main(int argc, char** argv) {
 				const strisy::ParamDesc& d = fx::PARAMS[i].d;
 				float u = frand();
 				if (frand() < 0.2f) u = u < 0.5f ? 0.0f : 1.0f;
-				param_write(fe, i, d.min + u * (d.max - d.min));
+				param_write(fxa, i, d.min + u * (d.max - d.min));
 				if (t >= log0 && t <= log1) fprintf(stderr, "%.4f %s=%.3f\n", t, d.name, fe.p[i]);
 			}
-			if (frand() < 0.002f) param_write(fe, fx::P_BYPASS, fe.p[fx::P_BYPASS] > 0.5f ? 0.0f : 1.0f);
+			if (frand() < 0.002f) param_write(fxa, fx::P_BYPASS, fe.p[fx::P_BYPASS] > 0.5f ? 0.0f : 1.0f);
 		}
 		float l[BLOCK], r[BLOCK];
 		auto t0 = std::chrono::steady_clock::now();
-		fx::process(fe, in, l, r);
+		{
+			const float* const fi[1] = {in};
+			float* const fo[2] = {l, r};
+			fxa.process(fi, fo);
+		}
 		fx_s += std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
 		for (int n = 0; n < BLOCK; n++) {
 			const size_t k = (size_t)b * BLOCK + n;

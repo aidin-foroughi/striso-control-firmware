@@ -17,7 +17,7 @@ long g_bound_failures = 0;
 		if (!(c)) g_bound_failures++; \
 	} while (0)
 #include "harness_util.h"
-#include "striso_dsp/voice_bowed.h"
+#include "striso_dsp/engines/bowed.h"
 
 namespace {
 
@@ -52,10 +52,17 @@ void collect(Result& res, const float* buf) {
 	}
 }
 
+// the engine with its memory (the contract's init), then its native API: this is a white-box test
+bowed::Engine& start() {
+	static striso::dsp::engines::bowed a;
+	static striso::dsp::Memory<striso::dsp::engines::bowed> mem;
+	a.init(mem.fast, mem.large, kSampleRate, kVoices);
+	return a.e;
+}
+
 Result fuzz(double secs, uint32_t seed) {
-	static bowed::Engine e;
+	bowed::Engine& e = start();
 	rs = seed;
-	bowed::init(e, kSampleRate, kVoices);
 	Result res;
 	const long nb = static_cast<long>(secs * kSampleRate / kBlock);
 	for (long b = 0; b < nb; b++) {
@@ -123,8 +130,7 @@ Result fuzz(double secs, uint32_t seed) {
 }
 
 Result replay(const char* csv, int preset) {
-	static bowed::Engine e;
-	bowed::init(e, kSampleRate, kVoices);
+	bowed::Engine& e = start();
 	bowed::set_preset(e, preset);
 	const std::vector<harness::RecEvent> ev = harness::load_recording(csv, kVoices);
 	Result res;

@@ -56,7 +56,10 @@
 #include <stdint.h>
 #include <type_traits>
 #include <math.h>
-#include "strisy.h"
+#include "controls.h"
+#include "dspmath.h"
+#include "params.h"
+#include "svf.h"
 
 namespace wind {
 
@@ -457,11 +460,19 @@ struct VoiceState {
 	real yp;               // previous output sample (breath brightness)
 };
 
+// the delay lines, 16 KB per voice: the host gives them to the engine (engine contract,
+// engines/wind.h; the board: AXI SRAM)
+struct LargeMemory {
+	float main[MAX_VOICES][MAIN_LEN];
+	float tube[MAX_VOICES][SHORT_LEN]; // the short tube
+};
+
 struct Engine {
 	strisy::GlobalControls g;
 	strisy::VoiceControls vc[MAX_VOICES];
 	int nvoices;
 	int preset, kind;
+	LargeMemory* large; // the host's (init)
 	real sr;
 	Params p;  // as set (presets, live edits)
 	Params ps; // smoothed copy used by the DSP
@@ -482,9 +493,6 @@ struct Engine {
 	real nmix[BLOCK]; // breath noise bus
 };
 
-static float wind_main[MAX_VOICES][MAIN_LEN];
-static float wind_short[MAX_VOICES][SHORT_LEN];
-
 static inline void reset_voice(Engine& e, int v, bool clear) {
 	VoiceState& s = e.vs[v];
 	real note = s.note_prev;
@@ -495,8 +503,8 @@ static inline void reset_voice(Engine& e, int v, bool clear) {
 	s.d1 = 100.0f;
 	s.d2 = 10.0f;
 	if (clear) {
-		for (int i = 0; i < MAIN_LEN; i++) wind_main[v][i] = 0.0f;
-		for (int i = 0; i < SHORT_LEN; i++) wind_short[v][i] = 0.0f;
+		for (int i = 0; i < MAIN_LEN; i++) e.large->main[v][i] = 0.0f;
+		for (int i = 0; i < SHORT_LEN; i++) e.large->tube[v][i] = 0.0f;
 	}
 }
 
@@ -580,8 +588,8 @@ struct BlockCoef {
 template <int KIND>
 [[nodiscard]] static inline real run_voice(Engine& e, int v, const BlockCoef& c) {
 	VoiceState& s = e.vs[v];
-	float* __restrict__ mb = wind_main[v];
-	float* __restrict__ sb = wind_short[v];
+	float* __restrict__ mb = e.large->main[v];
+	float* __restrict__ sb = e.large->tube[v];
 	real* __restrict__ mix = e.mix;
 	real* __restrict__ nmix = e.nmix;
 	uint32_t widx = s.widx, rng = s.rng;
