@@ -2361,9 +2361,47 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
     }
 }
 
+/*
+ * The host of MIDI in's instrument messages (striso::midi::InstrumentInput: the RPN select, the
+ * bend range, the MCM, the instrument's bend, the pedal): what follows from them on the board.
+ * (The notes' messages: dis is NoteInput's host.)
+ */
+struct MidiInInstrument {
+    Instrument& d;
+    // NoteInput's host: the Instrument's
+    void note_started(int s, const striso::midi::NoteSignals& n) { d.note_started(s, n); }
+    void note_changed(int s, const striso::midi::NoteSignals& n) { d.note_changed(s, n); }
+    void note_silenced(int s) { d.note_silenced(s); }
+    void note_dropped(int s) { d.note_dropped(s); }
+    bool echoed(int channel) const { return d.echoed(channel); }
+    float bend_range() const { return d.bend_range(); }
+    // the MPE master channel's own range (2) is not the notes'
+    bool zone_master(int channel) const {
+        return config.midi_mode == MIDI_MODE_MPE && d.midi_channel_offset == 1 && channel == 0;
+    }
+    void set_bend_range(float semitones) { d.midi_bend_range = semitones; }
+    // an MCM: the MIDI out goes MPE with that many channels. 0 (zone off) is ignored rather than
+    // leaving no channel; the same configuration again (an echo of midi_config's) changes nothing.
+    void zone_configured(int channel, int members) {
+        if (channel == 0 && members >= 1 && members <= MAX_VOICECOUNT
+            && !(config.midi_mode == MIDI_MODE_MPE && d.midi_channel_offset == 1 && d.voicecount == members)) {
+            set_midi_mode(MIDI_MODE_MPE);
+            d.midi_channel_offset = 1;
+            d.voicecount = members;
+            d.channels_changed();
+        }
+    }
+    void set_pedal(float p) { *d.synth_pedal() = p; }
+    // the channels the Striso sends its notes' bends on: their bend is an echo (SC-16)
+    bool bends_out_on(int channel) const { return note_channel(channel); }
+    // the instrument's bend is on top of the tuning's offset, the preset's and the fine tune (it
+    // replaced them all, SC-15)
+    void bend_moved(float delta) { d.note_offset += delta; }
+};
+
 static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2) {
-    // the selected RPN per channel (RPN 0/0 is the pitch bend range)
-    static striso::midi::RpnSelect rpn;
+    // the bend range, the MCM, the instrument's bend, the pedal (and the RPN select per channel)
+    static striso::midi::InstrumentInput instrument_in;
 
     uint8_t channel = status & 0x0f;
     status &= 0xf0;
@@ -2390,36 +2428,13 @@ static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2) {
         return;  // its own motion CC, echoed
     }
 
+    MidiInInstrument host{dis};
+    if (status != 0xf0 && instrument_in.message(host, dis.midi_in, channel, status, data1, data2)) {
+        return;
+    }
+
     if (status == MIDI_CONTROL_CHANGE) {
-        if (rpn.control(channel, data1, data2)) return;
         switch (data1) {
-            case MIDI_C_DATA_ENTRY: {
-                if (rpn.is(channel, 0, 0)) {
-                    // pitch bend range of the notes: at least 1 (0 divides by zero). An MPE host
-                    // sends one per channel; the master channel's (2) is not the notes' range.
-                    bool mpe_master = config.midi_mode == MIDI_MODE_MPE && dis.midi_channel_offset == 1 && channel == 0;
-                    if (data2 >= 1 && !mpe_master) {
-                        dis.midi_bend_range = data2;
-                    }
-                } else if (rpn.is(channel, 0, 6)) {
-                    // MPE Configuration Message: the lower zone (master channel 1) with data2 member
-                    // channels. 0 (zone off) is ignored rather than leaving no channel; the upper
-                    // zone (master channel 16) isn't supported. The same configuration again (an
-                    // echo of midi_config's) changes nothing.
-                    if (channel == 0 && data2 <= 15) {
-                        dis.midi_in.set_members(data2);  // the zone of MIDI note input (0: none)
-                    }
-                    if (channel == 0 && data2 >= 1 && data2 <= MAX_VOICECOUNT
-                        && !(config.midi_mode == MIDI_MODE_MPE && dis.midi_channel_offset == 1 && dis.voicecount == data2)) {
-                        set_midi_mode(MIDI_MODE_MPE);
-                        dis.midi_channel_offset = 1;
-                        dis.voicecount = data2;
-                        dis.channels_changed();
-                    }
-                } else if (rpn.is(channel, 0, 1)) {
-                    // TODO: Tuning, done with pitch bend
-                }
-            } break;
             case  7: set_volume(data2); break;
             case 16: config.send_motion_interval = data2; break;
             // case 16|MIDI_C_LSB: config.send_motion_14bit = data2; break;
@@ -2428,9 +2443,6 @@ static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2) {
             case 18: { // Note offset
                 dis.set_note_offset(data2 - 2);
                 update_leds();
-            } break;
-            case 64: {
-                *dis.synth_pedal() = (float)data2 * (1.0f/127.0f);
             } break;
             case 65: { // portamento (glissando): on at >= 64, as MIDI's switches (SC-29)
                 dis.set_portamento(data2 >= 64);
@@ -2479,15 +2491,6 @@ static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2) {
                 dis.channels_changed();
             } break;
             default: break;
-        }
-    } else if (status == MIDI_PITCH_BEND) {
-        // a bend of the whole instrument (+-2 semitones), on top of the tuning's offset, the
-        // preset's and the fine tune (it replaced them all, SC-15); not on the channels the
-        // Striso sends its notes' bends on (an echo, SC-16)
-        if (!note_channel(channel)) {
-            float bend = striso::midi::instrument_bend(data1, data2);
-            dis.note_offset += bend - dis.midi_in.bend();
-            dis.midi_in.set_bend(dis, bend);
         }
     }
 }

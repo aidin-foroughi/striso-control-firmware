@@ -172,23 +172,42 @@ The WAV's INFO chunk says the same. An unknown engine, preset or performance, a 
 
 The engines run 32-sample blocks, and a MIDI event takes effect at the next block (within 0.67 ms at 48 kHz). A plugin that wants sample-accurate events splits its block at the events.
 
-#### MIDI in
+#### MIDI in and the voices
 
-`dsp/include/striso_dsp/midi_in.h` (`striso::midi::NoteInput`) is the one MIDI note input mapping. The board's `synth_control.cpp` runs it, and so does the SDK (`sdk::MidiVoices`, used by the shell and the renderer's MIDI files):
-- The MPE lower zone: its member channels (an MCM sets them); per channel, bend times the bend range (RPN 0), pressure and CC74.
-- The other channels' notes, with poly and channel pressure, CC1 and CC74, and their bend: the instrument's ±2 semitones.
-- Velocity becomes a strike that fades ×0.6 every 2 ms.
-- Note-off velocity becomes the release.
+Three pure units (no HAL, no heap) are the one copy of how MIDI in plays the internal synth. The board's `synth_control.cpp` runs them, and so does the SDK (`sdk::MidiVoices`, used by the shell and the renderer's MIDI files).
+
+**`striso_dsp/midi_in.h`, `NoteInput`: the notes.**
+- The MPE lower zone: per member channel, its bend times the bend range, pressure and CC74.
+- The other channels' notes, with poly and channel pressure, CC1 and CC74.
+- Velocity becomes a strike that fades ×0.6 every 2 ms; note-off velocity becomes the release.
 - With 16 notes held, a new one takes the oldest.
+- The host gets the notes (`note_started`, `note_changed`, `note_silenced`, `note_dropped`), says which channels its own MIDI out used lately (`echoed`) and gives the bend range.
 
-It is pure: no HAL, no heap. Its host does three things:
-- **Voices.** It gives the notes voices (`note_started`, `note_changed`, `note_silenced`, `note_dropped`). On the board these go to the key-voice allocator (`get_synth_voice`, shared with the keys); `sdk::MidiVoices` has its own allocator: a voice never used, else the one released longest ago, else none.
-- **Echoes.** It says which channels were its own MIDI out lately (`echoed`), so their echo isn't played.
-- **Bend range.** It gives the notes' bend range.
+**`striso_dsp/midi_in.h`, `InstrumentInput`: the instrument's messages.** It does:
+- the RPN select;
+- the notes' bend range (RPN 0: at least 1, not the zone master channel's);
+- the MCM (RPN 6 on channel 1: the zone's members, at most 15);
+- the instrument's bend (pitch bend outside the zone, ±2 semitones);
+- the pedal (CC64).
 
-MIDI is taken in 2 ms steps, as on the board: the strike fade first if one is fading, then the step's messages. The instrument-level messages stay with the host: the bend range, the MCM, the instrument's bend and the pedal (CC64); `RpnSelect` is shared. The board's host also does its remote-control CCs.
+The rules are the unit's. What follows from them is the host's: the board reconfigures its MIDI out on an MCM, moves its keys' `note_offset` with the bend, and knows which channels carry its own bends (echoes). The board's remote-control CCs (volume, modes, intervals) stay in `synth_control.cpp`.
 
-`virtual.midi in: one MIDI file through the firmware and through the SDK's shell...` checks that the board and the shell give bit-identical engine controls for one MIDI file: ten notes, MPE and the master channel, bends, pressures, the pedal.
+**`striso_dsp/voice_allocator.h`, `VoiceAllocator`: which note plays which voice.**
+- **The rule, in order:**
+  1. a repeated note keeps its voice;
+  2. else a voice no note has had;
+  3. else the quietest released voice;
+  4. else the quietest held voice, if it is quieter than the new note;
+  5. else none.
+- **The level estimate:** set at the note-on (pressure + strike), raised to its floor, and decaying ×0.998 − 0.0005 per 2 ms tick.
+- **What a note is:** a number. It knows no MIDI channels: on the board it is a key or a MIDI in note's slot; under a MIDI 2.0 decoder it would be a per-note id.
+- **The host's part:** it says which notes are held and gives their level floor. Voices below `first` are the host's (the board's Mono mode).
+
+MIDI is taken in 2 ms steps, as on the board: the voices' level decay and the strike fade first, then the step's messages.
+
+`virtual.midi in: ...` feeds MIDI files through both the board and the shell, and requires bit-identical engine controls:
+- an expressive file: MPE and master-channel notes, bends, pressures, the pedal;
+- a crowded one: 16 notes over 10 voices, so released and held voices are taken.
 
 ## Tests
 

@@ -74,17 +74,20 @@ TEST_CASE("midi in: MPE members bend, press and tilt their own notes") {
 	CHECK(m.globals().pedal == 1.0f);
 }
 
-TEST_CASE("midi in: more notes than voices: a released voice first, then none") {
+TEST_CASE("midi in: more notes than voices: a released voice first, then the quietest held one") {
 	sdk::MidiVoices m(2);
 	send(m, {{0x90, 60, 100}, {0x90, 62, 30}});
 	send(m, {{0x80, 60, 0}});
 	send(m, {{0x90, 64, 80}}); // takes 60's released voice
 	CHECK(voice_of(m, 64.0f) == 0);
 	CHECK(voice_of(m, 62.0f) == 1);
-	send(m, {{0x90, 65, 100}}); // both held: not played
-	CHECK(voice_of(m, 65.0f) < 0);
-	CHECK(voice_of(m, 62.0f) == 1);
+	send(m, {{0x90, 65, 100}}); // both held: steals the quieter 62
+	CHECK(voice_of(m, 65.0f) == 1);
+	CHECK(voice_of(m, 62.0f) < 0);
 	CHECK(voice_of(m, 64.0f) == 0);
+	send(m, {{0x90, 67, 10}}); // quieter than every held note: no voice
+	CHECK(voice_of(m, 67.0f) < 0);
+	CHECK(voice_of(m, 65.0f) == 1);
 }
 
 TEST_CASE("midi files: written and read back, tempo map applied") {

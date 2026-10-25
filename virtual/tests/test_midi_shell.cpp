@@ -1,14 +1,17 @@
 // One MIDI file through the firmware's path (USB MIDI in on the virtual board: PExReceive ->
 // MidiInMsgHandler -> the control thread -> synth_control's MIDI note input -> the synth thread's
 // controls) and through the SDK's shell (sdk::Shell, its MidiVoices): both run the one mapping,
-// striso_dsp/midi_in.h, so the engine controls are the same, bit for bit, every time the notes
-// have settled after an event (the strikes faded). MPE notes with their bend, pressure and
+// striso_dsp/midi_in.h (the notes, the instrument's messages) and voice_allocator.h (the voices),
+// so the engine controls are the same, bit for bit, every time the notes have settled after an
+// event (the strikes faded). The expressive performance: MPE notes with their bend, pressure and
 // timbre, the master channel's notes with the mod wheel and poly pressure, the instrument's bend,
-// a new bend range, the pedal, the releases: ten notes, one voice each on both sides.
+// a new bend range, the pedal, the releases. The crowded one: more notes than voices, so released
+// and held voices are taken by the allocator's rule.
 #include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <span>
 #include <vector>
 
 #include "board.h"
@@ -24,7 +27,7 @@ namespace sdk = striso::sdk;
 
 constexpr int SR = 48000, NV = 10, SETTLE_MS = 40;
 
-const sdk::MidiEvent performance[] = {
+const sdk::MidiEvent expressive[] = {
     // MPE notes: a strike, the channel's pressure, timbre and bend
     {0.10, {0x91, 60, 100}, 3},
     {0.15, {0xd1, 90, 0}, 2},
@@ -66,6 +69,25 @@ const sdk::MidiEvent performance[] = {
     {1.50, {0xe0, 0x00, 0x40}, 3},
 };
 
+// 16 notes over 10 voices: a chord held while others come and go, then more held notes than voices
+const sdk::MidiEvent crowded[] = {
+    {0.10, {0x91, 48, 120}, 3}, {0.10, {0x92, 52, 110}, 3}, {0.10, {0x93, 55, 100}, 3}, {0.10, {0x94, 59, 90}, 3},
+    {0.20, {0x95, 62, 80}, 3}, {0.20, {0x96, 65, 70}, 3}, {0.20, {0x97, 67, 60}, 3},
+    {0.30, {0x98, 69, 50}, 3}, {0.30, {0x99, 71, 40}, 3}, {0.30, {0x9a, 72, 30}, 3},
+    {0.40, {0x85, 62, 20}, 3}, {0.45, {0x86, 65, 64}, 3},  // two released
+    {0.50, {0x9b, 74, 100}, 3},                            // takes the quieter released voice
+    {0.55, {0x9c, 76, 127}, 3},                            // the other
+    {0.60, {0x9d, 77, 127}, 3},                            // all held: steals the quietest held one
+    {0.65, {0x9e, 79, 5}, 3},                              // quieter than every held note: no voice
+    {0.70, {0xd2, 127, 0}, 2},                             // a held note gets louder
+    {0.75, {0x9f, 81, 90}, 3},
+    {0.80, {0x81, 48, 0}, 3}, {0.80, {0x84, 59, 0}, 3},
+    {0.85, {0x95, 62, 100}, 3},                            // a released key struck again
+    {1.00, {0x82, 52, 0}, 3}, {1.00, {0x83, 55, 0}, 3}, {1.00, {0x87, 67, 0}, 3}, {1.00, {0x88, 69, 0}, 3},
+    {1.00, {0x89, 71, 0}, 3}, {1.00, {0x8a, 72, 0}, 3}, {1.00, {0x8b, 74, 0}, 3}, {1.00, {0x8c, 76, 0}, 3},
+    {1.00, {0x8d, 77, 0}, 3}, {1.00, {0x8e, 79, 0}, 3}, {1.00, {0x8f, 81, 0}, 3}, {1.00, {0x85, 62, 0}, 3},
+};
+
 // USB-MIDI event packets (cable 0): code index = the status's high nibble
 std::vector<uint8_t> packets(const std::vector<sdk::MidiEvent>& msgs) {
 	std::vector<uint8_t> p;
@@ -76,12 +98,9 @@ std::vector<uint8_t> packets(const std::vector<sdk::MidiEvent>& msgs) {
 	return p;
 }
 
-} // namespace
-
-TEST_CASE("midi in: one MIDI file through the firmware and through the SDK's shell gives the same engine controls") {
+void compare(std::span<const sdk::MidiEvent> performance, const char* path) {
 	// the file, written and read back: what both get
 	const std::vector<uint8_t> bytes = sdk::make_midi(performance);
-	const char* path = "striso_virtual_midi_shell.mid";
 	FILE* f = std::fopen(path, "wb");
 	REQUIRE(f != nullptr);
 	std::fwrite(bytes.data(), 1, bytes.size(), f);
@@ -89,7 +108,7 @@ TEST_CASE("midi in: one MIDI file through the firmware and through the SDK's she
 	const sdk::MidiFile file = sdk::read_midi_file(path);
 	std::remove(path);
 	REQUIRE(file.error.empty());
-	REQUIRE(file.events.size() == std::size(performance));
+	REQUIRE(file.events.size() == performance.size());
 	std::map<double, std::vector<sdk::MidiEvent>> groups; // the events of one moment
 	for (const sdk::MidiEvent& e : file.events) groups[e.t].push_back(e);
 
@@ -132,3 +151,9 @@ TEST_CASE("midi in: one MIDI file through the firmware and through the SDK's she
 	CHECK(sounding > 20); // (the notes did sound)
 	MESSAGE(moment << " moments, " << compared << " voice controls compared, " << sounding << " of them sounding");
 }
+
+} // namespace
+
+TEST_CASE("midi in: one MIDI file through the firmware and through the SDK's shell gives the same engine controls") { compare(expressive, "striso_virtual_midi_expressive.mid"); }
+
+TEST_CASE("midi in: more notes than voices: the firmware and the shell take the same voices") { compare(crowded, "striso_virtual_midi_crowded.mid"); }

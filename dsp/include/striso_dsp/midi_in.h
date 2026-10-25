@@ -1,7 +1,8 @@
-// MIDI note input: the notes that MIDI in plays on the internal synth, with the key signals a key
-// would give them. The one copy of the mapping: the board's synth_control.cpp (MIDI in from USB
-// and from the virtual board) and the SDK's hosts (sdk/: the shell, the renderer's MIDI files)
-// both run it. Pure: no HAL, no heap; the voices and the echo filter are the host's.
+// MIDI in: the notes that MIDI in plays on the internal synth, with the key signals a key would
+// give them (NoteInput), and the instrument's messages (InstrumentInput, below). The one copy:
+// the board's synth_control.cpp (MIDI in from USB and from the virtual board) and the SDK's hosts
+// (sdk/: the shell, the renderer's MIDI files) both run it. Pure: no HAL, no heap; the voices
+// (voice_allocator.h) and the echo filter are the host's.
 //
 // - MPE: the lower zone, member channels 2 .. 1 + members() (an MCM on channel 1 sets it with
 //   set_members(); 15 at the start). Per member channel: its notes; pitch bend x the host's bend
@@ -242,6 +243,59 @@ private:
 	float chan_pres_[16] = {};
 	bool chan_pres_set_[16] = {};
 	volatile bool fading_ = false; // (read by the board's main loop: synth_tick)
+};
+
+// The messages of the instrument that MIDI in plays (after NoteInput took the notes'): the RPN
+// select, the notes' bend range (RPN 0, at least 1, not the MPE zone master's), the MCM (RPN 6 on
+// channel 1: the zone's member channels, at most 15), the instrument's bend (pitch bend outside
+// the zone, +-2 semitones), the pedal (CC64). The rules are this class's; what follows from them
+// is the host's (the host, any type with these members, besides NoteInput's):
+//   bool zone_master(int channel)          an RPN 0 on this channel is the zone master's own range
+//   void set_bend_range(float semitones)   the notes' new bend range
+//   void zone_configured(int channel, int members)  an MCM came (the board: its MIDI out's mode)
+//   void set_pedal(float)                  0 .. 1
+//   bool bends_out_on(int channel)         the host sends its own notes' bends on this channel (a
+//                                          pitch bend from it is an echo, not the instrument's)
+//   void bend_moved(float delta)           the instrument's bend changes by delta (before the notes)
+class InstrumentInput {
+public:
+	// a control change or pitch bend NoteInput didn't take: true if it was one of these
+	template <class Host> bool message(Host& h, NoteInput& notes, uint8_t channel, uint8_t status, uint8_t data1, uint8_t data2) {
+		if (status == 0xb0) {
+			if (rpn_.control(channel, data1, data2)) return true;
+			if (data1 == 6) { // data entry
+				if (rpn_.is(channel, 0, 0)) {
+					// the notes' bend range: at least 1 (0 divides by zero); an MPE host sends one
+					// per channel, the master channel's is not the notes'
+					if (data2 >= 1 && !h.zone_master(channel)) h.set_bend_range(data2);
+				} else if (rpn_.is(channel, 0, 6)) {
+					// the MPE Configuration Message: the lower zone (master channel 1) with data2
+					// member channels (0: none); the upper zone (master 16) isn't supported
+					if (channel == 0 && data2 <= 15) notes.set_members(data2);
+					h.zone_configured(channel, data2);
+				}
+				return true;
+			}
+			if (data1 == 64) {
+				h.set_pedal((float)data2 * (1.0f / 127.0f));
+				return true;
+			}
+			return false;
+		}
+		if (status == 0xe0) {
+			// a bend of the whole instrument, unless it is the echo of the host's own bends
+			if (!h.bends_out_on(channel)) {
+				const float bend = instrument_bend(data1, data2);
+				h.bend_moved(bend - notes.bend());
+				notes.set_bend(h, bend);
+			}
+			return true;
+		}
+		return false;
+	}
+
+private:
+	RpnSelect rpn_;
 };
 
 } // namespace striso::midi
