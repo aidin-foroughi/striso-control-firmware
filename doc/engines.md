@@ -131,6 +131,55 @@ Then measure:
 - **Dispatch.** `Engines::visit(k, ...)` is a chain of compares the compiler inlines. There are no function pointers, so the build's stack check follows every call.
 - **Presets.** Every preset of every engine is one entry of the voice list.
 
+### MIDI 2.0: the Striso UMP profile
+
+Everything that plays the internal synth reaches the engines as MIDI 2.0 Universal MIDI Packets, through one decoder (`striso_dsp/ump.h`, `ump::Decoder`):
+- **the keys:** `synth_control.cpp`'s `update_synth_voice` sends each key's controls as packets, in the same key message, block and order as before;
+- **MIDI 1.0 and MPE in:** `NoteInput` (`midi_in.h`) up-converts them;
+- **MIDI 2.0 in:** `UmpInMsgHandler` (the virtual board's `sv_ump_write`; USB MIDI 2.0 next) gives MIDI 2.0 channel voice messages to `NoteInput::message2` and `InstrumentInput::message2`, and MIDI 1.0 ones in UMP (types 1, 2) to `MidiInMsgHandler`.
+
+The engines and their controls did not change. The board's engine controls are bit for bit what they were: every control_replay golden, synth_control scenario, virtual transcript and render, and both board-vs-shell tests are unchanged.
+
+**1. Inside and the edges.** Inside the instrument the packets are standard MIDI 2.0 channel voice messages (type 4, group 0, channel 0) with the Striso scale. The note number is the host's note id (on the board: a key 0..67, a MIDI in note 68..83), not a pitch.
+
+| engine control | message | Striso scale (inside) |
+|---|---|---|
+| note on / off | Note On 0x9 / Note Off 0x8 | velocity 16; attribute type 0x02 (the profile), data bit 0 = a strike |
+| note (pitch) | Assignable Per-Note Controller 0x1, index 1 | signed 9.23 semitones (−256..256) |
+| pres | Poly Pressure 0xA | pres × 8191 × 2^17 (the board's code << 17), unsigned |
+| vpres | Assignable Per-Note Controller 0x1, index 2 | vpres × 8191 × 2^16 (code << 16), signed |
+| but_x | Assignable Per-Note Controller 0x1, index 3 | as vpres |
+| but_y | Assignable Per-Note Controller 0x1, index 4 | as vpres |
+| its sound ends (a newer note takes the id) | Per-Note Management 0xF, flag D (2) | |
+| it ends silently (all notes off) | Per-Note Management 0xF, flag S (1) | |
+| an exact value | Assignable Per-Note Controller 0x1, index 0x11..0x15 (pitch, pres, vpres, x, y) | the float32's bits |
+
+A value decodes as `(float)(word / scale)` in double, one rounding. The board's codes (int16, `code / 8191`), MIDI 1.0's values (`v × (1/127)`, CC74, the release) and MPE's pitches all come back exactly. A value made from several keys (the portamento and free-transpose merges are weighted averages) can need more bits than 32: the encoder sends it as an **exact value** instead, so the engines get the same float. `sdk/tests/test_ump.cpp` checks every int16 code.
+
+At every external edge (`sv_ump_write` now; USB MIDI 2.0 in and out next) the messages are converted to and from the standard MIDI 2.0 meaning.
+
+**2. Standard input.**
+- Full-scale pressure (2^32 − 1) is the Striso's calibrated full press: 1.0, code 8191 (not the 4.0 the inside scale has room for). The same holds for CC1.
+- Note velocity is 16 bits: `v / 65535`, a release with a negative vpres.
+- Bipolar controllers (pitch bend, CC74) follow the spec: the centre 0x80000000 is exactly 0, and each side is scaled to its own end.
+- Registered Per-Note Controller 3 (Pitch 7.25) sets a note's own pitch. Inside it becomes 9.23.
+- Registered Controller 0 is the bend range (semitones and cents), Registered Controller 6 is the MCM, and CC64 is the pedal.
+- The board's remote-control CCs and its echo filter take the value's top 7 bits.
+
+`virtual.ump in: ...` sends one performance three ways: as MPE bytes, as standard MIDI 2.0, and as MIDI 1.0 in UMP. Where MPE can say a value, the engine controls are the same, bit for bit: pressures, CC1, CC74, bends, the bend range, the pedal, velocity 127, the releases. Where MPE can't, they follow the finer value: 16-bit velocities, 32-bit pressures, a bend finer than 14 bits, a note's own pitch.
+
+Two things MIDI 1.0 says differently from its closest MIDI 2.0 value:
+- **Velocities.** v/127 has no exact 16-bit word, so it is up to 7.6·10^−6 away.
+- **Eight 7-bit values** (9, 13, 18, 26, 36, 52, 72, 104). Here MIDI 1.0's float `v × (1/127)` is one float step off v/127. The 32-bit value gives the correctly rounded v/127, and the MIDI 1.0 path keeps its own product.
+
+**3. Touch factors.** The decoder applies them per note, in the board's float expressions: `pres × pres_sensitivity`, `vpres × velo_sensitivity`, `clamp(y × y_sensitivity, −1, 1)` for a key, and × 1 for a MIDI in note. The packets carry the untouched values.
+
+**4. Out-of-range pitch.** MPE pitches outside 0..127 (−48..175 with a 48-semitone bend) are exact inside under 9.23. They are clamped only at the MIDI 2.0 output edge, to Pitch 7.25's 0..128.
+
+**The strike.** A Note On with the strike bit gets its vpres faded by the decoder: ×0.6 every 2 ms (`tick()`) while above 0.01, then 0. This is what MIDI in always did. The keys send their measured vpres and no strike bit.
+
+**Not in it yet.** The globals have numbers (the pedal CC64; the accelerometer and gyroscope, Assignable Controllers 0x10..0x16), but the board still writes them directly.
+
 ### On the PC (`sdk/`)
 
 | | |
@@ -174,14 +223,15 @@ The engines run 32-sample blocks, and a MIDI event takes effect at the next bloc
 
 #### MIDI in and the voices
 
-Three pure units (no HAL, no heap) are the one copy of how MIDI in plays the internal synth. The board's `synth_control.cpp` runs them, and so does the SDK (`sdk::MidiVoices`, used by the shell and the renderer's MIDI files).
+Three pure units (no HAL, no heap), with the profile's decoder (`ump.h`), are the one copy of how MIDI in plays the internal synth. The board's `synth_control.cpp` runs them, and so does the SDK (`sdk::MidiVoices`, used by the shell and the renderer's MIDI files).
 
 **`striso_dsp/midi_in.h`, `NoteInput`: the notes.**
 - The MPE lower zone: per member channel, its bend times the bend range, pressure and CC74.
 - The other channels' notes, with poly and channel pressure, CC1 and CC74.
 - Velocity becomes a strike that fades ×0.6 every 2 ms; note-off velocity becomes the release.
 - With 16 notes held, a new one takes the oldest.
-- The host gets the notes (`note_started`, `note_changed`, `note_silenced`, `note_dropped`), says which channels its own MIDI out used lately (`echoed`) and gives the bend range.
+- It is the up-converter into the Striso UMP profile (above): the host gets packets (`ump`) for its decoder, which then calls `note_started`, `note_changed`, `note_silenced`, `note_dropped`. The host also says which channels its own MIDI out used lately (`echoed`) and gives the bend range.
+- `message2` takes standard MIDI 2.0 the same way, at its resolution.
 
 **`striso_dsp/midi_in.h`, `InstrumentInput`: the instrument's messages.** It does:
 - the RPN select;
@@ -200,7 +250,7 @@ The rules are the unit's. What follows from them is the host's: the board reconf
   4. else the quietest held voice, if it is quieter than the new note;
   5. else none.
 - **The level estimate:** set at the note-on (pressure + strike), raised to its floor, and decaying ×0.998 − 0.0005 per 2 ms tick.
-- **What a note is:** a number. It knows no MIDI channels: on the board it is a key or a MIDI in note's slot; under a MIDI 2.0 decoder it would be a per-note id.
+- **What a note is:** a number. It knows no MIDI channels: on the board it is a key or a MIDI in note's slot, the UMP profile's note id.
 - **The host's part:** it says which notes are held and gives their level floor. Voices below `first` are the host's (the board's Mono mode).
 
 MIDI is taken in 2 ms steps, as on the board: the voices' level decay and the strike fade first, then the step's messages.
