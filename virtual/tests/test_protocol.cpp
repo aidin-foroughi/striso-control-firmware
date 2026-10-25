@@ -221,6 +221,83 @@ TEST_CASE("protocol: Stcq, the control thread's inbox per lane (R23), before and
 	check_transcript("inbox", s.text);
 }
 
+// --- settings presets and tunings from a user config ------------------------------------------------
+
+namespace {
+
+// a user config page (the config editor's CONFIG.UF2 contents): every preset setting in range, out
+// of range, malformed or blank somewhere, and tunings of its own (preset_loads)
+std::string preset_config() {
+	std::string data;
+	auto field = [&](std::string s) {
+		s.resize(8, ' ');
+		data += s;
+	};
+	field("MConfig ");
+	field("v1.0");
+	const std::vector<std::pair<std::string, std::string>> recs = {
+	    // preset 2: Normal mode, every value in range
+	    {"sP2name", "normal"}, {"hP2color", "#102030"}, {"sP2Mmode", "normal"}, {"iP2MChan", "5"}, {"iP2Mpres", "10"},
+	    {"iP2Mx", "11"}, {"iP2My", "12"}, {"iP2Mvelo", "13"}, {"iP2voice", "4"}, {"iP2MPEpb", "24"}, {"iP2tunin", "2"},
+	    {"fP2Toff", "25.5"}, {"sP2flip", "yes"}, {"fP2thres", "0.2"}, {"fP2bendS", "1.5"}, {"fP2presS", "2.0"},
+	    {"fP2veloS", "0.5"}, {"fP2tiltS", "-1.0"}, {"iP2veloO", "10"}, {"fP2volum", "100"}, {"fP2decay", "200"},
+	    {"fP2decaP", "300"}, {"iP2Mpgm", "5"}, {"iP2Mint", "3"}, {"iP2Mmint", "20"}, {"sP2Mnote", "tuning"},
+	    {"sP2jack2", "midi"},
+	    // preset 3: Mono mode, out of range and malformed values
+	    {"sP3Mmode", "mono"}, {"iP3MChan", "17"}, {"iP3Mint", "0"}, {"iP3tunin", "9"}, {"fP3Toff", "5000"},
+	    {"iP3voice", "15"}, {"fP3thres", "0.8"}, {"fP3bendS", "-3"}, {"fP3tiltS", "12"}, {"sP3flip", "no"},
+	    {"sP3Mnote", "button"}, {"sP3jack2", "pedal_ex"}, {"iP3Mpgm", "127"}, {"fP3presS", "1.2.3"},
+	    {"fP3veloS", "abc"}, {"iP3Mpres", "-1"}, {"fP3volum", "255"}, {"hP3color", "#zz0000"},
+	    // preset 4: MPE with 15 voices, the lowest offset, no tuning
+	    {"sP4Mmode", "mpe"}, {"iP4voice", "15"}, {"iP4MChan", "2"}, {"iP4MPEpb", "96"}, {"fP4Toff", "-4800"},
+	    {"sP4flip", "yes"}, {"sP4Mnote", "default"}, {"sP4jack2", "pedal_sw"}, {"iP4Mpgm", "0"}, {"fP4decay", "0"},
+	    // preset 5: an offset without a tuning
+	    {"fP5Toff", "12.5"}, {"sP5jack2", "linein"}, {"iP5MChan", "1"}, {"fP5presS", "10"},
+	    // preset 6: 12-TET, one MPE voice
+	    {"iP6tunin", "0"}, {"sP6jack2", "auto"}, {"sP6flip", "no"}, {"sP6Mmode", "mpe"}, {"iP6voice", "1"},
+	    {"fP6decaP", "254.9"},
+	    // preset 7: tuning 8 in Normal mode on channel 16
+	    {"iP7tunin", "8"}, {"sP7Mmode", "normal"}, {"iP7MChan", "16"}, {"iP7Mpgm", "64"}, {"fP7volum", "0"},
+	    // tunings of the config's own: 1 with another fifth, octave and offset; 3 with key offsets
+	    {"sT1name", "17 tet"}, {"fT1fifth", "705.8824"}, {"fT1oct", "1199.0"}, {"fT1off", "-10.5"},
+	    {"hT1color", "#123456"}, {"fT3F_1", "12.5"}, {"fT3C_3", "-30"}, {"fT3B_4", "7.25"}, {"fT8off", "3.0"}};
+	for (const auto& [k, v] : recs) {
+		field(k);
+		field(v);
+	}
+	field("MCfgEnd ");
+	field("");
+	return data;
+}
+
+} // namespace
+
+TEST_CASE("protocol: every settings preset in every tuning from a user config: StcY, the parameter lists, StcN") {
+	// the settings presets' and tunings' effect, everything a host sees of it (the PresetLoader's
+	// bit-exactness: this transcript was recorded before load_preset left synth_control.cpp)
+	const std::string data = preset_config();
+	sv_options o{};
+	o.size = sizeof o;
+	o.flash = reinterpret_cast<const uint8_t*>(data.data());
+	o.flash_len = static_cast<uint32_t>(data.size());
+	Session s{vt::Board(&o), ""};
+	s.cmd("X", 40);
+	s.cmd("Y");
+	for (int tuning : {34, 36, 38, 23, 25, 27, 29, 31, 33}) {
+		s.send(k(tuning));
+		s.cmd("Y");
+		for (int preset : {35, 37, 39, 41, 43, 45, 30, 32}) {
+			s.send(k(preset));
+			s.cmd("Y");
+			s.cmd("g", 40);
+			s.cmd("N", 40);
+		}
+		// (the voice's and the effects' parameters and the key factors: no preset changes them)
+		for (const char* c : {"p", "f", "k"}) s.cmd(c, 40);
+	}
+	check_transcript("preset_loads", s.text);
+}
+
 // --- the real board -------------------------------------------------------------------------------
 
 namespace {

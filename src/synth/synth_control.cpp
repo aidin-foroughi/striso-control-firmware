@@ -34,6 +34,9 @@ extern "C" {
 #include "config.h"
 #include "config_store.h"
 #include "config_table.hpp"
+#include "preset_loader.hpp"
+#include "settings_keys.hpp"
+#include "led_view.hpp"
 #include "striso.h"
 #include "midi_usb.h"
 #include "midi_serial.h"
@@ -668,12 +671,7 @@ class Instrument {
             notegen1 = clamp(g, 6.85714285714286f, 7.2f);
 
             // base color depending on tuning system
-            if (notegen1 < 6.94)       {tuning_color = 0x550055;}
-            else if (notegen1 < 6.957) {tuning_color = 0x0000aa;}
-            else if (notegen1 < 6.984) {tuning_color = 0x005555;}
-            else if (notegen1 < 7.010) {tuning_color = 0x00aa00;}
-            else if (notegen1 < 7.03)  {tuning_color = 0x555500;}
-            else                       {tuning_color = 0xaa0000;}
+            tuning_color = led_view::generator_color(notegen1);
 
             update_leds();
         }
@@ -702,37 +700,8 @@ class Instrument {
             }
         }
 
-        void load_tuning(int n) {
-            if (cur_tuning == n) {
-                led_rgb(tuning_color);
-                return;
-            }
-            if (n == 0) {
-                // tuning 0 hard coded to 12tet
-                notegen0 = 12.0f;
-                set_notegen1(7.0f);
-                reset_note_offsets();
-                tuning_note_offset = 0.0f;
-                note_offset = tuning_note_offset + midi_in.bend();
-                led_rgb(tuning_color);
-                cur_tuning = n;
-                return;
-            }
-            using settings::KeyName;
-            const settings::ConfigTable cfg = settings::board();
-            notegen1 = cfg.get_float(KeyName::tuning(n, "fifth")).value_or(700.0f) / 100;
-            notegen0 = cfg.get_float(KeyName::tuning(n, "oct")).value_or(1200.0f) / 100;
-            tuning_note_offset = cfg.get_float(KeyName::tuning(n, "off")).value_or(0.0f) / 100;
-            note_offset = tuning_note_offset + midi_in.bend();
-            for (int k = 0; k < 61; k++) {
-                // the key that plays note k: on a flipped layout, the mirrored one (SC-12)
-                int but = button_number_map[flipdir == 1 ? k : 60 - k];
-                buttons[but].tuning_note_offset = cfg.get_float(KeyName::tuning_key(n, k)).value_or(0.0f) / 100;
-            }
-            tuning_color = cfg.get_hex(KeyName::tuning(n, "color")).value_or(0);
-            led_rgb(tuning_color);
-            cur_tuning = n;
-        }
+        // tuning n (PresetLoader::load_tuning, after the class)
+        void load_tuning(int n);
 
         /* Rotate the layout 180 degrees */
         void flip(void) {
@@ -1473,7 +1442,7 @@ unsigned int aux_button_map = 0;
  * leds as releasing Settings leaves them (update_leds). The console only queues the request
  * (synth_settings_key, message ID_INTERNAL): it runs in the thread that handles the keys
  * (synth_message, the control thread), so it never races a real key press.
- * Allowed: the keys flagged SKF_CONSOLE in the settings-key table (settings_keys[], next to
+ * Allowed: the keys flagged kConsole in the settings-key table (settings_key_table, next to
  * config_but; StcX lists them with the flag 'k'): the MIDI modes, the tunings, the settings presets,
  * the voices of the engines in this firmware and panic. Refused: system reset, send cfg, flip, the
  * dials (they need an amount, not a press) and anything else. None of the allowed keys writes flash
@@ -1604,271 +1573,170 @@ int synth_message(int size, int* msg) {
     return 0;
 }
 
+// The instrument as PresetLoader sees it (preset_loader.hpp): the control logic's state and effects
+struct InstrumentBoard {
+    Instrument& in;
+
+    void led(uint32_t rgb) { led_rgb(rgb); }
+    void message_interval(int ms) { config.message_interval = ms; }
+    void motion_interval(int i) { config.send_motion_interval = i; }
+    midi_mode_t midi_mode() const { return config.midi_mode; }
+    void set_midi_mode(midi_mode_t m) { ::set_midi_mode(m); }
+    void midinote_mode(midinote_mode_t m) { config.midinote_mode = m; }
+    void jack2(jack2_mode_t m) { aux_jack_switch_mode_setting(m); }
+    int flipdir() const { return in.flipdir; }
+    void flip() { in.flip(); }
+    void load_tuning(int n) { in.load_tuning(n); }
+    void preset_offset(float semitones) { in.note_offset = in.tuning_note_offset + semitones + in.midi_in.bend(); }
+    void axis_cc(MidiAxis a, bool normal, int cc) {
+        uint8_t& v = a == MidiAxis::pressure ? (normal ? config.midi_pres : config.mpe_pres)
+                   : a == MidiAxis::x        ? (normal ? config.midi_x : config.mpe_x)
+                                             : (normal ? config.midi_y : config.mpe_y);
+        v = cc;
+    }
+    void contvelo(int cc) { config.mpe_contvelo = cc; }
+    int channel_offset() const { return in.midi_channel_offset; }
+    void channel_offset(int c) { in.midi_channel_offset = c; }
+    void bend_range(int semitones) { in.midi_bend_range = semitones; }
+    int voicecount() const { return in.voicecount; }
+    void voicecount(int n) { in.voicecount = n; }
+    void channels_changed() { in.channels_changed(); }
+    void zero_offset(int v) { config.zero_offset = v; }
+    void bend_sensitivity(float f) { in.bend_sensitivity = f; }
+    void pres_sensitivity(float f) { in.pres_sensitivity = f; }
+    void velo_sensitivity(float f) { in.velo_sensitivity = f; }
+    void tilt_sensitivity(float f) { in.y_sensitivity = f; }
+    void velo_offset(int v) { in.midi_velo_offset = v; }
+    void volume(float v) { set_volume(v); }
+    void decay(float v) {
+        config.pedal_sw1_values[0] = v;
+        *in.synth_pedal() = v * (1.0f/127.0f);
+    }
+    void pedal_decay(float v) { config.pedal_sw1_values[1] = v; }
+    void midi_config() { ::midi_config(); }
+    int voice_channel(int i) const { return in.voice_channel(i); }
+    void program_change(int channel, int program) { MidiSend2(MIDI_PROGRAM_CHANGE | channel, program); }
+
+    int tuning() const { return in.cur_tuning; }
+    int tuning_color() const { return in.tuning_color; }
+    void equal_temperament() {
+        in.notegen0 = 12.0f;
+        in.set_notegen1(7.0f);
+        in.reset_note_offsets();
+        in.tuning_note_offset = 0.0f;
+        in.note_offset = in.tuning_note_offset + in.midi_in.bend();
+    }
+    void generators(float fifth, float octave) {
+        in.notegen1 = fifth;
+        in.notegen0 = octave;
+    }
+    void tuning_offset(float semitones) {
+        in.tuning_note_offset = semitones;
+        in.note_offset = in.tuning_note_offset + in.midi_in.bend();
+    }
+    // the key that plays note k: on a flipped layout, the mirrored one (SC-12)
+    void key_offset(int k, float semitones) {
+        in.buttons[button_number_map[in.flipdir == 1 ? k : 60 - k]].tuning_note_offset = semitones;
+    }
+    void set_tuning(int n, int color) {
+        in.tuning_color = color;
+        in.cur_tuning = n;
+    }
+};
+
+void Instrument::load_tuning(int n) {
+    InstrumentBoard b{*this};
+    PresetLoader<InstrumentBoard>(settings::board(), b).load_tuning(n);
+}
+
 void load_preset(int n) {
-    bool sendcfg = false;
-    using settings::KeyName;
-    const settings::ConfigTable cfg = settings::board();
-    // preset n's setting; the integer or decimal if it is in [lo, hi]
-    auto P = [n](settings::PresetField f) { return KeyName::preset(n, f); };
-    auto int_in = [&cfg](KeyName k, int lo, int hi) {
-        const std::optional<int> i = cfg.get_int(k);
-        return i && *i >= lo && *i <= hi ? i : std::nullopt;
-    };
-    auto float_in = [&cfg](KeyName k, float lo, float hi) {
-        const std::optional<float> f = cfg.get_float(k);
-        return f && *f >= lo && *f <= hi ? f : std::nullopt;
-    };
-    // below 255 (volume, decays)
-    auto float_below = [&cfg](KeyName k, float lo, float hi) {
-        const std::optional<float> f = cfg.get_float(k);
-        return f && *f >= lo && *f < hi ? f : std::nullopt;
-    };
-    const uint32_t led = cfg.get_hex(P("color")).value_or(0);
-    led_rgb(led);
-
-    if (auto i = int_in(P("Mint"), 1, 127)) {
-        config.message_interval = *i;
-    }
-
-    if (auto i = int_in(P("Mmint"), 0, 127)) {
-        config.send_motion_interval = *i;
-    }
-
-    // (cfg.is: no values kept, the frame is on the 1 kB stacks of main and the key thread)
-    if (cfg.is(P("Mmode"), "mpe")) {
-        set_midi_mode(MIDI_MODE_MPE);
-        sendcfg = true;
-    } else if (cfg.is(P("Mmode"), "normal")) {
-        set_midi_mode(MIDI_MODE_POLY);
-        sendcfg = true;
-    } else if (cfg.is(P("Mmode"), "mono")) {
-        set_midi_mode(MIDI_MODE_MONO);
-        sendcfg = true;
-    }
-
-    if (cfg.is(P("Mnote"), "default")) {
-        config.midinote_mode = MIDINOTE_MODE_DEFAULT;
-    } else if (cfg.is(P("Mnote"), "tuning")) {
-        config.midinote_mode = MIDINOTE_MODE_TUNING;
-    } else if (cfg.is(P("Mnote"), "button")) {
-        config.midinote_mode = MIDINOTE_MODE_BUTTON;
-    }
-
-    if (cfg.is(P("jack2"), "pedal_ex")) {
-        aux_jack_switch_mode_setting(JACK2_MODE_PEDAL_EXPRESSION);
-    } else if (cfg.is(P("jack2"), "pedal_sw")) {
-        aux_jack_switch_mode_setting(JACK2_MODE_PEDAL_SWITCH);
-    } else if (cfg.is(P("jack2"), "midi")) {
-        aux_jack_switch_mode_setting(JACK2_MODE_MIDI);
-    } else if (cfg.is(P("jack2"), "linein")) {
-        aux_jack_switch_mode_setting(JACK2_MODE_LINEIN);
-    } else if (cfg.is(P("jack2"), "auto")) {
-        aux_jack_switch_mode_setting(JACK2_MODE_AUTODETECT);
-    }
-
-    if ((cfg.is(P("flip"), "yes") && dis.flipdir == 1) || (cfg.is(P("flip"), "no") && dis.flipdir == -1)) {
-        dis.flip();
-    }
-
-    const std::optional<int> tuning = int_in(P("tunin"), 0, 8);
-    if (tuning) {
-        dis.load_tuning(*tuning);
-    }
-
-    const std::optional<float> toff = float_in(P("Toff"), -4800.0f, 4800.0f);
-    if (tuning || toff) {
-        // the tuning's offset plus the preset's: a preset with a tuning and no Toff also clears an
-        // earlier preset's Toff and the fine tune (load_tuning keeps them for the same tuning, SC-04)
-        dis.note_offset = dis.tuning_note_offset + (toff ? *toff / 100.0f : 0.0f) + dis.midi_in.bend();
-    }
-
-    if (auto i = int_in(P("Mpres"), 0, 127)) {
-        if (config.midi_mode == MIDI_MODE_POLY) {
-            config.midi_pres = *i;
-        } else {
-            config.mpe_pres = *i;
-        }
-    }
-
-    if (auto i = int_in(P("Mx"), 0, 127)) {
-        if (config.midi_mode == MIDI_MODE_POLY) {
-            config.midi_x = *i;
-        } else {
-            config.mpe_x = *i;
-        }
-    }
-
-    if (auto i = int_in(P("My"), 0, 127)) {
-        if (config.midi_mode == MIDI_MODE_POLY) {
-            config.midi_y = *i;
-        } else {
-            config.mpe_y = *i;
-        }
-    }
-
-    if (auto i = int_in(P("Mvelo"), 0, 127)) {
-        config.mpe_contvelo = *i;
-    }
-
-    if (auto i = int_in(P("MChan"), 1, 16)) {
-        dis.midi_channel_offset = *i - 1;
-        sendcfg = true;
-    }
-
-    if (auto i = int_in(P("MPEpb"), 1, 127)) {
-        dis.midi_bend_range = *i;
-        sendcfg = true;
-    }
-
-    if (auto i = int_in(P("voice"), 1, MAX_VOICECOUNT); i && config.midi_mode == MIDI_MODE_MPE) {
-        dis.voicecount = *i;
-        sendcfg = true;
-    }
-    dis.channels_changed();
-
-    if (auto f = float_in(P("thres"), 0.0f, 1.0f)) {
-        config.zero_offset = clamp(*f, 0.0f, 0.5f) * (1 << 24);
-    }
-
-    if (auto f = float_in(P("bendS"), -10.0f, 10.0f)) {
-        dis.bend_sensitivity = *f * 2;
-    }
-
-    if (auto f = float_in(P("presS"), 0.0f, 10.0f)) {
-        dis.pres_sensitivity = *f;
-    }
-
-    if (auto f = float_in(P("veloS"), 0.0f, 10.0f)) {
-        dis.velo_sensitivity = *f;
-    }
-
-    if (auto f = float_in(P("tiltS"), -10.0f, 10.0f)) {
-        dis.y_sensitivity = *f;
-    }
-
-    // volume and decays are 0..127 (config.h); up to 254 gave 4x the knob's maximum gain (+12 dB)
-    // and a pedal value of 2 (SC-13)
-    if (auto f = float_below(P("volum"), 0.0f, 255.0f)) {
-        set_volume(min(*f, 127.0f));
-    }
-
-    if (auto f = float_below(P("decay"), 0.0f, 255.0f)) {
-        f = min(*f, 127.0f);
-        config.pedal_sw1_values[0] = *f;
-        *dis.synth_pedal() = *f * (1.0f/127.0f);
-    }
-
-    if (auto f = float_below(P("decaP"), 0.0f, 255.0f)) {
-        config.pedal_sw1_values[1] = min(*f, 127.0f);
-    }
-
-    if (auto i = int_in(P("veloO"), 0, 127)) {
-        dis.midi_velo_offset = *i;
-    }
-
-    if (sendcfg) {
-        midi_config();
-    }
-
-    if (auto i = int_in(P("Mpgm"), 0, 127)) {
-        if (config.midi_mode == MIDI_MODE_POLY) {
-            // Normal mode has one channel (it went to voicecount channels, SC-19)
-            MidiSend2(MIDI_PROGRAM_CHANGE | dis.voice_channel(0), *i);
-        } else {
-            if (dis.midi_channel_offset == 1) {
-                MidiSend2(MIDI_PROGRAM_CHANGE, *i);
-            }
-            for (int c = 0; c < dis.voicecount; c++) {
-                MidiSend2(MIDI_PROGRAM_CHANGE | dis.voice_channel(c), *i);
-            }
-        }
-    }
-
-    led_rgb(led);
+    InstrumentBoard b{dis};
+    PresetLoader<InstrumentBoard>(settings::board(), b).load_preset(n);
 }
 
 
 /*
- * The settings-key layout: what every key does with Settings held, one entry per key that does
- * something in config_but (ascending id). The console prints it (StcX, synth_settings_keys_print)
- * so the PC shows the board's own layout instead of a copy of it; StcK accepts the keys flagged
- * SKF_CONSOLE. The voice keys' engine and indicator colour here are what config_but passes to
- * config_voice. A voice key whose engine isn't in this firmware is left out (StcX) and refused (StcK).
+ * The settings keys (settings_keys.hpp): one row per key that does something with Settings held
+ * (ascending id), its layout entry and its action. The console prints the layout (StcX,
+ * synth_settings_keys_print) so the PC shows the board's own instead of a copy; StcK presses the
+ * rows flagged kConsole. A voice key is one row: its engine and the indicator colour config_voice
+ * shows. A voice key whose engine isn't in this firmware is left out (StcX) and refused (StcK).
  */
-enum : uint8_t { SK_SWITCH, SK_DIAL, SK_ACTION };  // a press selects / hold and tilt / does something
-enum : uint8_t { SG_MIDI, SG_LAYOUT, SG_SENS, SG_VOICE, SG_TUNING, SG_PRESET, SG_MIDI2, SG_SYSTEM };
-#define SKF_CONSOLE 1  // StcK may press it
-#define SKF_DANGER 2   // restarts the board
-typedef struct {
-    uint8_t id, kind, group, flags;
-    int8_t arg;          // tuning keys: the tuning, preset keys: the preset, else -1
-    const char* engine;  // voice keys: the engine (as synth_voice_name), else NULL
-    uint32_t led;        // voice keys: config_voice's indicator colour, r g b as 0xrrggbb
-    const char* label;   // at most 6 characters, no spaces
-    const char* title;
-    const char* knob;    // what tilting the held key sets ("" when nothing)
-} settings_key_info_t;
+using settings_keys::Action;
+using settings_keys::kSwitch;
+using settings_keys::kDial;
+using settings_keys::kActionKind;
+using settings_keys::kMidi;
+using settings_keys::kLayout;
+using settings_keys::kSens;
+using settings_keys::kVoice;
+using settings_keys::kTuning;
+using settings_keys::kPreset;
+using settings_keys::kMidi2;
+using settings_keys::kSystem;
+using settings_keys::kConsole;
+using settings_keys::kDanger;
 
 #define SK_VOICE_KNOB "step through its presets (the up/down leds show which)"
 #define SK_TUNING_KNOB "fine tuning offset, 1/32 semitone per step"
-static const settings_key_info_t settings_keys[] = {
-    {0, SK_SWITCH, SG_MIDI, SKF_CONSOLE, -1, NULL, 0, "MPE", "MPE MIDI mode", "number of MPE voices, 1 to 15"},
-    {2, SK_SWITCH, SG_MIDI, SKF_CONSOLE, -1, NULL, 0, "Poly", "Normal MIDI mode (all notes on one channel)", "MIDI channel, 1 to 16"},
-    {4, SK_SWITCH, SG_MIDI, SKF_CONSOLE, -1, NULL, 0, "Mono", "Mono (glissando) MIDI mode", "MIDI channel, 1 to 16"},
-    {6, SK_DIAL, SG_SENS, 0, -1, NULL, 0, "Bend", "Pitch bend sensitivity (sideways tilt)", "0 to 4, steps of 1/4"},
-    {8, SK_DIAL, SG_SENS, 0, -1, NULL, 0, "Tilt", "Tilt (forward/back) sensitivity", "0 to 3, steps of 1/8"},
-    {11, SK_ACTION, SG_LAYOUT, 0, -1, NULL, 0, "Flip", "Flip the layout 180 degrees (with the glissando button also held: debug mode on/off)", ""},
+static constexpr settings_keys::Key settings_key_table[] = {
+    {0, kSwitch, kMidi, kConsole, -1, nullptr, 0, "MPE", "MPE MIDI mode", "number of MPE voices, 1 to 15", Action::mpe},
+    {2, kSwitch, kMidi, kConsole, -1, nullptr, 0, "Poly", "Normal MIDI mode (all notes on one channel)", "MIDI channel, 1 to 16", Action::normal},
+    {4, kSwitch, kMidi, kConsole, -1, nullptr, 0, "Mono", "Mono (glissando) MIDI mode", "MIDI channel, 1 to 16", Action::mono},
+    {6, kDial, kSens, 0, -1, nullptr, 0, "Bend", "Pitch bend sensitivity (sideways tilt)", "0 to 4, steps of 1/4", Action::bend},
+    {8, kDial, kSens, 0, -1, nullptr, 0, "Tilt", "Tilt (forward/back) sensitivity", "0 to 3, steps of 1/8", Action::tilt},
+    {11, kActionKind, kLayout, 0, -1, nullptr, 0, "Flip", "Flip the layout 180 degrees (with the glissando button also held: debug mode on/off)", "", Action::flip},
 #ifdef USE_INTERNAL_SYNTH
-    {13, SK_SWITCH, SG_VOICE, SKF_CONSOLE, -1, "brass", 0x402800, "brass", "Voice: brass", SK_VOICE_KNOB},
-    {15, SK_SWITCH, SG_VOICE, SKF_CONSOLE, -1, "trumpet", 0x003030, "tpt", "Voice: trumpet", SK_VOICE_KNOB},
+    {13, kSwitch, kVoice, kConsole, -1, "brass", 0x402800, "brass", "Voice: brass", SK_VOICE_KNOB, Action::voice},
+    {15, kSwitch, kVoice, kConsole, -1, "trumpet", 0x003030, "tpt", "Voice: trumpet", SK_VOICE_KNOB, Action::voice},
 #endif
-    {17, SK_DIAL, SG_SENS, 0, -1, NULL, 0, "Thres", "Note-on threshold", "how light a touch starts a note (led dial 0 to 15)"},
+    {17, kDial, kSens, 0, -1, nullptr, 0, "Thres", "Note-on threshold", "how light a touch starts a note (led dial 0 to 15)", Action::threshold},
 #ifdef USE_INTERNAL_SYNTH
-    {18, SK_SWITCH, SG_VOICE, SKF_CONSOLE, -1, "strisy", 0x282828, "strisy", "Voice: strisy", SK_VOICE_KNOB},
+    {18, kSwitch, kVoice, kConsole, -1, "strisy", 0x282828, "strisy", "Voice: strisy", SK_VOICE_KNOB, Action::voice},
 #endif
-    {19, SK_DIAL, SG_SENS, 0, -1, NULL, 0, "Press", "Pressure sensitivity", "0 to 3, steps of 1/8"},
+    {19, kDial, kSens, 0, -1, nullptr, 0, "Press", "Pressure sensitivity", "0 to 3, steps of 1/8", Action::pressure},
 #ifdef USE_INTERNAL_SYNTH
-    {20, SK_SWITCH, SG_VOICE, SKF_CONSOLE, -1, "va", 0x401400, "va", "Voice: va", SK_VOICE_KNOB},
+    {20, kSwitch, kVoice, kConsole, -1, "va", 0x401400, "va", "Voice: va", SK_VOICE_KNOB, Action::voice},
 #endif
-    {21, SK_DIAL, SG_SENS, 0, -1, NULL, 0, "Velo", "Velocity sensitivity", "0 to 2, steps of 1/8"},
+    {21, kDial, kSens, 0, -1, nullptr, 0, "Velo", "Velocity sensitivity", "0 to 2, steps of 1/8", Action::velocity},
 #ifdef USE_INTERNAL_SYNTH
-    {22, SK_SWITCH, SG_VOICE, SKF_CONSOLE, -1, "modal", 0x001840, "modal", "Voice: modal", SK_VOICE_KNOB},
+    {22, kSwitch, kVoice, kConsole, -1, "modal", 0x001840, "modal", "Voice: modal", SK_VOICE_KNOB, Action::voice},
 #endif
-    {23, SK_SWITCH, SG_TUNING, SKF_CONSOLE, 3, NULL, 0, "", "", SK_TUNING_KNOB},
+    {23, kSwitch, kTuning, kConsole, 3, nullptr, 0, "", "", SK_TUNING_KNOB, Action::tuning},
 #ifdef USE_INTERNAL_SYNTH
-    {24, SK_SWITCH, SG_VOICE, SKF_CONSOLE, -1, "bowed", 0x400000, "bowed", "Voice: bowed", SK_VOICE_KNOB},
+    {24, kSwitch, kVoice, kConsole, -1, "bowed", 0x400000, "bowed", "Voice: bowed", SK_VOICE_KNOB, Action::voice},
 #endif
-    {25, SK_SWITCH, SG_TUNING, SKF_CONSOLE, 4, NULL, 0, "", "", SK_TUNING_KNOB},
+    {25, kSwitch, kTuning, kConsole, 4, nullptr, 0, "", "", SK_TUNING_KNOB, Action::tuning},
 #ifdef USE_INTERNAL_SYNTH
-    {26, SK_SWITCH, SG_VOICE, SKF_CONSOLE, -1, "wind", 0x004000, "wind", "Voice: wind", SK_VOICE_KNOB},
+    {26, kSwitch, kVoice, kConsole, -1, "wind", 0x004000, "wind", "Voice: wind", SK_VOICE_KNOB, Action::voice},
 #endif
-    {27, SK_SWITCH, SG_TUNING, SKF_CONSOLE, 5, NULL, 0, "", "", SK_TUNING_KNOB},
+    {27, kSwitch, kTuning, kConsole, 5, nullptr, 0, "", "", SK_TUNING_KNOB, Action::tuning},
 #ifdef USE_INTERNAL_SYNTH
-    {28, SK_SWITCH, SG_VOICE, SKF_CONSOLE, -1, "ep", 0x280040, "ep", "Voice: ep", SK_VOICE_KNOB},
+    {28, kSwitch, kVoice, kConsole, -1, "ep", 0x280040, "ep", "Voice: ep", SK_VOICE_KNOB, Action::voice},
 #endif
-    {29, SK_SWITCH, SG_TUNING, SKF_CONSOLE, 6, NULL, 0, "", "", SK_TUNING_KNOB},
-    {30, SK_SWITCH, SG_PRESET, SKF_CONSOLE, 7, NULL, 0, "P7", "Load settings preset 7", ""},
-    {31, SK_SWITCH, SG_TUNING, SKF_CONSOLE, 7, NULL, 0, "", "", SK_TUNING_KNOB},
-    {32, SK_SWITCH, SG_PRESET, SKF_CONSOLE, 8, NULL, 0, "P8", "Load settings preset 8", ""},
-    {33, SK_SWITCH, SG_TUNING, SKF_CONSOLE, 8, NULL, 0, "", "", SK_TUNING_KNOB},
-    {34, SK_SWITCH, SG_TUNING, SKF_CONSOLE, 0, NULL, 0, "", "", SK_TUNING_KNOB},
-    {35, SK_SWITCH, SG_PRESET, SKF_CONSOLE, 1, NULL, 0, "P1", "Load settings preset 1", ""},
-    {36, SK_SWITCH, SG_TUNING, SKF_CONSOLE, 1, NULL, 0, "", "", SK_TUNING_KNOB},
-    {37, SK_SWITCH, SG_PRESET, SKF_CONSOLE, 2, NULL, 0, "P2", "Load settings preset 2", ""},
-    {38, SK_SWITCH, SG_TUNING, SKF_CONSOLE, 2, NULL, 0, "", "", SK_TUNING_KNOB},
-    {39, SK_SWITCH, SG_PRESET, SKF_CONSOLE, 3, NULL, 0, "P3", "Load settings preset 3", ""},
-    {41, SK_SWITCH, SG_PRESET, SKF_CONSOLE, 4, NULL, 0, "P4", "Load settings preset 4", ""},
-    {43, SK_SWITCH, SG_PRESET, SKF_CONSOLE, 5, NULL, 0, "P5", "Load settings preset 5", ""},
-    {45, SK_SWITCH, SG_PRESET, SKF_CONSOLE, 6, NULL, 0, "P6", "Load settings preset 6", ""},
-    {51, SK_DIAL, SG_MIDI2, 0, -1, NULL, 0, "Vol", "Volume (MIDI CC7)", "volume, 0 to 127"},
-    {53, SK_DIAL, SG_MIDI2, 0, -1, NULL, 0, "Sust", "Sustain / decay (pedal)", "release length, 0 to 1"},
-    {56, SK_DIAL, SG_MIDI2, 0, -1, NULL, 0, "MPEbd", "MPE pitch bend range", "12, 24, 48 or 96 semitones"},
-    {58, SK_DIAL, SG_MIDI2, 0, -1, NULL, 0, "Rate", "MIDI message interval", "1 to 15 ms"},
-    {63, SK_SWITCH, SG_SYSTEM, SKF_CONSOLE, -1, NULL, 0, "Panic", "Panic: all MIDI notes off", ""},
-    {65, SK_ACTION, SG_SYSTEM, 0, -1, NULL, 0, "Cfg", "Send the MPE and pitch bend configuration over MIDI", ""},
-    {67, SK_ACTION, SG_SYSTEM, SKF_DANGER, -1, NULL, 0, "Reset", "System reset: restarts the Striso", ""},
+    {29, kSwitch, kTuning, kConsole, 6, nullptr, 0, "", "", SK_TUNING_KNOB, Action::tuning},
+    {30, kSwitch, kPreset, kConsole, 7, nullptr, 0, "P7", "Load settings preset 7", "", Action::preset},
+    {31, kSwitch, kTuning, kConsole, 7, nullptr, 0, "", "", SK_TUNING_KNOB, Action::tuning},
+    {32, kSwitch, kPreset, kConsole, 8, nullptr, 0, "P8", "Load settings preset 8", "", Action::preset},
+    {33, kSwitch, kTuning, kConsole, 8, nullptr, 0, "", "", SK_TUNING_KNOB, Action::tuning},
+    {34, kSwitch, kTuning, kConsole, 0, nullptr, 0, "", "", SK_TUNING_KNOB, Action::tuning},
+    {35, kSwitch, kPreset, kConsole, 1, nullptr, 0, "P1", "Load settings preset 1", "", Action::preset},
+    {36, kSwitch, kTuning, kConsole, 1, nullptr, 0, "", "", SK_TUNING_KNOB, Action::tuning},
+    {37, kSwitch, kPreset, kConsole, 2, nullptr, 0, "P2", "Load settings preset 2", "", Action::preset},
+    {38, kSwitch, kTuning, kConsole, 2, nullptr, 0, "", "", SK_TUNING_KNOB, Action::tuning},
+    {39, kSwitch, kPreset, kConsole, 3, nullptr, 0, "P3", "Load settings preset 3", "", Action::preset},
+    {41, kSwitch, kPreset, kConsole, 4, nullptr, 0, "P4", "Load settings preset 4", "", Action::preset},
+    {43, kSwitch, kPreset, kConsole, 5, nullptr, 0, "P5", "Load settings preset 5", "", Action::preset},
+    {45, kSwitch, kPreset, kConsole, 6, nullptr, 0, "P6", "Load settings preset 6", "", Action::preset},
+    {51, kDial, kMidi2, 0, -1, nullptr, 0, "Vol", "Volume (MIDI CC7)", "volume, 0 to 127", Action::volume},
+    {53, kDial, kMidi2, 0, -1, nullptr, 0, "Sust", "Sustain / decay (pedal)", "release length, 0 to 1", Action::sustain},
+    {56, kDial, kMidi2, 0, -1, nullptr, 0, "MPEbd", "MPE pitch bend range", "12, 24, 48 or 96 semitones", Action::bend_range},
+    {58, kDial, kMidi2, 0, -1, nullptr, 0, "Rate", "MIDI message interval", "1 to 15 ms", Action::rate},
+    {63, kSwitch, kSystem, kConsole, -1, nullptr, 0, "Panic", "Panic: all MIDI notes off", "", Action::panic},
+    {65, kActionKind, kSystem, 0, -1, nullptr, 0, "Cfg", "Send the MPE and pitch bend configuration over MIDI", "", Action::send_config},
+    {67, kActionKind, kSystem, kDanger, -1, nullptr, 0, "Reset", "System reset: restarts the Striso", "", Action::reset},
 };
-#define SETTINGS_KEY_COUNT ((int)(sizeof(settings_keys) / sizeof(settings_keys[0])))
+static_assert(settings_keys::well_formed(settings_key_table));
 
 // the tunings of the settings card (config.h fT<n>..., tuning 0 is built in): their names while the
 // config has the factory values (sT<n>name, fT<n>fifth, fT<n>oct)
@@ -1876,14 +1744,10 @@ static const char* const tuning_names[9][2] = {
     {"12-TET", "12TET"}, {"31-TET", "31TET"}, {"19-TET", "19TET"}, {"Pythagorean", "Pyth"}, {"5-TET", "5TET"},
     {"7-TET", "7TET"}, {"Bohlen-Pierce 1", "BP1"}, {"Bohlen-Pierce 2", "BP2"}, {"Just 7-limit", "Just"}};
 
-static const settings_key_info_t* settings_key_find(int id) {
-    for (int i = 0; i < SETTINGS_KEY_COUNT; i++)
-        if (settings_keys[i].id == id) return &settings_keys[i];
-    return NULL;
-}
+static const settings_keys::Key* settings_key_find(int id) { return settings_keys::find(settings_key_table, id); }
 
 // in this firmware: every key but a voice key whose engine isn't built
-static bool settings_key_present(const settings_key_info_t* k) {
+static bool settings_key_present(const settings_keys::Key* k) {
 #ifdef USE_INTERNAL_SYNTH
     if (!k->engine) return true;
     for (int n = 0; n < synth_num_voices(); n++)
@@ -1895,8 +1759,8 @@ static bool settings_key_present(const settings_key_info_t* k) {
 }
 
 static bool settings_key_allowed(int id) {
-    const settings_key_info_t* k = settings_key_find(id);
-    return k && (k->flags & SKF_CONSOLE) && settings_key_present(k);
+    const settings_keys::Key* k = settings_key_find(id);
+    return k && (k->flags & kConsole) && settings_key_present(k);
 }
 
 // a config value (8 characters) as text: trailing spaces off, '|' and control characters as '?';
@@ -1931,24 +1795,24 @@ void synth_settings_keys_print(void* chp) {
     static const char* const kinds[] = {"switch", "dial", "action"};
     static const char* const groups[] = {"midi", "layout", "sens", "voice", "tuning", "preset", "midi2", "system"};
     int count = 0;
-    for (int i = 0; i < SETTINGS_KEY_COUNT; i++) count += settings_key_present(&settings_keys[i]);
+    for (const settings_keys::Key& k : settings_key_table) count += settings_key_present(&k);
     chprintf(out, "X keys %d\r\n", count);
     // static: only the console (the main thread) prints the layout, and main's stack is 1 KB;
     // each is written before it is read
     static char label[8], name[12], title[112];
-    for (int i = 0; i < SETTINGS_KEY_COUNT; i++) {
-        const settings_key_info_t* k = &settings_keys[i];
+    for (const settings_keys::Key& key : settings_key_table) {
+        const settings_keys::Key* k = &key;
         if (!settings_key_present(k)) continue;
         char led[8] = "-", flags[4] = "-";
         if (k->engine) chsnprintf(led, sizeof led, "%06lx", (unsigned long)k->led);
         int f = 0;
         if (settings_key_allowed(k->id)) flags[f++] = 'k';
-        if (k->flags & SKF_DANGER) flags[f++] = 'd';
+        if (k->flags & kDanger) flags[f++] = 'd';
         if (f) flags[f] = 0;
         const char* lab = k->label;
         const char* tit = k->title;
         using settings::KeyName;
-        if (k->group == SG_TUNING) {
+        if (k->group == kTuning) {
             const int n = k->arg;
             bool factory = n == 0;  // tuning 0 is built in
             if (!factory) {
@@ -1966,7 +1830,7 @@ void synth_settings_keys_print(void* chp) {
                 chsnprintf(title, sizeof title, "Tuning %d: %s (from the config)", n, name);
             }
             tit = title;
-        } else if (k->group == SG_PRESET) {
+        } else if (k->group == kPreset) {
             // a preset named in the config (sP<n>name) other than its factory name
             if (!config_is_default(KeyName::preset(k->arg, "name"))) {
                 config_setting_text(KeyName::preset(k->arg, "name"), name, false);
@@ -1999,7 +1863,7 @@ static float config_voice(const char* engine, int r, int g, int b, int type, flo
         }
     }
     if (count == 0 || first >= 128) {
-        led_rgb3(64, 0, 0);  // engine not in this firmware
+        led_rgb(led_view::kNoEngine);
         return 0;
     }
     int cur = synth_current_voice();
@@ -2017,22 +1881,23 @@ static float config_voice(const char* engine, int r, int g, int b, int type, flo
         remembered[first] = idx;
     }
     led_rgb3(r, g, b);
-    led_updown_dial(count > 1 ? idx + 1 : 0);
+    led_updown_dial(led_view::voice_dial(idx, count));
     return type > 0 ? adjust - a : 0;
 }
 #endif
 
 /*
- * button functions in alt mode - with settings button pressed.
+ * The settings keys' actions (settings_keys.hpp Action), with the Settings button held.
  *
  * type can be 0: initial press, 1: nudge up/down, 2: circular adjust
  *
  * returns part of adjust that's not used and hence needs to be saved for next call
  */
-float config_but(int but, int type, float adjust) {
-    switch (but) {
+struct SettingsKeyActions {
+    using Key = settings_keys::Key;
+
     // row 1:  0  2  4
-    case (0): // MPE MIDI mode, knob: number of MPE channels
+    float mpe(const Key&, int type, float adjust) { // MPE MIDI mode, knob: number of MPE channels
         if (type == 0) {
             if (config.midi_mode != MIDI_MODE_MPE) set_midi_mode(MIDI_MODE_MPE);
             led_updown_dial(dis.voicecount);
@@ -2049,9 +1914,17 @@ float config_but(int but, int type, float adjust) {
             if (type == 2) a = a * 2;
             return adjust - a;
         } return 0;
-    case (2): // Normal MIDI mode
+    }
+    float normal(const Key&, int type, float adjust) { // Normal MIDI mode
+        return channel_mode(MIDI_MODE_POLY, type, adjust);
+    }
+    float mono(const Key&, int type, float adjust) { // Mono (glissando) MIDI mode
+        return channel_mode(MIDI_MODE_MONO, type, adjust);
+    }
+    // a one-channel mode, knob: the channel
+    float channel_mode(midi_mode_t mode, int type, float adjust) {
         if (type == 0) {
-            if (config.midi_mode != MIDI_MODE_POLY) set_midi_mode(MIDI_MODE_POLY);
+            if (config.midi_mode != mode) set_midi_mode(mode);
             led_updown_dial(dis.midi_channel_offset + 1);
             midi_config();
         } else {
@@ -2066,25 +1939,9 @@ float config_but(int but, int type, float adjust) {
             if (type == 2) a = a * 2;
             return adjust - a;
         } return 0;
-    case (4): // Mono (glissando) MIDI mode
-        if (type == 0) {
-            if (config.midi_mode != MIDI_MODE_MONO) set_midi_mode(MIDI_MODE_MONO);
-            led_updown_dial(dis.midi_channel_offset + 1);
-            midi_config();
-        } else {
-            int a = (int)adjust;
-            if (type == 2) a = a / 2;
-            if (a != 0) {
-                dis.midi_channel_offset = clamp(dis.midi_channel_offset + a, 0, 15);
-                dis.channels_changed();
-                led_updown_dial(dis.midi_channel_offset + 1);
-                midi_config();
-            }
-            if (type == 2) a = a * 2;
-            return adjust - a;
-        } return 0;
+    }
     // row 2:  1  3  5  7  9 11
-    case (11): // debug setting for easy testing
+    float flip(const Key&, int type, float) { // debug setting for easy testing
         if (type == 0) {
             if (dis.portamento & 1) {
                 if (config.debug) {
@@ -2098,174 +1955,86 @@ float config_but(int but, int type, float adjust) {
                 dis.flip();
             }
         } return 0;
+    }
     // row 3: 17 19 21  6  8 10 12 14 16
-    case (17): { // knob: key detection threshold
+    float threshold(const Key&, int type, float adjust) { // knob: key detection threshold
         int a = adjust * ((1 << 24) / 256);
         if (type > 0) {
             config.zero_offset = clamp(config.zero_offset + a, min(0, config.zero_offset),
                                        max(16 * (1 << 24) / 256 - 1, config.zero_offset));
         }
-        int dial = clamp(config.zero_offset / ((1 << 24) / 256), 0, 15);
+        const int dial = led_view::threshold_dial(config.zero_offset);
         led_updown_dial(dial);
-        led_rgb3(dial * 10, dial * 5, 0);
+        led_rgb3(led_view::threshold_red(dial), led_view::threshold_green(dial), 0);
         return 0; // TODO: sticky ends
-        }
-    case (19): { // knob: pres sensitivity
+    }
+    float pressure(const Key&, int type, float adjust) { // knob: pres sensitivity
         float rem = 0;
         if (type > 0) {
             dis.pres_sensitivity = clamp_knob(dis.pres_sensitivity, dis.pres_sensitivity + adjust * (1.0f/8.0f), 0, 3.0f, &rem);
         }
-        // (the dial has 16 leds and wraps: clamp, as the velocity and bend dials do, SC-27)
-        led_updown_dial(to_int_clamped(dis.pres_sensitivity * 8 + 0.9f, 0, 15));
-        led_rgb3(to_int_clamped(dis.pres_sensitivity * 64.0f, 0, 255), to_int_clamped(dis.pres_sensitivity * 64.0f, 0, 255), 0);
+        led_updown_dial(led_view::pressure_dial(dis.pres_sensitivity));
+        led_rgb3(led_view::pressure_level(dis.pres_sensitivity), led_view::pressure_level(dis.pres_sensitivity), 0);
         return rem * 8;
-        }
-    case (21): { // knob: velo sensitivity
+    }
+    float velocity(const Key&, int type, float adjust) { // knob: velo sensitivity
         float rem = 0;
         if (type > 0) {
             dis.velo_sensitivity = clamp_knob(dis.velo_sensitivity, dis.velo_sensitivity + adjust * (1.0f/8.0f), 0, 2.0f, &rem);
         }
-        led_updown_dial(min((int)(dis.velo_sensitivity * 8 + 0.9f), 15));
-        led_rgb3(dis.velo_sensitivity * 64.0f, 0, dis.velo_sensitivity * 64.0f);
+        led_updown_dial(led_view::velocity_dial(dis.velo_sensitivity));
+        led_rgb3(led_view::velocity_level(dis.velo_sensitivity), 0, led_view::velocity_level(dis.velo_sensitivity));
         return rem * 8;
-        }
-    case (6): { // knob: pitchbend range
+    }
+    float bend(const Key&, int type, float adjust) { // knob: pitchbend range
         float rem = 0;
         if (type > 0) {
             dis.bend_sensitivity = clamp_knob(dis.bend_sensitivity, dis.bend_sensitivity + adjust * 0.25f, 0, 4.0f, &rem);
         }
-        led_updown_dial(min((int)(dis.bend_sensitivity * 4 + 0.9f), 15));
-        led_rgb3(dis.bend_sensitivity * 64.0f, 0, 0);
+        led_updown_dial(led_view::bend_dial(dis.bend_sensitivity));
+        led_rgb3(led_view::bend_level(dis.bend_sensitivity), 0, 0);
         return rem * 4;
-        }
-    case (8): { // knob: y sensitivity (TODO: flip?)
+    }
+    float tilt(const Key&, int type, float adjust) { // knob: y sensitivity (TODO: flip?)
         float rem = 0;
         if (type > 0) {
             dis.y_sensitivity = clamp_knob(dis.y_sensitivity, dis.y_sensitivity + adjust * (1.0f/8.0f), 0, 3.0f, &rem);
         }
-        // (a negative tilt from a preset or Striso Live gave negative led values: full on, SC-27)
-        led_updown_dial(to_int_clamped(dis.y_sensitivity * 8 + 0.5f, 0, 15));
-        led_rgb3(to_int_clamped(dis.y_sensitivity * 32.0f, 0, 255), 0, to_int_clamped(dis.y_sensitivity * 64.0f, 0, 255));
+        led_updown_dial(led_view::tilt_dial(dis.y_sensitivity));
+        led_rgb3(led_view::tilt_red(dis.y_sensitivity), 0, led_view::tilt_blue(dis.y_sensitivity));
         return rem * 8;
-        }
-    // row 4: 18 20 22 24 26 28 13 15
+    }
+    // row 4: 18 20 22 24 26 28 13 15 ("future use" on the v2.2 card): the row's synth voice
+    // engine and indicator colour (strisy grey, va orange, modal blue, bowed red, wind green,
+    // ep purple, brass amber, trumpet cyan)
+    float voice(const Key& k, int type, float adjust) {
 #ifdef USE_INTERNAL_SYNTH
-    // row 4: 18 20 22 24 26 28 13 15 ("future use" on the v2.2 card): synth voice
-    // each key's engine and indicator colour: settings_keys[] (strisy grey, va orange, modal blue,
-    // bowed red, wind green, ep purple, brass amber, trumpet cyan)
-    case (18): case (20): case (22): case (24): case (26): case (28): case (13): case (15): {
-        const settings_key_info_t* k = settings_key_find(but);
-        return config_voice(k->engine, k->led >> 16, (k->led >> 8) & 0xff, k->led & 0xff, type, adjust);
-        }
+        return config_voice(k.engine, k.led >> 16, (k.led >> 8) & 0xff, k.led & 0xff, type, adjust);
+#else
+        (void)k;
+        (void)type;
+        (void)adjust;
+        return 0;
 #endif
+    }
     // row 5: 34 36 38 23 25 27 29 31 33
-    case (34): // set 12tet tuning, knob: tuning offset
+    float tuning(const Key& k, int type, float adjust) { // load tuning k.arg, knob: tuning offset
         if (type == 0) {
-            dis.load_tuning(0);
+            dis.load_tuning(k.arg);
         } else {
             dis.note_offset += adjust * (1.0f/16.0f/2.0f);
         }
-        led_updown_dial(dis.note_offset * 16 + 0.5f);
+        led_updown_dial(led_view::tuning_dial(dis.note_offset));
         return 0;
-    case (36): // load tuning 1, knob: tuning offset
+    }
+    // row 6: 35 37 39 41 43 45 30 32
+    float preset(const Key& k, int type, float) { // load settings preset k.arg
         if (type == 0) {
-            dis.load_tuning(1);
-        } else {
-            dis.note_offset += adjust * (1.0f/16.0f/2.0f);
-        }
-        led_updown_dial(dis.note_offset * 16 + 0.5f);
-        return 0;
-    case (38): // load tuning 2, knob: tuning offset
-        if (type == 0) {
-            dis.load_tuning(2);
-        } else {
-            dis.note_offset += adjust * (1.0f/16.0f/2.0f);
-        }
-        led_updown_dial(dis.note_offset * 16 + 0.5f);
-        return 0;
-    case (23): // load tuning 3, knob: tuning offset
-        if (type == 0) {
-            dis.load_tuning(3);
-        } else {
-            dis.note_offset += adjust * (1.0f/16.0f/2.0f);
-        }
-        led_updown_dial(dis.note_offset * 16 + 0.5f);
-        return 0;
-    case (25): // load tuning 4, knob: tuning offset
-        if (type == 0) {
-            dis.load_tuning(4);
-        } else {
-            dis.note_offset += adjust * (1.0f/16.0f/2.0f);
-        }
-        led_updown_dial(dis.note_offset * 16 + 0.5f);
-        return 0;
-    case (27): // load tuning 5, knob: tuning offset
-        if (type == 0) {
-            dis.load_tuning(5);
-        } else {
-            dis.note_offset += adjust * (1.0f/16.0f/2.0f);
-        }
-        led_updown_dial(dis.note_offset * 16 + 0.5f);
-        return 0;
-    case (29): // load tuning 6, knob: tuning offset
-        if (type == 0) {
-            dis.load_tuning(6);
-        } else {
-            dis.note_offset += adjust * (1.0f/16.0f/2.0f);
-        }
-        led_updown_dial(dis.note_offset * 16 + 0.5f);
-        return 0;
-    case (31): // load tuning 7, knob: tuning offset
-        if (type == 0) {
-            dis.load_tuning(7);
-        } else {
-            dis.note_offset += adjust * (1.0f/16.0f/2.0f);
-        }
-        led_updown_dial(dis.note_offset * 16 + 0.5f);
-        return 0;
-    case (33): // load tuning 8, knob: tuning offset
-        if (type == 0) {
-            dis.load_tuning(8);
-        } else {
-            dis.note_offset += adjust * (1.0f/16.0f/2.0f);
-        }
-        led_updown_dial(dis.note_offset * 16 + 0.5f);
-        return 0;
-        // row 6: 35 37 39 41 43 45 30 32
-    case (35):
-        if (type == 0) {
-            load_preset(1);
+            load_preset(k.arg);
         } return 0;
-    case (37):
-        if (type == 0) {
-            load_preset(2);
-        } return 0;
-    case (39):
-        if (type == 0) {
-            load_preset(3);
-        } return 0;
-    case (41):
-        if (type == 0) {
-            load_preset(4);
-        } return 0;
-    case (43):
-        if (type == 0) {
-            load_preset(5);
-        } return 0;
-    case (45):
-        if (type == 0) {
-            load_preset(6);
-        } return 0;
-    case (30):
-        if (type == 0) {
-            load_preset(7);
-        } return 0;
-    case (32):
-        if (type == 0) {
-            load_preset(8);
-        } return 0;
+    }
     // row 7: 51 53 55 40 42 44 46 48 50
-    case (51): { // knob: Volume (CC7)
+    float volume(const Key&, int type, float adjust) { // knob: Volume (CC7)
         float rem = 0;
         if (type > 0) {
             float vol = clamp_knob(volume_linear, volume_linear + adjust * 8.0f, 0, 127.0f, &rem);
@@ -2274,22 +2043,22 @@ float config_but(int but, int type, float adjust) {
             }
             set_volume(vol);
         }
-        led_rgb3(volume_linear*2, volume_linear*2, volume_linear*2);
-        led_updown_dial((int)volume_linear/8);
+        led_rgb3(led_view::volume_level(volume_linear), led_view::volume_level(volume_linear), led_view::volume_level(volume_linear));
+        led_updown_dial(led_view::volume_dial(volume_linear));
         return rem * (1.0f/8.0f);
-        }
-    case (53): { // knob: sustain/decay rate
+    }
+    float sustain(const Key&, int type, float adjust) { // knob: sustain/decay rate
         float rem = 0;
         if (type > 0) {
             *dis.synth_pedal() = clamp_knob(*dis.synth_pedal(), *dis.synth_pedal() + adjust * (1.0f/16.0f), 0, 1.0f, &rem);
             pedal.send(*dis.synth_pedal() * 128 * 4, dis.control_channel());
         }
-        led_updown_dial(*dis.synth_pedal() * 15 + 0.5f);
-        led_rgb3(*dis.synth_pedal() * 64.0f, 0, *dis.synth_pedal() * 64.0f);
+        led_updown_dial(led_view::sustain_dial(*dis.synth_pedal()));
+        led_rgb3(led_view::sustain_level(*dis.synth_pedal()), 0, led_view::sustain_level(*dis.synth_pedal()));
         return rem * 16;
-        }
+    }
     // row 8:       56 58 60 62 47 49
-    case (56): { // knob: MPE pitchbend range
+    float bend_range(const Key&, int type, float adjust) { // knob: MPE pitchbend range
         int a = adjust;
         // the ranges 12, 24, 48, 96; shown: the largest not above the range (12 below 12). The
         // range can be any 1..127 (a preset, MIDI in): log2i(range / 12) was log2i(0) below 12 (UB)
@@ -2311,61 +2080,49 @@ float config_but(int but, int type, float adjust) {
             }
             if (type == 2) a = a * 4;
         }
-        led_rgb3(10 + 50*cur, 0, 0);
-        led_updown_dial(2 + 2 * cur);
+        led_rgb3(led_view::bend_range_red(cur), 0, 0);
+        led_updown_dial(led_view::bend_range_dial(cur));
         return adjust - a;
-        }
-    case (58): { // knob: MIDI message interval
+    }
+    float rate(const Key&, int type, float adjust) { // knob: MIDI message interval
         int a = (int)adjust;
         if (type > 0) {
             config.message_interval = clamp(config.message_interval - a, 1, 15);
         }
-        led_rgb3(164-8*config.message_interval, 164-8*config.message_interval, 0);
-        led_updown_dial(16 - config.message_interval);
+        led_rgb3(led_view::rate_level(config.message_interval), led_view::rate_level(config.message_interval), 0);
+        led_updown_dial(led_view::rate_dial(config.message_interval));
         return adjust - a;
-        }
-    // case (60): { // knob: MIDI motion message interval
-    //     int a = (int)adjust;
-    //     if (type > 0) {
-    //         config.send_motion_interval = clamp(config.send_motion_interval - adjust, 0, 15);
-    //         if (angle == 0) {
-    //             config.send_motion_interval = 0;
-    //             *(dis.synth_interface->acc_abs) = 1.0f;
-    //             *(dis.synth_interface->acc_x) = 0.0f;
-    //             *(dis.synth_interface->acc_y) = 0.0f;
-    //             *(dis.synth_interface->acc_z) = 0.0f;
-    //             *(dis.synth_interface->rot_x) = 0.0f;
-    //             *(dis.synth_interface->rot_y) = 0.0f;
-    //             *(dis.synth_interface->rot_z) = 0.0f;
-    //         } else if (angle == 15) {
-    //             config.send_motion_interval = 127;
-    //         } else {
-    //             config.send_motion_interval = angle;
-    //         }
-    //     }
-    //     led_rgb3(164-8*config.send_motion_interval, 164-8*config.send_motion_interval, 0);
-    //     led_updown_dial(16 - config.send_motion_interval);
-    //     return adjust - a;
-    //     }
+    }
     // row 9:                   63 65 67
-    case (63): // panic/all notes off
+    float panic(const Key&, int type, float) { // panic/all notes off
         if (type == 0) {
             dis.panic();
-            led_rgb(0x342000);
+            led_rgb(led_view::kPanic);
         } return 0;
-    case (65): // send MPE/pitch bend range config
+    }
+    float send_config(const Key&, int type, float) { // send MPE/pitch bend range config
         if (type == 0) {
             midi_config();
-            led_rgb(0x300064);
+            led_rgb(led_view::kSendConfig);
         } return 0;
-    case (67): // system reset
+    }
+    float reset(const Key&, int type, float) { // system reset
         if (type == 0) {
-            led_rgb(0xff0000);
+            led_rgb(led_view::kReset);
             reset_on_release = true;
         } return 0;
-    default: return 0;
     }
-    return 0;
+};
+
+/*
+ * button functions in alt mode - with settings button pressed: the key's row in settings_key_table
+ * and its action (a key without a row does nothing)
+ */
+float config_but(int but, int type, float adjust) {
+    const settings_keys::Key* k = settings_key_find(but);
+    if (!k) return 0;
+    SettingsKeyActions a;
+    return settings_keys::press(*k, a, type, adjust);
 }
 
 /*
@@ -2933,26 +2690,12 @@ void synth_tick(void) {
     }
 }
 
+// the indicator and the up/down leds as the instrument's state shows them (led_view.hpp), unless
+// Settings is held and a key shows its value
 void update_leds(void) {
-    // if buttons in alt mode don't update leds
-    if (dis.altmode & 2) return;
-
-    uint8_t r, g, b;
-    r = dis.tuning_color >> 16 & 0xff;
-    g = dis.tuning_color >>  8 & 0xff;
-    b = dis.tuning_color >>  0 & 0xff;
-
-    int m = 64 + 16 * (dis.altmode + (dis.portamento & 1));
-    led_rgb3(r * m / 64, g * m / 64, b * m / 64);
-
-    int note_offset = dis.flipdir * ((int)(dis.start_note_offset + 0.5f) - 62);
-    if      (note_offset <= -24) led_updown(0xff00);
-    else if (note_offset <  -12) led_updown(0xaf00);
-    else if (note_offset <= -12) led_updown(0x0f00);
-    else if (note_offset <    0) led_updown(0x0a00);
-    else if (note_offset >=  24) led_updown(0x00ff);
-    else if (note_offset >   12) led_updown(0x00fa);
-    else if (note_offset >=  12) led_updown(0x00f0);
-    else if (note_offset >    0) led_updown(0x00a0);
-    else                         led_updown(0x0000);
+    if (led_view::settings_shown(dis.altmode)) return;
+    const int m = led_view::brightness(dis.altmode, dis.portamento);
+    led_rgb3(led_view::indicator(dis.tuning_color, 16, m), led_view::indicator(dis.tuning_color, 8, m),
+             led_view::indicator(dis.tuning_color, 0, m));
+    led_updown(led_view::octave_leds(dis.flipdir, dis.start_note_offset));
 }

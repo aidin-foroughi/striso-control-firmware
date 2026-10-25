@@ -41,7 +41,7 @@ set(STRISO_SYNTH_CONTROL_SCENARIOS
   sc16_echo sc17_rpn_boot sc18_pedal_channel sc19_poly_pgm sc20_bend_range_key sc21_motion_hyst
   sc22_free_transpose_range sc22_octave_release sc23_panic sc24_knob_y0 sc25_midiparam_first
   sc27_dials sc29_cc65 sc30_mode_messages sc31_steal_dup sc35_tuning_overflow
-  sc37_blink sc38_no_synth
+  sc37_blink sc38_no_synth settings_whitelist
   mi_mpe_note mi_mpe_initial mi_one_channel mi_zone mi_steal mi_no_echo mi_modes mi_render)
 # scenarios of bugs not fixed yet, expected to fail (WILL_FAIL): each fix removed its entry, none
 # is left (the review's open findings have no scenario here)
@@ -86,4 +86,20 @@ foreach(rec IN LISTS _recordings)
     add_test(NAME ${name} COMMAND test_synth_control ${args})
     set_tests_properties(${name} PROPERTIES LABELS control_replay)
   endforeach()
+endforeach()
+
+# the settings presets in every tuning and every settings key (test_synth_control settings): the
+# state after each step against tests/golden/control_replay.txt, as the replays
+foreach(what presets keys leds)
+  set(name control_replay.settings.${what})
+  set(args settings ${what} --golden-name ${name})
+  if(STRISO_GOLDEN)
+    if(DEFINED "_golden_${name}")
+      list(APPEND args --expect "${_golden_${name}}")
+    else()
+      list(APPEND args --expect missing)
+    endif()
+  endif()
+  add_test(NAME ${name} COMMAND test_synth_control ${args})
+  set_tests_properties(${name} PROPERTIES LABELS control_replay)
 endforeach()
