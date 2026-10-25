@@ -2,13 +2,13 @@
  * striso_virtual: the Striso board's firmware logic on the PC, as a shared library.
  *
  * The same source files as the board (src/synth/synth_control.cpp, src/synth/synth_strisy.cpp
- * with every voice engine, src/app/pconnection.c, messaging.c, config_store.c, src/drivers/led.c)
+ * with every voice engine, src/app/pconnection.c, messaging.cpp, control_thread.cpp, config_store.c, src/drivers/led.c)
  * run on a small ChibiOS/HAL stand-in (virtual/hal), in virtual time: a deterministic scheduler
  * runs the firmware's threads one at a time by priority, the system tick (2 kHz), the codec's
  * block interrupt (48 kHz / 32) and the USB frame (1 kHz) come from the frames rendered. The
  * hardware-only parts (ADC key scanning, codec, USB descriptors and audio streaming, motion sensor
  * I2C) are replaced: key and control messages are injected where the key scanner sends them
- * (msgSend), motion where the sensor thread reads it, and the USB bulk console is a pair of byte
+ * (event_send), motion where the sensor thread reads it, and the USB bulk console is a pair of byte
  * queues with the same protocol as the board (Stc commands, Q writes, the S/s binary stream).
  *
  * Every board is its own copy of the library's code and data (a fresh copy is loaded at create
@@ -125,9 +125,9 @@ SV_API int32_t sv_midi_read(sv_board* b, uint8_t* out, int32_t max);
 
 /* --- injection ------------------------------------------------------------------------------------ */
 
-/* A key message as the key scanner sends it (button_read.c update_button: msgSend of 6 values):
+/* A key message as the key scanner sends it (key_scanner.cpp: messaging::send of 4 values):
  * src ID_DIS (0), id the button 0..67, pres/velo/x/y as the scanner's 14 bit values (8191 = 1.0;
- * pres 0 releases). It goes through the firmware's message queue, the send thread
+ * pres 0 releases). It goes through the firmware's message queue, the control thread
  * (synth_message, the binary stream) and synth_control's key handling. */
 SV_API int32_t sv_inject_key(sv_board* b, int32_t src, int32_t id, int32_t pres, int32_t velo, int32_t x, int32_t y);
 /* An aux control message (ID_CONTROL): IDC_PORTAMENTO 0, IDC_OCT_UP 1, IDC_OCT_DOWN 2,
@@ -170,7 +170,7 @@ typedef struct sv_state {
 	int32_t resets;         /* resets since sv_create */
 	int32_t blocks;         /* audio blocks the synth rendered since the last boot */
 	int32_t to_block;       /* frames until the codec's next block interrupt (-1: codec off) */
-	uint32_t underruns;     /* message queue overflows (messaging.c) */
+	uint32_t underruns;     /* events the message queue refused (messaging.cpp) */
 	float volume;           /* the synth's volume factor */
 	float controls[10][5];  /* the voices' controls the engine got last block */
 	float globals[8];

@@ -52,7 +52,8 @@ add_library(striso_virtual SHARED
   "${_fw}/usb/bulk_usb.c"
   "${_fw}/usb/midi_usb.c"
   "${_fw}/synth/synth_control.cpp"
-  "${_fw}/app/messaging.c"
+  "${_fw}/app/messaging.cpp"
+  "${_fw}/app/control_thread.cpp"
   "${_fw}/drivers/key_calibration.c"
   "${_fw}/drivers/led.c")
 add_dependencies(striso_virtual striso_virtual_fwversion)

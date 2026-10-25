@@ -10,9 +10,9 @@
 set -e
 cd "$(dirname "$0")"
 DEV=${TRUMPET_DEV:-trumpet-dev}
-build() { MSYS_NO_PATHCONV=1 docker exec -w /src/tools/trumpet/cal $DEV bash -c "g++ -O2 -std=c++20 -I/src/dsp/include -I/src/tools/harness tt.cpp -o /tmp/trumpet_tt"; }
+build() { MSYS_NO_PATHCONV=1 docker exec -w /src/tools/trumpet/cal "$DEV" bash -c "g++ -O2 -std=c++20 -I/src/dsp/include -I/src/tools/harness tt.cpp -o /tmp/trumpet_tt"; }
 build
 LO=(40 40 42 52 40 40 40 40 40)
-for p in ${PRESETS:-0 1 2 3 4 5 6 7 8}; do python cal.py $p ${LO[$p]} cal_p$p.json 2> cal_p$p.log; done
+for p in ${PRESETS:-0 1 2 3 4 5 6 7 8}; do python cal.py "$p" "${LO[$p]}" "cal_p$p.json" 2> "cal_p$p.log"; done
 python gen_cal.py ../../../dsp/include/striso_dsp/trumpet_cal.h cal_p{0,1,2,3,4,5,6,7,8}.json
 build

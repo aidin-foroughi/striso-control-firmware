@@ -6,11 +6,19 @@
 #   Linux    clang (or CC/CXX)
 # Needs cmake (3.25+), ninja and python3.
 #
-# Usage: [FW_DIR=<checkout>] tools/virtual.sh [build|test|all] [ctest arguments...]
-#   build   cmake --preset host-virtual, cmake --build --preset host-virtual
-#   test    ctest --preset host-virtual (the goldens through the board, the protocol, the API)
+# Usage: [FW_DIR=<checkout>] [UNIVERSAL=1] [BUILD_DIR=<dir>] [CHIBIOS_DIR=<dir>]
+#          tools/virtual.sh [build|test|all] [ctest arguments...]
+#   build   configure (the host-virtual preset) and build
+#   test    ctest (the goldens through the board, the protocol, the API)
 #   all     both (default)
-# The library: build/host-virtual/virtual/striso_virtual.dll | libstriso_virtual.dylib | .so
+#   UNIVERSAL=1   macOS: one library for arm64 and x86_64, macOS 11 and later (std::binary_semaphore;
+#                 Striso Live itself runs on 10.15),
+#                 in build/host-virtual-universal; tools/ctest_arch.py runs its x86_64 slice
+#   BUILD_DIR     the build directory, relative to the checkout (default build/host-virtual)
+#   CHIBIOS_DIR   ChibiOS (its os/hal is built in) when the checkout has no third_party/ChibiOS
+#                 and is no git worktree of one that has it (e.g. a `git archive` copy)
+# The library: <build dir>/virtual/striso_virtual.dll | libstriso_virtual.dylib | .so
+# (build/host-virtual is where Striso Live's tests look for it)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 FW="$(cd "${FW_DIR:-$HERE/..}" && pwd)"
@@ -27,7 +35,7 @@ MINGW* | MSYS* | CYGWIN*)
   # every step in the Visual Studio environment (its libraries for clang, its cmake and ninja)
   in_env() {
     {
-      echo "@call \"$vs\\VC\\Auxiliary\\Build\\vcvars64.bat\" >nul || exit /b 1"
+      printf '@call "%s\\VC\\Auxiliary\\Build\\vcvars64.bat" >nul || exit /b 1\n' "$vs"
       echo "@cd /d \"$(cygpath -w "$FW")\" || exit /b 1"
       echo "@$*"
     } > "$bat"
@@ -39,25 +47,35 @@ MINGW* | MSYS* | CYGWIN*)
   ;;
 esac
 
-# ChibiOS (its HAL code is built in): the submodule, or in a git worktree without it the main
-# checkout's (as tools/docker_env.sh)
-chibios=""
-if [ ! -f "$FW/third_party/ChibiOS/os/hal/src/hal_buffers.c" ]; then
+# ChibiOS (its HAL code is built in): CHIBIOS_DIR, the submodule, or in a git worktree without it
+# the main checkout's (as tools/docker_env.sh)
+cfg=()
+if [ -n "${CHIBIOS_DIR:-}" ]; then
+  cfg+=("-DSTRISO_CHIBIOS_DIR=$(cd "$CHIBIOS_DIR" && { pwd -W 2>/dev/null || pwd; })")
+elif [ ! -f "$FW/third_party/ChibiOS/os/hal/src/hal_buffers.c" ]; then
   common="$(git -C "$FW" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
   for c in "$common/../third_party/ChibiOS" "$common/../ChibiOS"; do
     if [ -n "$common" ] && [ -f "$c/os/hal/src/hal_buffers.c" ]; then
-      chibios="-DSTRISO_CHIBIOS_DIR=$(cd "$c" && pwd -W 2>/dev/null || pwd)"
+      cfg+=("-DSTRISO_CHIBIOS_DIR=$(cd "$c" && { pwd -W 2>/dev/null || pwd; })")
       break
     fi
   done
 fi
 
+bdir="${BUILD_DIR:-build/host-virtual}"
+if [ "${UNIVERSAL:-0}" = 1 ]; then
+  [ "$(uname -s)" = Darwin ] || { echo "virtual.sh: UNIVERSAL=1 is for macOS" >&2; exit 2; }
+  bdir="${BUILD_DIR:-build/host-virtual-universal}"
+  cfg+=("-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64" -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0)
+fi
+
 q() { [ $# -eq 0 ] || printf '"%s" ' "$@"; }
 if [ "$what" = build ] || [ "$what" = all ]; then
   log="$(mktemp)"
-  in_env "cmake --preset host-virtual $chibios" > "$log" 2>&1 || { cat "$log"; exit 1; }
-  in_env "cmake --build --preset host-virtual"
+  in_env "cmake --preset host-virtual -B $(q "$bdir" ${cfg[@]+"${cfg[@]}"})" > "$log" 2>&1 || { cat "$log"; exit 1; }
+  in_env "cmake --build $(q "$bdir")"
 fi
 if [ "$what" = test ] || [ "$what" = all ]; then
-  in_env "ctest --preset host-virtual -j$jobs $(q "$@")"
+  # as the host-virtual test preset (which only knows build/host-virtual)
+  in_env "ctest --test-dir $(q "$bdir") --output-on-failure --no-tests=error -j$jobs $(q "$@")"
 fi

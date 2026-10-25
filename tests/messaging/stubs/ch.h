@@ -1,22 +1,19 @@
-/* stand-in kernel for messaging.c: the mutex is a no-op (operations are atomic in the model), a
- * reader that would go to sleep jumps back to the model ("the queue looks empty") */
+/* A stand-in kernel for src/app/inbox.hpp: the kernel lock, the current thread, and suspending and
+ * resuming the consumer. test_messaging_model.cpp implements it twice: as a model (sends and
+ * receives are atomic steps, and a consumer that suspends jumps back to the model), and on real
+ * threads (the lock a mutex, a suspend a condition variable wait under it). */
 #ifndef MSG_STUB_CH_H
 #define MSG_STUB_CH_H
-#include <setjmp.h>
-#include <stddef.h>
 #include <stdint.h>
-typedef struct { int locked; } mutex_t;
-typedef struct thread { int id; } thread_t;
-#define CH_STATE_SUSPENDED 3
-extern jmp_buf model_sleep_jmp;
-extern int model_readied;
-static thread_t model_reader;
-static inline void chMtxObjectInit(mutex_t *m) { m->locked = 0; }
-static inline void chMtxLock(mutex_t *m) { m->locked++; }
-static inline void chMtxUnlock(mutex_t *m) { m->locked--; }
-static inline void chSysLock(void) {}
-static inline void chSysUnlock(void) {}
-static inline thread_t *chThdGetSelfX(void) { return &model_reader; }
-static inline void chSchReadyI(thread_t *tp) { (void)tp; model_readied++; }
-static inline void chSchGoSleepS(int st) { (void)st; longjmp(model_sleep_jmp, 1); }
+typedef int32_t msg_t;
+#define MSG_OK ((msg_t)0)
+typedef struct thread {
+	int id;
+} thread_t;
+typedef thread_t* thread_reference_t;
+void chSysLock(void);
+void chSysUnlock(void);
+thread_t* chThdGetSelfX(void);
+msg_t chThdSuspendS(thread_reference_t* trp);
+void chThdResumeS(thread_reference_t* trp, msg_t msg);
 #endif

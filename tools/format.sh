@@ -13,12 +13,14 @@ FILES='dsp/include/striso_dsp/strisy.h dsp/include/striso_dsp/fx.h dsp/include/s
   dsp/include/striso_dsp/engine_set.h dsp/include/striso_dsp/engines/*.h dsp/include/striso_dsp/effects/*.h
   src/synth/synth_strisy.cpp src/synth/tuning.h
   src/drivers/key_scanner.h src/drivers/key_scanner.hpp src/drivers/key_scanner_capture.hpp src/drivers/key_scanner.cpp
+  src/app/event_queue.hpp src/app/wire.hpp src/app/inbox.hpp src/app/messaging.hpp src/app/messaging.cpp
+  src/app/control_thread.cpp
   src/usb/usb_audio.c src/usb/usb_audio.h src/usb/usb_audio_core.h
   sdk/include/striso_sdk/*.h sdk/src/*.h sdk/src/*.cpp sdk/tools/*.cpp sdk/tests/*.cpp
   tools/harness/harness_util.h tools/harness/fx_test.cpp
   tools/target_render/render_target.cpp tools/target_render/startup.c
-  tests/*.cpp tests/*.hpp tests/*.c tests/synth_control/*.cpp'
-FILES="$(echo $FILES)"  # one line: the list goes into a bash -c command
+  tests/*.cpp tests/*.hpp tests/*.c tests/synth_control/*.cpp tests/messaging/*.cpp'
+FILES="${FILES//$'\n'/ }"  # one line: the list goes into a bash -c command (its globs expand there)
 if [ "$MODE" = --check ]; then
   in_docker bash -c "clang-format --dry-run -Werror $FILES"
 else

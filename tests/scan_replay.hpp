@@ -1,7 +1,7 @@
 // Replaying a raw scan recording (StcR, key_scanner_capture.hpp) through the KeyScanner on the PC,
 // and comparing it with what the board sent: per scan, the number of messages and their hash as
 // the board recorded them, and the messages themselves with the StcS stream (14-bit values, as
-// ThreadSend sends them).
+// the control thread sends them, wire.hpp).
 #pragma once
 
 #include <algorithm>
@@ -17,7 +17,7 @@ namespace scanreplay {
 
 struct Msg {
 	std::array<int, 6> v{};
-	bool queued = true; // false: msgSend refused it (the queue was full)
+	bool queued = true; // false: the message queue refused it (the scanner's lane was full)
 	uint32_t frame = 0; // index of the scan in the recording
 };
 
@@ -99,7 +99,7 @@ inline Result replay(const std::vector<uint8_t>& blob) {
 	return res;
 }
 
-// a key message as the StcS stream carries it: values saturated to signed 14 bit (ThreadSend)
+// a key message as the StcS stream carries it: values saturated to signed 14 bit (wire::encode)
 [[nodiscard]] inline std::array<int, 6> on_wire(const std::array<int, 6>& v) {
 	std::array<int, 6> w = v;
 	for (int c = 2; c < 6; c++) w[c] = std::clamp(w[c], -8192, 8191);
