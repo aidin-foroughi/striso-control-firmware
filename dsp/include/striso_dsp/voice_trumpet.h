@@ -77,6 +77,7 @@
 #include <stdio.h>
 #endif
 
+#include "placement.h"
 #include "strisy.h"
 #include "trumpet_bore.h"
 #include "trumpet_cal.h"
@@ -182,9 +183,9 @@ static_assert(bore::NDEC == 48 && bore::DEC == 8 && bore::NFIR % 4 == 0, "multir
 static_assert(bore::MAXSEC >= MAXSEC, "section table");
 
 // cylinder delay lines: AHB SRAM1/2 (ram1), 48 KB; early reflections 4 KB
-static float cyl_f[NP][CLEN] __attribute__((aligned(32), section(".ram1_clear")));
-static float cyl_b[NP][CLEN] __attribute__((aligned(32), section(".ram1_clear")));
-static float room_buf[ROOML] __attribute__((aligned(32), section(".ram1_clear")));
+static float cyl_f[NP][CLEN] __attribute__((aligned(32))) STRISO_DSP_SECTION(".ram1_clear");
+static float cyl_b[NP][CLEN] __attribute__((aligned(32))) STRISO_DSP_SECTION(".ram1_clear");
+static float room_buf[ROOML] __attribute__((aligned(32))) STRISO_DSP_SECTION(".ram1_clear");
 
 // ---------------------------------------------------------------------------------------------
 // Parameters (all floats: the live parameters)
