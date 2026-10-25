@@ -83,7 +83,7 @@ What each engine needs:
 | fx | | delay and pre-delay, 80 KB | reverb ring, 64 KB |
 | trumpet | | bores of voices 0-7, 64 KB | bores of voices 8-9, 16 KB |
 
-The VOICE=all firmware is nearly full: with the physical trumpet, AXI SRAM has about 10 KB free and AHB SRAM1/2 about 12 KB (neither has room for its 80 KB of bores alone, so they are split by voice). A new engine with large buffers needs to check `tools/build.sh VOICE=all`'s memory report.
+On the board only one engine runs at a time, so the engines share one arena per region class (`EngineSet::Fast`, `EngineSet::Large`, `engine_set.h`), each as large as the largest engine's region: in VOICE=all, 100 KB of FastMemory (bowed's strings) and 120 KB of LargeMemory. A switch zeroes the new engine's share of both arenas and runs its `init()`, so an engine always starts from the state it has at power on. A new engine adds RAM only if its region is larger than the arena: check `tools/build.sh VOICE=all`'s memory report. The engine objects (DTCM) stay one per engine. If a region doesn't fit an arena of a fixed size, the build names the engine (`Fits<arena, engine, region>`).
 
 ## Writing an engine
 
