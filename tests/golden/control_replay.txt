@@ -2,18 +2,22 @@
 # (tools/harness/rec) through synth_control.cpp's message path: every MIDI message sent and every change
 # of the internal synth's voice controls (tests/synth_control). Written by tools/update_goldens.sh control
 # after an intended change of the control logic.
+control_replay.2026-10-22_a.legato 1ab646fc36bbe913
 control_replay.2026-10-22_a.mono dae6d939d7b412f6
 control_replay.2026-10-22_a.mpe d5bfaaa882a05eb6
 control_replay.2026-10-22_a.normal 6110d655eedb080a
+control_replay.2026-10-22_legato.legato b99f66b016dfaf9c
 control_replay.2026-10-22_legato.mono 1600cac821c301eb
 control_replay.2026-10-22_legato.mpe 847841c4c1ca7b3f
 control_replay.2026-10-22_legato.normal 3358f88e45bba246
+control_replay.2026-10-22_moderate.legato e36a5678a7ef4aec
 control_replay.2026-10-22_moderate.mono 1a1d9feab5ac23d4
 control_replay.2026-10-22_moderate.mpe 1bbfb36a1000daa1
 control_replay.2026-10-22_moderate.normal d2d970c23a18fbb4
+control_replay.2026-10-22_staccato.legato 1275b0dd845265c9
 control_replay.2026-10-22_staccato.mono 565d6e02af5b5c0a
 control_replay.2026-10-22_staccato.mpe 5cadbede4246788a
 control_replay.2026-10-22_staccato.normal 524df3aa9067edce
-control_replay.settings.keys d81d98655494316f
-control_replay.settings.leds 875c1b29945a880f
+control_replay.settings.keys 103b4a4c6d61b59d
+control_replay.settings.leds 6cd0b7322a61c959
 control_replay.settings.presets ba011f982f0b5cff

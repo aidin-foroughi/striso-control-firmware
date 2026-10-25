@@ -5,7 +5,7 @@
 #                                     SC-xx, and the known bugs Bx), or of the MIDI note input (mi_*);
 #                                     fails if one of its checks fails
 #   control_replay.<take>.<mode>      tools/harness/rec/<take>.csv through synth_message in MPE,
-#                                     Normal and Mono mode: no note left on, and the trace (MIDI out
+#                                     Normal and Mono mode and with mono legato (MPE): no note left on, and the trace (MIDI out
 #                                     and internal synth controls) matches tests/golden/control_replay.txt.
 #                                     After an intended change: tools/update_goldens.sh control
 
@@ -42,6 +42,7 @@ set(STRISO_SYNTH_CONTROL_SCENARIOS
   sc22_free_transpose_range sc22_octave_release sc23_panic sc24_knob_y0 sc25_midiparam_first
   sc27_dials sc29_cc65 sc30_mode_messages sc31_steal_dup sc35_tuning_overflow
   sc37_blink sc38_no_synth settings_whitelist
+  legato_up legato_down legato_retrigger legato_chord legato_preset
   mi_mpe_note mi_mpe_initial mi_one_channel mi_zone mi_steal mi_no_echo mi_modes mi_render)
 # scenarios of bugs not fixed yet, expected to fail (WILL_FAIL): each fix removed its entry, none
 # is left (the review's open findings have no scenario here)
@@ -73,7 +74,7 @@ list(SORT _recordings)
 foreach(rec IN LISTS _recordings)
   get_filename_component(rn "${rec}" NAME_WE)
   string(REGEX REPLACE "^play_" "" rn "${rn}")
-  foreach(mode mpe normal mono)
+  foreach(mode mpe normal mono legato)
     set(name control_replay.${rn}.${mode})
     set(args replay "${rec}" --mode ${mode} --golden-name ${name})
     if(STRISO_GOLDEN)

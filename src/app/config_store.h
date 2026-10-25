@@ -15,7 +15,7 @@ typedef struct {
 } ConfigParam;
 
 /* the firmware's default records (config_schema.hpp; config_store.cpp checks the count) */
-#define CONFIG_DEFAULT_RECORDS 872
+#define CONFIG_DEFAULT_RECORDS 880
 typedef struct {
   ConfigParam records[CONFIG_DEFAULT_RECORDS];
 } ConfigDefaults;

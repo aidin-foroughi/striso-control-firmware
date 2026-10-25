@@ -17,7 +17,7 @@ K err 7
 > StcK\x08
 K err 8
 > StcK\x09
-K err 9
+K ok 9
 > StcK\x0A
 K err 10
 > StcK\x0B

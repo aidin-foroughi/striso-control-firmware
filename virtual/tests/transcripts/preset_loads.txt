@@ -1,10 +1,11 @@
 > StcX
-X keys 41
+X keys 42
 X 0 switch midi - - k MPE|MPE MIDI mode|number of MPE voices, 1 to 15
 X 2 switch midi - - k Poly|Normal MIDI mode (all notes on one channel)|MIDI channel, 1 to 16
 X 4 switch midi - - k Mono|Mono (glissando) MIDI mode|MIDI channel, 1 to 16
 X 6 dial sens - - - Bend|Pitch bend sensitivity (sideways tilt)|0 to 4, steps of 1/4
 X 8 dial sens - - - Tilt|Tilt (forward/back) sensitivity|0 to 3, steps of 1/8
+X 9 switch layout - - k Legato|Mono legato: one internal voice, a key pressed while one is held slurs to it, its release returns to the held one (on/off)|
 X 11 action layout - - - Flip|Flip the layout 180 degrees (with the glissando button also held: debug mode on/off)|
 X 13 switch voice brass 402800 k brass|Voice: brass|step through its presets (the up/down leds show which)
 X 15 switch voice trumpet 003030 k tpt|Voice: trumpet|step through its presets (the up/down leds show which)
@@ -43,15 +44,15 @@ X 65 action system - - - Cfg|Send the MPE and pitch bend configuration over MIDI
 X 67 action system - - d Reset|System reset: restarts the Striso|
 X end
 > StcY
-Y 1 voice=1 midi=mpe ch=2 voices=10 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.500 thres=0.000 vol=90 sustain=0.188 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 1 voice=1 midi=mpe ch=2 voices=10 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.500 thres=0.000 vol=90 sustain=0.188 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > StcK"
 K ok 34
 > StcY
-Y 1 voice=1 midi=mpe ch=2 voices=10 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.500 thres=0.000 vol=90 sustain=0.188 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 1 voice=1 midi=mpe ch=2 voices=10 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.500 thres=0.000 vol=90 sustain=0.188 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > StcK#
 K ok 35
 > StcY
-Y 2 voice=1 midi=mpe ch=2 voices=6 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.250 thres=0.000 vol=90 sustain=0.252 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 2 voice=1 midi=mpe ch=2 voices=6 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.250 thres=0.000 vol=90 sustain=0.252 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 3F800000 0
@@ -125,7 +126,7 @@ tuning 0 40E00000 41400000 00000000 00AA00 42780000 61
 > StcK%
 K ok 37
 > StcY
-Y 3 voice=1 midi=poly ch=5 voices=6 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=1.500 thres=0.200 vol=100 sustain=1.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 3 voice=1 midi=poly ch=5 voices=6 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=1.500 thres=0.200 vol=100 sustain=1.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -199,7 +200,7 @@ tuning 2 40DE50D7 41400000 3E828F5C 0000AA 42780000 61
 > StcK'
 K ok 39
 > StcY
-Y 4 voice=1 midi=mono ch=2 voices=1 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=1.000 rate=3 alt=0 porta=1 flip=0 led=0000AA updown=0000
+Y 4 voice=1 midi=mono ch=2 voices=1 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=1.000 rate=3 alt=0 porta=1 flip=0 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -273,7 +274,7 @@ tuning 2 40DE50D7 41400000 3E828F5C 0000AA 42780000 61
 > StcK)
 K ok 41
 > StcY
-Y 5 voice=1 midi=mpe ch=2 voices=15 bend=96 tuning=2 fine=-4800.00 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 5 voice=1 midi=mpe ch=2 voices=15 bend=96 tuning=2 fine=-4800.00 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -347,7 +348,7 @@ tuning 2 40DE50D7 41400000 C2400000 0000AA 42780000 61
 > StcK+
 K ok 43
 > StcY
-Y 6 voice=1 midi=mpe ch=1 voices=15 bend=96 tuning=2 fine=12.50 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 6 voice=1 midi=mpe ch=1 voices=15 bend=96 tuning=2 fine=12.50 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -421,7 +422,7 @@ tuning 2 40DE50D7 41400000 3E000000 0000AA 42780000 61
 > StcK-
 K ok 45
 > StcY
-Y 7 voice=1 midi=mpe ch=2 voices=1 bend=96 tuning=0 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 7 voice=1 midi=mpe ch=2 voices=1 bend=96 tuning=0 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -495,7 +496,7 @@ tuning 0 40E00000 41400000 00000000 00AA00 42780000 61
 > StcK\x1E
 K ok 30
 > StcY
-Y 8 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 8 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -569,7 +570,7 @@ tuning 8 40DEF7BD 41400000 3CF5C28F 00AA55 42780000 61
 > StcK 
 K ok 32
 > StcY
-Y 8 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 8 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -793,11 +794,11 @@ params 3 keys 61
 > StcK$
 K ok 36
 > StcY
-Y 9 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=1 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=123456 updown=0000
+Y 9 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=1 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=123456 updown=0000 legato=0
 > StcK#
 K ok 35
 > StcY
-Y 10 voice=1 midi=mpe ch=2 voices=6 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.250 thres=0.000 vol=90 sustain=0.252 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 10 voice=1 midi=mpe ch=2 voices=6 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.250 thres=0.000 vol=90 sustain=0.252 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 3F800000 0
@@ -871,7 +872,7 @@ tuning 0 40E00000 41400000 00000000 00AA00 42780000 61
 > StcK%
 K ok 37
 > StcY
-Y 11 voice=1 midi=poly ch=5 voices=6 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=1.500 thres=0.200 vol=100 sustain=1.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 11 voice=1 midi=poly ch=5 voices=6 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=1.500 thres=0.200 vol=100 sustain=1.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -945,7 +946,7 @@ tuning 2 40DE50D7 41400000 3E828F5C 0000AA 42780000 61
 > StcK'
 K ok 39
 > StcY
-Y 12 voice=1 midi=mono ch=2 voices=1 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=1.000 rate=3 alt=0 porta=1 flip=0 led=0000AA updown=0000
+Y 12 voice=1 midi=mono ch=2 voices=1 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=1.000 rate=3 alt=0 porta=1 flip=0 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -1019,7 +1020,7 @@ tuning 2 40DE50D7 41400000 3E828F5C 0000AA 42780000 61
 > StcK)
 K ok 41
 > StcY
-Y 13 voice=1 midi=mpe ch=2 voices=15 bend=96 tuning=2 fine=-4800.00 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 13 voice=1 midi=mpe ch=2 voices=15 bend=96 tuning=2 fine=-4800.00 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -1093,7 +1094,7 @@ tuning 2 40DE50D7 41400000 C2400000 0000AA 42780000 61
 > StcK+
 K ok 43
 > StcY
-Y 14 voice=1 midi=mpe ch=1 voices=15 bend=96 tuning=2 fine=12.50 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 14 voice=1 midi=mpe ch=1 voices=15 bend=96 tuning=2 fine=12.50 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -1167,7 +1168,7 @@ tuning 2 40DE50D7 41400000 3E000000 0000AA 42780000 61
 > StcK-
 K ok 45
 > StcY
-Y 15 voice=1 midi=mpe ch=2 voices=1 bend=96 tuning=0 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 15 voice=1 midi=mpe ch=2 voices=1 bend=96 tuning=0 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -1241,7 +1242,7 @@ tuning 0 40E00000 41400000 00000000 00AA00 42780000 61
 > StcK\x1E
 K ok 30
 > StcY
-Y 16 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 16 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -1315,7 +1316,7 @@ tuning 8 40DEF7BD 41400000 3CF5C28F 00AA55 42780000 61
 > StcK 
 K ok 32
 > StcY
-Y 16 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 16 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -1539,11 +1540,11 @@ params 3 keys 61
 > StcK&
 K ok 38
 > StcY
-Y 17 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=2 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=0000AA updown=0000
+Y 17 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=2 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=0000AA updown=0000 legato=0
 > StcK#
 K ok 35
 > StcY
-Y 18 voice=1 midi=mpe ch=2 voices=6 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.250 thres=0.000 vol=90 sustain=0.252 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 18 voice=1 midi=mpe ch=2 voices=6 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.250 thres=0.000 vol=90 sustain=0.252 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 3F800000 0
@@ -1617,7 +1618,7 @@ tuning 0 40E00000 41400000 00000000 00AA00 42780000 61
 > StcK%
 K ok 37
 > StcY
-Y 19 voice=1 midi=poly ch=5 voices=6 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=1.500 thres=0.200 vol=100 sustain=1.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 19 voice=1 midi=poly ch=5 voices=6 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=1.500 thres=0.200 vol=100 sustain=1.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -1691,7 +1692,7 @@ tuning 2 40DE50D7 41400000 3E828F5C 0000AA 42780000 61
 > StcK'
 K ok 39
 > StcY
-Y 20 voice=1 midi=mono ch=2 voices=1 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=1.000 rate=3 alt=0 porta=1 flip=0 led=0000AA updown=0000
+Y 20 voice=1 midi=mono ch=2 voices=1 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=1.000 rate=3 alt=0 porta=1 flip=0 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -1765,7 +1766,7 @@ tuning 2 40DE50D7 41400000 3E828F5C 0000AA 42780000 61
 > StcK)
 K ok 41
 > StcY
-Y 21 voice=1 midi=mpe ch=2 voices=15 bend=96 tuning=2 fine=-4800.00 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 21 voice=1 midi=mpe ch=2 voices=15 bend=96 tuning=2 fine=-4800.00 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -1839,7 +1840,7 @@ tuning 2 40DE50D7 41400000 C2400000 0000AA 42780000 61
 > StcK+
 K ok 43
 > StcY
-Y 22 voice=1 midi=mpe ch=1 voices=15 bend=96 tuning=2 fine=12.50 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 22 voice=1 midi=mpe ch=1 voices=15 bend=96 tuning=2 fine=12.50 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -1913,7 +1914,7 @@ tuning 2 40DE50D7 41400000 3E000000 0000AA 42780000 61
 > StcK-
 K ok 45
 > StcY
-Y 23 voice=1 midi=mpe ch=2 voices=1 bend=96 tuning=0 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 23 voice=1 midi=mpe ch=2 voices=1 bend=96 tuning=0 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -1987,7 +1988,7 @@ tuning 0 40E00000 41400000 00000000 00AA00 42780000 61
 > StcK\x1E
 K ok 30
 > StcY
-Y 24 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 24 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -2061,7 +2062,7 @@ tuning 8 40DEF7BD 41400000 3CF5C28F 00AA55 42780000 61
 > StcK 
 K ok 32
 > StcY
-Y 24 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 24 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -2285,11 +2286,11 @@ params 3 keys 61
 > StcK\x17
 K ok 23
 > StcY
-Y 25 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=3 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=555500 updown=0000
+Y 25 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=3 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=555500 updown=0000 legato=0
 > StcK#
 K ok 35
 > StcY
-Y 26 voice=1 midi=mpe ch=2 voices=6 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.250 thres=0.000 vol=90 sustain=0.252 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 26 voice=1 midi=mpe ch=2 voices=6 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.250 thres=0.000 vol=90 sustain=0.252 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 3F800000 0
@@ -2363,7 +2364,7 @@ tuning 0 40E00000 41400000 00000000 00AA00 42780000 61
 > StcK%
 K ok 37
 > StcY
-Y 27 voice=1 midi=poly ch=5 voices=6 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=1.500 thres=0.200 vol=100 sustain=1.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 27 voice=1 midi=poly ch=5 voices=6 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=1.500 thres=0.200 vol=100 sustain=1.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -2437,7 +2438,7 @@ tuning 2 40DE50D7 41400000 3E828F5C 0000AA 42780000 61
 > StcK'
 K ok 39
 > StcY
-Y 28 voice=1 midi=mono ch=2 voices=1 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=1.000 rate=3 alt=0 porta=1 flip=0 led=0000AA updown=0000
+Y 28 voice=1 midi=mono ch=2 voices=1 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=1.000 rate=3 alt=0 porta=1 flip=0 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -2511,7 +2512,7 @@ tuning 2 40DE50D7 41400000 3E828F5C 0000AA 42780000 61
 > StcK)
 K ok 41
 > StcY
-Y 29 voice=1 midi=mpe ch=2 voices=15 bend=96 tuning=2 fine=-4800.00 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 29 voice=1 midi=mpe ch=2 voices=15 bend=96 tuning=2 fine=-4800.00 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -2585,7 +2586,7 @@ tuning 2 40DE50D7 41400000 C2400000 0000AA 42780000 61
 > StcK+
 K ok 43
 > StcY
-Y 30 voice=1 midi=mpe ch=1 voices=15 bend=96 tuning=2 fine=12.50 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 30 voice=1 midi=mpe ch=1 voices=15 bend=96 tuning=2 fine=12.50 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -2659,7 +2660,7 @@ tuning 2 40DE50D7 41400000 3E000000 0000AA 42780000 61
 > StcK-
 K ok 45
 > StcY
-Y 31 voice=1 midi=mpe ch=2 voices=1 bend=96 tuning=0 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 31 voice=1 midi=mpe ch=2 voices=1 bend=96 tuning=0 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -2733,7 +2734,7 @@ tuning 0 40E00000 41400000 00000000 00AA00 42780000 61
 > StcK\x1E
 K ok 30
 > StcY
-Y 32 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 32 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -2807,7 +2808,7 @@ tuning 8 40DEF7BD 41400000 3CF5C28F 00AA55 42780000 61
 > StcK 
 K ok 32
 > StcY
-Y 32 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 32 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -3031,11 +3032,11 @@ params 3 keys 61
 > StcK\x19
 K ok 25
 > StcY
-Y 33 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=4 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=AA0000 updown=0000
+Y 33 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=4 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=AA0000 updown=0000 legato=0
 > StcK#
 K ok 35
 > StcY
-Y 34 voice=1 midi=mpe ch=2 voices=6 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.250 thres=0.000 vol=90 sustain=0.252 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 34 voice=1 midi=mpe ch=2 voices=6 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.250 thres=0.000 vol=90 sustain=0.252 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 3F800000 0
@@ -3109,7 +3110,7 @@ tuning 0 40E00000 41400000 00000000 00AA00 42780000 61
 > StcK%
 K ok 37
 > StcY
-Y 35 voice=1 midi=poly ch=5 voices=6 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=1.500 thres=0.200 vol=100 sustain=1.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 35 voice=1 midi=poly ch=5 voices=6 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=1.500 thres=0.200 vol=100 sustain=1.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -3183,7 +3184,7 @@ tuning 2 40DE50D7 41400000 3E828F5C 0000AA 42780000 61
 > StcK'
 K ok 39
 > StcY
-Y 36 voice=1 midi=mono ch=2 voices=1 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=1.000 rate=3 alt=0 porta=1 flip=0 led=0000AA updown=0000
+Y 36 voice=1 midi=mono ch=2 voices=1 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=1.000 rate=3 alt=0 porta=1 flip=0 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -3257,7 +3258,7 @@ tuning 2 40DE50D7 41400000 3E828F5C 0000AA 42780000 61
 > StcK)
 K ok 41
 > StcY
-Y 37 voice=1 midi=mpe ch=2 voices=15 bend=96 tuning=2 fine=-4800.00 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 37 voice=1 midi=mpe ch=2 voices=15 bend=96 tuning=2 fine=-4800.00 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -3331,7 +3332,7 @@ tuning 2 40DE50D7 41400000 C2400000 0000AA 42780000 61
 > StcK+
 K ok 43
 > StcY
-Y 38 voice=1 midi=mpe ch=1 voices=15 bend=96 tuning=2 fine=12.50 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 38 voice=1 midi=mpe ch=1 voices=15 bend=96 tuning=2 fine=12.50 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -3405,7 +3406,7 @@ tuning 2 40DE50D7 41400000 3E000000 0000AA 42780000 61
 > StcK-
 K ok 45
 > StcY
-Y 39 voice=1 midi=mpe ch=2 voices=1 bend=96 tuning=0 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 39 voice=1 midi=mpe ch=2 voices=1 bend=96 tuning=0 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -3479,7 +3480,7 @@ tuning 0 40E00000 41400000 00000000 00AA00 42780000 61
 > StcK\x1E
 K ok 30
 > StcY
-Y 40 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 40 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -3553,7 +3554,7 @@ tuning 8 40DEF7BD 41400000 3CF5C28F 00AA55 42780000 61
 > StcK 
 K ok 32
 > StcY
-Y 40 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 40 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -3777,11 +3778,11 @@ params 3 keys 61
 > StcK\x1B
 K ok 27
 > StcY
-Y 41 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=5 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=550055 updown=0000
+Y 41 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=5 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=550055 updown=0000 legato=0
 > StcK#
 K ok 35
 > StcY
-Y 42 voice=1 midi=mpe ch=2 voices=6 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.250 thres=0.000 vol=90 sustain=0.252 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 42 voice=1 midi=mpe ch=2 voices=6 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.250 thres=0.000 vol=90 sustain=0.252 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 3F800000 0
@@ -3855,7 +3856,7 @@ tuning 0 40E00000 41400000 00000000 00AA00 42780000 61
 > StcK%
 K ok 37
 > StcY
-Y 43 voice=1 midi=poly ch=5 voices=6 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=1.500 thres=0.200 vol=100 sustain=1.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 43 voice=1 midi=poly ch=5 voices=6 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=1.500 thres=0.200 vol=100 sustain=1.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -3929,7 +3930,7 @@ tuning 2 40DE50D7 41400000 3E828F5C 0000AA 42780000 61
 > StcK'
 K ok 39
 > StcY
-Y 44 voice=1 midi=mono ch=2 voices=1 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=1.000 rate=3 alt=0 porta=1 flip=0 led=0000AA updown=0000
+Y 44 voice=1 midi=mono ch=2 voices=1 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=1.000 rate=3 alt=0 porta=1 flip=0 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -4003,7 +4004,7 @@ tuning 2 40DE50D7 41400000 3E828F5C 0000AA 42780000 61
 > StcK)
 K ok 41
 > StcY
-Y 45 voice=1 midi=mpe ch=2 voices=15 bend=96 tuning=2 fine=-4800.00 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 45 voice=1 midi=mpe ch=2 voices=15 bend=96 tuning=2 fine=-4800.00 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -4077,7 +4078,7 @@ tuning 2 40DE50D7 41400000 C2400000 0000AA 42780000 61
 > StcK+
 K ok 43
 > StcY
-Y 46 voice=1 midi=mpe ch=1 voices=15 bend=96 tuning=2 fine=12.50 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 46 voice=1 midi=mpe ch=1 voices=15 bend=96 tuning=2 fine=12.50 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -4151,7 +4152,7 @@ tuning 2 40DE50D7 41400000 3E000000 0000AA 42780000 61
 > StcK-
 K ok 45
 > StcY
-Y 47 voice=1 midi=mpe ch=2 voices=1 bend=96 tuning=0 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 47 voice=1 midi=mpe ch=2 voices=1 bend=96 tuning=0 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -4225,7 +4226,7 @@ tuning 0 40E00000 41400000 00000000 00AA00 42780000 61
 > StcK\x1E
 K ok 30
 > StcY
-Y 48 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 48 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -4299,7 +4300,7 @@ tuning 8 40DEF7BD 41400000 3CF5C28F 00AA55 42780000 61
 > StcK 
 K ok 32
 > StcY
-Y 48 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 48 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -4523,11 +4524,11 @@ params 3 keys 61
 > StcK\x1D
 K ok 29
 > StcY
-Y 49 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=6 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=55AA00 updown=0000
+Y 49 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=6 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=55AA00 updown=0000 legato=0
 > StcK#
 K ok 35
 > StcY
-Y 50 voice=1 midi=mpe ch=2 voices=6 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.250 thres=0.000 vol=90 sustain=0.252 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 50 voice=1 midi=mpe ch=2 voices=6 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.250 thres=0.000 vol=90 sustain=0.252 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 3F800000 0
@@ -4601,7 +4602,7 @@ tuning 0 40E00000 41400000 00000000 00AA00 42780000 61
 > StcK%
 K ok 37
 > StcY
-Y 51 voice=1 midi=poly ch=5 voices=6 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=1.500 thres=0.200 vol=100 sustain=1.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 51 voice=1 midi=poly ch=5 voices=6 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=1.500 thres=0.200 vol=100 sustain=1.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -4675,7 +4676,7 @@ tuning 2 40DE50D7 41400000 3E828F5C 0000AA 42780000 61
 > StcK'
 K ok 39
 > StcY
-Y 52 voice=1 midi=mono ch=2 voices=1 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=1.000 rate=3 alt=0 porta=1 flip=0 led=0000AA updown=0000
+Y 52 voice=1 midi=mono ch=2 voices=1 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=1.000 rate=3 alt=0 porta=1 flip=0 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -4749,7 +4750,7 @@ tuning 2 40DE50D7 41400000 3E828F5C 0000AA 42780000 61
 > StcK)
 K ok 41
 > StcY
-Y 53 voice=1 midi=mpe ch=2 voices=15 bend=96 tuning=2 fine=-4800.00 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 53 voice=1 midi=mpe ch=2 voices=15 bend=96 tuning=2 fine=-4800.00 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -4823,7 +4824,7 @@ tuning 2 40DE50D7 41400000 C2400000 0000AA 42780000 61
 > StcK+
 K ok 43
 > StcY
-Y 54 voice=1 midi=mpe ch=1 voices=15 bend=96 tuning=2 fine=12.50 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 54 voice=1 midi=mpe ch=1 voices=15 bend=96 tuning=2 fine=12.50 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -4897,7 +4898,7 @@ tuning 2 40DE50D7 41400000 3E000000 0000AA 42780000 61
 > StcK-
 K ok 45
 > StcY
-Y 55 voice=1 midi=mpe ch=2 voices=1 bend=96 tuning=0 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 55 voice=1 midi=mpe ch=2 voices=1 bend=96 tuning=0 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -4971,7 +4972,7 @@ tuning 0 40E00000 41400000 00000000 00AA00 42780000 61
 > StcK\x1E
 K ok 30
 > StcY
-Y 56 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 56 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -5045,7 +5046,7 @@ tuning 8 40DEF7BD 41400000 3CF5C28F 00AA55 42780000 61
 > StcK 
 K ok 32
 > StcY
-Y 56 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 56 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -5269,11 +5270,11 @@ params 3 keys 61
 > StcK\x1F
 K ok 31
 > StcY
-Y 57 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=7 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=55AA00 updown=0000
+Y 57 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=7 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=55AA00 updown=0000 legato=0
 > StcK#
 K ok 35
 > StcY
-Y 58 voice=1 midi=mpe ch=2 voices=6 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.250 thres=0.000 vol=90 sustain=0.252 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 58 voice=1 midi=mpe ch=2 voices=6 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.250 thres=0.000 vol=90 sustain=0.252 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 3F800000 0
@@ -5347,7 +5348,7 @@ tuning 0 40E00000 41400000 00000000 00AA00 42780000 61
 > StcK%
 K ok 37
 > StcY
-Y 59 voice=1 midi=poly ch=5 voices=6 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=1.500 thres=0.200 vol=100 sustain=1.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 59 voice=1 midi=poly ch=5 voices=6 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=1.500 thres=0.200 vol=100 sustain=1.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -5421,7 +5422,7 @@ tuning 2 40DE50D7 41400000 3E828F5C 0000AA 42780000 61
 > StcK'
 K ok 39
 > StcY
-Y 60 voice=1 midi=mono ch=2 voices=1 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=1.000 rate=3 alt=0 porta=1 flip=0 led=0000AA updown=0000
+Y 60 voice=1 midi=mono ch=2 voices=1 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=1.000 rate=3 alt=0 porta=1 flip=0 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -5495,7 +5496,7 @@ tuning 2 40DE50D7 41400000 3E828F5C 0000AA 42780000 61
 > StcK)
 K ok 41
 > StcY
-Y 61 voice=1 midi=mpe ch=2 voices=15 bend=96 tuning=2 fine=-4800.00 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 61 voice=1 midi=mpe ch=2 voices=15 bend=96 tuning=2 fine=-4800.00 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -5569,7 +5570,7 @@ tuning 2 40DE50D7 41400000 C2400000 0000AA 42780000 61
 > StcK+
 K ok 43
 > StcY
-Y 62 voice=1 midi=mpe ch=1 voices=15 bend=96 tuning=2 fine=12.50 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 62 voice=1 midi=mpe ch=1 voices=15 bend=96 tuning=2 fine=12.50 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -5643,7 +5644,7 @@ tuning 2 40DE50D7 41400000 3E000000 0000AA 42780000 61
 > StcK-
 K ok 45
 > StcY
-Y 63 voice=1 midi=mpe ch=2 voices=1 bend=96 tuning=0 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 63 voice=1 midi=mpe ch=2 voices=1 bend=96 tuning=0 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -5717,7 +5718,7 @@ tuning 0 40E00000 41400000 00000000 00AA00 42780000 61
 > StcK\x1E
 K ok 30
 > StcY
-Y 64 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 64 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -5791,7 +5792,7 @@ tuning 8 40DEF7BD 41400000 3CF5C28F 00AA55 42780000 61
 > StcK 
 K ok 32
 > StcY
-Y 64 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 64 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -6015,11 +6016,11 @@ params 3 keys 61
 > StcK!
 K ok 33
 > StcY
-Y 64 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 64 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > StcK#
 K ok 35
 > StcY
-Y 65 voice=1 midi=mpe ch=2 voices=6 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.250 thres=0.000 vol=90 sustain=0.252 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 65 voice=1 midi=mpe ch=2 voices=6 bend=48 tuning=0 fine=0.00 transpose=0.000 pres=1.000 velo=1.000 tilt=1.000 bendsens=0.250 thres=0.000 vol=90 sustain=0.252 rate=1 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 3F800000 0
@@ -6093,7 +6094,7 @@ tuning 0 40E00000 41400000 00000000 00AA00 42780000 61
 > StcK%
 K ok 37
 > StcY
-Y 66 voice=1 midi=poly ch=5 voices=6 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=1.500 thres=0.200 vol=100 sustain=1.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 66 voice=1 midi=poly ch=5 voices=6 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=1.500 thres=0.200 vol=100 sustain=1.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -6167,7 +6168,7 @@ tuning 2 40DE50D7 41400000 3E828F5C 0000AA 42780000 61
 > StcK'
 K ok 39
 > StcY
-Y 67 voice=1 midi=mono ch=2 voices=1 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=1.000 rate=3 alt=0 porta=1 flip=0 led=0000AA updown=0000
+Y 67 voice=1 midi=mono ch=2 voices=1 bend=24 tuning=2 fine=25.50 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=1.000 rate=3 alt=0 porta=1 flip=0 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -6241,7 +6242,7 @@ tuning 2 40DE50D7 41400000 3E828F5C 0000AA 42780000 61
 > StcK)
 K ok 41
 > StcY
-Y 68 voice=1 midi=mpe ch=2 voices=15 bend=96 tuning=2 fine=-4800.00 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 68 voice=1 midi=mpe ch=2 voices=15 bend=96 tuning=2 fine=-4800.00 transpose=0.000 pres=2.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 40000000 0
@@ -6315,7 +6316,7 @@ tuning 2 40DE50D7 41400000 C2400000 0000AA 42780000 61
 > StcK+
 K ok 43
 > StcY
-Y 69 voice=1 midi=mpe ch=1 voices=15 bend=96 tuning=2 fine=12.50 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000
+Y 69 voice=1 midi=mpe ch=1 voices=15 bend=96 tuning=2 fine=12.50 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=1 led=0000AA updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -6389,7 +6390,7 @@ tuning 2 40DE50D7 41400000 3E000000 0000AA 42780000 61
 > StcK-
 K ok 45
 > StcY
-Y 70 voice=1 midi=mpe ch=2 voices=1 bend=96 tuning=0 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA00 updown=0000
+Y 70 voice=1 midi=mpe ch=2 voices=1 bend=96 tuning=0 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=100 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA00 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -6463,7 +6464,7 @@ tuning 0 40E00000 41400000 00000000 00AA00 42780000 61
 > StcK\x1E
 K ok 30
 > StcY
-Y 71 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 71 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0
@@ -6537,7 +6538,7 @@ tuning 8 40DEF7BD 41400000 3CF5C28F 00AA55 42780000 61
 > StcK 
 K ok 32
 > StcY
-Y 71 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000
+Y 71 voice=1 midi=poly ch=16 voices=1 bend=96 tuning=8 fine=0.00 transpose=0.000 pres=10.000 velo=0.500 tilt=-1.000 bendsens=-3.000 thres=0.500 vol=0 sustain=0.000 rate=3 alt=0 porta=0 flip=0 led=00AA55 updown=0000 legato=0
 > Stcg
 params 2 touch 5
 0 pressure touch 3DCCCCCD 40800000 41200000 0

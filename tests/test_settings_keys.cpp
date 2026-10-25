@@ -35,6 +35,7 @@ struct Recorder {
 	float mpe(const Key& k, int t, float a) { return rec("mpe", k, t, a); }
 	float normal(const Key& k, int t, float a) { return rec("normal", k, t, a); }
 	float mono(const Key& k, int t, float a) { return rec("mono", k, t, a); }
+	float legato(const Key& k, int t, float a) { return rec("legato", k, t, a); }
 	float flip(const Key& k, int t, float a) { return rec("flip", k, t, a); }
 	float threshold(const Key& k, int t, float a) { return rec("threshold", k, t, a); }
 	float pressure(const Key& k, int t, float a) { return rec("pressure", k, t, a); }

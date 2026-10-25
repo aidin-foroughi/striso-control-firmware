@@ -36,6 +36,7 @@ struct RecordingBoard {
 	}
 	void midinote_mode(midinote_mode_t m) { say("midinote " + std::to_string(m)); }
 	void jack2(jack2_mode_t m) { say("jack " + std::to_string(m)); }
+	void legato(bool on) { say(on ? "legato on" : "legato off"); }
 	[[nodiscard]] int flipdir() const { return flip_dir; }
 	void flip() {
 		flip_dir = -flip_dir;
