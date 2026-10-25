@@ -48,8 +48,10 @@ void sim_halt(const char *reason, const char *func);
 
 /* ---- locking: single-threaded simulation ---- */
 extern int sim_lock_depth;
+/* a thread leaving its last critical section: interrupts that were pending run now (sim_irq_hook) */
+void sim_sys_unlock(void);
 #define osalSysLock() (sim_lock_depth++)
-#define osalSysUnlock() (sim_lock_depth--)
+#define osalSysUnlock() sim_sys_unlock()
 #define osalSysLockFromISR() (sim_lock_depth++)
 #define osalSysUnlockFromISR() (sim_lock_depth--)
 #define chSysLock() osalSysLock()

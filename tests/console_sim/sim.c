@@ -16,6 +16,16 @@
 #include "sim.h"
 
 int sim_lock_depth;
+void (*sim_irq_hook)(void);
+void sim_sys_unlock(void) {
+  static int in_irq;
+  sim_lock_depth--;
+  if (sim_lock_depth == 0 && sim_irq_hook && !in_irq) {
+    in_irq = 1;
+    sim_irq_hook(); /* e.g. the host's next OUT packet arrives */
+    in_irq = 0;
+  }
+}
 systime_t sim_time;
 sim_dwt_t sim_dwt;
 sim_pwr_t sim_pwr;

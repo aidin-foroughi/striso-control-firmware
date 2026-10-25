@@ -51,6 +51,10 @@ using Reply = OutStream<BulkUSBDriver>;
 // for the host to make room (B14), as the raw recording's dump does (key_scanner.cpp)
 constexpr sysinterval_t kStale = TIME_MS2I(100);
 constexpr sysinterval_t kWriteTimeout = TIME_MS2I(500);
+// console bytes read per pass of the main loop (2 ms): a host that writes without a pause can't
+// hold off MIDI in, synth_tick and led_tick (R27); the rest waits in the USB queue for the next
+// pass. 128 KB/s, far beyond what a host sends (Striso Live's parameter writes: 60-byte batches).
+constexpr int kConsoleBytesPerPass = 256;
 
 constexpr uint32_t kBootloaderRtcSignature = 0x71a21877;
 
@@ -363,9 +367,9 @@ void InitPConnection(void) {
 void PExReceiveByte(unsigned char c) { (void)board_console.feed(c, chVTGetSystemTimeX()); }
 
 void PExReceive(void) {
-	// the console's bytes from the host
+	// the console's bytes from the host, a bounded share a pass
 	uint8_t c;
-	while (chnReadTimeout(&BDU1, &c, 1, TIME_IMMEDIATE)) {
+	for (int i = 0; i < kConsoleBytesPerPass && chnReadTimeout(&BDU1, &c, 1, TIME_IMMEDIATE); i++) {
 		PExReceiveByte(c);
 	}
 	// the reply to a latency marker, once it went out

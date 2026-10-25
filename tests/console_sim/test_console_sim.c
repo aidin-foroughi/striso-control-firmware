@@ -328,6 +328,49 @@ static void heroes(void) {
 	    !sim_halted && contains(host_in[2], host_in_len[2], "H 3 cutoff res | rvmix dlmix\r\n"));
 }
 
+/* R27: a host that writes console bytes without a pause. On the board the USB interrupt hands
+ * over its next packet while the main thread reads: here each time the main thread leaves a
+ * critical section (sim_irq_hook). Each pass must read a bounded share of them, and still take
+ * the MIDI in that waits and return to synth_tick and led_tick. */
+static int r27_packets_left;
+static void r27_host_streams(void) {
+	if (r27_packets_left > 0 && usbGetReceiveStatusI(&USBD1, 2)) {
+		uint8_t junk[64];
+		memset(junk, 'x', sizeof junk);
+		r27_packets_left--;
+		host_write(2, junk, sizeof junk);
+	}
+}
+static void console_stream_bounded(void) {
+	fresh();
+	const int packets = 100; /* 6400 bytes */
+	r27_packets_left = packets;
+	sim_irq_hook = r27_host_streams;
+	PExReceive(); /* the stream starts: its first packets arrive during this pass */
+	/* a MIDI event waits while the stream goes on; then the passes, each one's share of it */
+	const uint8_t note_on[4] = {0x09, 0x90, 0x3c, 0x64};
+	host_write(1, note_on, 4);
+	int passes = 0, most = 0, midi_first_pass = -1;
+	while (r27_packets_left > 0 && passes < 1000) {
+		const int before = r27_packets_left;
+		PExReceive();
+		passes++;
+		if (before - r27_packets_left > most) most = before - r27_packets_left;
+		if (midi_first_pass < 0 && midi_in_calls > 0) midi_first_pass = passes;
+	}
+	sim_irq_hook = NULL;
+	PExReceive(); /* what is still queued */
+	PExReceive();
+	host_in_len[2] = 0;
+	host_cmd("StcV", 4);
+	PExReceive();
+	sim_host_drain();
+	printf("    %d packets in %d passes, at most %d a pass; the MIDI event in pass %d\n", packets, passes, most,
+	    midi_first_pass);
+	check("R27: a console stream without pause: each pass reads at most 256 bytes, MIDI in is taken at once",
+	    most <= 256 / 64 + 1 && midi_first_pass == 1 && midi_in_calls == 1 && r27_packets_left == 0 && got_version());
+}
+
 int main(void) {
 	setvbuf(stdout, NULL, _IONBF, 0);
 	fresh();
@@ -360,6 +403,7 @@ int main(void) {
 	heroes();
 	host_stops_reading();
 	inbox_stats();
+	console_stream_bounded();
 	printf(failures ? "console sim: %d FAILED\n" : "console sim: all passed\n", failures);
 	return failures ? 1 : 0;
 }

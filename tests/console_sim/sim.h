@@ -21,6 +21,7 @@ extern int sim_halted, sim_deadlocks, sim_timeouts, sim_sleeps, sim_resets, midi
 extern const char *sim_halt_reason;
 extern jmp_buf *sim_halt_jmp, *sim_reset_jmp;
 extern int (*sim_block_hook)(threads_queue_t *tqp);
+extern void (*sim_irq_hook)(void);
 int sim_hook_reading_host(threads_queue_t *tqp);
 extern uint8_t host_in[3][1 << 16];
 extern size_t host_in_len[3];
