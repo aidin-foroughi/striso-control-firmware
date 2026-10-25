@@ -3,6 +3,7 @@
 #include <hal.h>
 
 extern int last_color[3]; /* the indicator's colour as last set (led_rgb3), r g b */
+extern ioline_t led_dimmed; /* the dimmed up/down LED, which the PWM's callbacks toggle */
 
 void led_init(void);
 

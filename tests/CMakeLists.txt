@@ -180,6 +180,17 @@ target_link_libraries(test_jack_detector PRIVATE striso_host_options)
 target_compile_options(test_jack_detector PRIVATE -O1 -Wno-unused-parameter -Wno-unused-variable -Wno-switch)
 doctest_discover_tests(test_jack_detector TEST_PREFIX "jack." PROPERTIES LABELS unit)
 
+# led.*: the LEDs (src/drivers/led.cpp over its presenter) against the old led.c (tests/ref/led_ref.c),
+# call for call on a stand-in HAL (tests/led/stubs): every gamma input, up/down state and dial
+# angle, blinks around their end and the time's wrap, random calls
+add_executable(test_led main.cpp led/test_led.cpp led/ref_wrap.c "${PROJECT_SOURCE_DIR}/src/drivers/led.cpp")
+target_include_directories(test_led PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/led/stubs"
+  "${PROJECT_SOURCE_DIR}/third_party/doctest"
+  "${PROJECT_SOURCE_DIR}/src/drivers")
+target_link_libraries(test_led PRIVATE striso_host_options)
+doctest_discover_tests(test_led TEST_PREFIX "led." PROPERTIES LABELS unit)
+
 # messaging_model[_small], messaging_threads: src/app/inbox.hpp (the control thread's event queue)
 # never loses, corrupts or reorders an accepted event, never misses a wakeup, refuses only from a
 # full lane and counts it (R2, B7): exhaustively on a small inbox, under key traffic on the board's,
