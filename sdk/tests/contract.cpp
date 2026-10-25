@@ -48,10 +48,6 @@ constexpr float PEAK_FUZZ = 64.0f;    // extreme but legal parameters may be lou
 [[nodiscard]] int nvoices() { return std::min(10, info().budget.max_voices); }
 [[nodiscard]] int blocks(double s) { return static_cast<int>(s * SR / dsp::BLOCK); }
 
-// engines that are known not to keep the contract yet, and why (doc/engines.md); their check
-// is expected to fail, and fails once they keep it, so the entry gets removed
-[[nodiscard]] bool shares_static_memory() { return std::strcmp(info().name, "trumpet") == 0; }
-
 // every preset, or -1 for an engine without presets
 [[nodiscard]] std::vector<int> presets() {
 	std::vector<int> p;
@@ -338,7 +334,7 @@ TEST_CASE("determinism: the same input, the same output bit for bit") {
 	}
 }
 
-TEST_CASE("independence: two instances share nothing" * doctest::should_fail(shares_static_memory())) {
+TEST_CASE("independence: two instances share nothing") {
 	const int p = presets().back();
 	CAPTURE(std::string(info().name));
 	// alone, one after the other

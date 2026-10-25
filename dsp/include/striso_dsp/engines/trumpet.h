@@ -1,6 +1,5 @@
 // The trumpet engine (voice_trumpet.h) as a striso::dsp::VoiceEngine: striso::dsp::engines::trumpet.
-// (voice_trumpet.h still keeps its delay lines in static arrays, cyl_f, cyl_b, room_buf: two
-// instances share them. Its rewrite moves them into trumpet::FastMemory, doc/engines.md.)
+// Its bore delay lines (80 KB): 64 KB FastMemory, 16 KB LargeMemory.
 #ifndef STRISO_DSP_ENGINES_TRUMPET_H_
 #define STRISO_DSP_ENGINES_TRUMPET_H_
 
@@ -12,21 +11,17 @@ namespace traits {
 struct trumpet {
 	STRISO_ENGINE_FUNCTIONS(trumpet)
 	STRISO_ENGINE_PRESETS(trumpet)
-	using FastMemory = NoMemory;
-	using LargeMemory = NoMemory;
+	using FastMemory = ::trumpet::FastMemory;
+	using LargeMemory = ::trumpet::LargeMemory;
 	static constexpr const char* name = "trumpet";
-	static constexpr const char* summary = "trumpet family: lips locked to a physical bore at 96 kHz, valves, mutes (9 presets)";
-	static constexpr uint32_t inputs = in_pressure | in_velocity | in_tilt_x | in_tilt_y | in_shake | in_pedal;
-	static constexpr Budget budget = {::trumpet::MAX_VOICES, 94000, 2.0f};
+	static constexpr const char* summary = "physical trumpet: lips, mouthpiece and bore, played like the brass trumpet (1 preset)";
+	// pres the breath, vpres the attack, but_y the lips (lip_tilt); acc_abs and the pedal
+	static constexpr uint32_t inputs = in_pressure | in_velocity | in_tilt_y | in_shake | in_pedal;
+	static constexpr Budget budget = {::trumpet::MAX_VOICES, 44000, 2.0f}; // profile.sh 43740; silent 0.25 s after the release
 	// the hero parameters (seeded from Striso Live's hero.dart; the contract suite checks the names)
-	static constexpr Heroes heroes = {{"brassy", "bell", "attack", "p_loud", "breath", "vibrato", "release", "room"}};
-	static constexpr PresetHeroes preset_heroes[] = {
-	    {"bb jazz", {{"brassy", "bell", "growl", "fall", "doit", "shake", "vibrato", "breath"}}},
-	    {"harmon", {{"mute", "wah", "brassy", "bell", "attack", "breath", "vibrato", "room"}}},
-	    {"cup mute", {{"mute", "wah", "brassy", "bell", "attack", "breath", "vibrato", "room"}}},
-	    {"straight", {{"mute", "wah", "brassy", "bell", "attack", "breath", "vibrato", "room"}}},
-	    {"plunger", {{"mute", "wah", "growl", "brassy", "bell", "fall", "vibrato", "breath"}}},
-	};
+	// the new model's: brassiness, the bell and the radiation's brightness, the tongue, the loudest
+	// breath, the breath noise, the lips under tilt, the release (no presets to override them)
+	static constexpr Heroes heroes = {{"brassiness", "bell_hz", "tone_hz", "tongue", "p_loud", "breath", "lip_tilt", "release"}};
 };
 } // namespace traits
 

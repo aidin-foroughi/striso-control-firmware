@@ -81,9 +81,9 @@ What each engine needs:
 | wind | | | 160 KB |
 | reed | | | 160 KB |
 | fx | | delay and pre-delay, 80 KB | reverb ring, 64 KB |
-| trumpet | static arrays still (below) | | |
+| trumpet | | bores of voices 0-7, 64 KB | bores of voices 8-9, 16 KB |
 
-The VOICE=all firmware is nearly full: AXI SRAM had about 31 KB free and AHB SRAM1/2 about 40 KB. A new engine with large buffers needs to check `tools/build.sh VOICE=all`'s memory report.
+The VOICE=all firmware is nearly full: with the physical trumpet, AXI SRAM has about 10 KB free and AHB SRAM1/2 about 12 KB (neither has room for its 80 KB of bores alone, so they are split by voice). A new engine with large buffers needs to check `tools/build.sh VOICE=all`'s memory report.
 
 ## Writing an engine
 
@@ -321,13 +321,12 @@ MIDI is taken in 2 ms steps, as on the board: the voices' level decay and the st
 | `striso_render.*` | The log names engine, preset and input; bad arguments are refused. |
 | `render.*`, `target.*`, `virtual.render.*` | The golden checksums: host, QEMU (the board's arithmetic) and through the virtual board's firmware. All three go through the contract. |
 
-Known exception: `contract.trumpet.independence` is expected to fail (doctest `should_fail`). `voice_trumpet.h` still keeps its delay lines in static arrays (`cyl_f`, `cyl_b`, `room_buf` in `.ram1_clear`), and its `dbg_*` calibration variables are globals, so two trumpet instances share them. One trumpet at a time, as on the board, is unaffected. Once the trumpet keeps the contract the test "passes", so doctest reports it as failing: then remove `shares_static_memory()`'s entry in `contract.cpp`.
 
 ## Porting notes
 
 ### The trumpet rewrite (Track B, `trumpet-phys`)
 
-`voice_trumpet.h` was not touched; `engines/trumpet.h` adapts it as it is.
+Done in `trumpet-phys-sdk`: the bore delay lines are `FastMemory` (voices 0-7) and `LargeMemory` (voices 8-9), the test hooks compile only under `TRUMPET_TEST_HOOK`, and the contract passes (17/17, independence included). Renders are bit-identical to the static-array version. The steps, for reference:
 
 1. Merge. Your header needs no change to build.
 2. Move the delay lines into the contract's memory and drop the section attributes: the host places them now.
