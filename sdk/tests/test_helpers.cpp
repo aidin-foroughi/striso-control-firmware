@@ -132,7 +132,7 @@ TEST_CASE("engine_set: visit reaches each engine with its own type and memory") 
 	CHECK(seen == -1);
 }
 
-TEST_CASE("engine_set: one arena per region class, the largest engine's; start zeroes the new engine's share") {
+TEST_CASE("engine_set: one arena per region class, the largest engine's, start zeroes the new engine's share") {
 	using B = dsp::engines::bowed;
 	using T = dsp::engines::trumpet;
 	using Set = dsp::EngineSet<B, T, dsp::engines::sine>;
