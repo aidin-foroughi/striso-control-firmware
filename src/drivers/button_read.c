@@ -929,7 +929,7 @@ int buttonSetKeyFactor(int n, float f) {
   return 1;
 }
 
-void buttonSetCalibration(void) {
+void buttonSetCalibration(BaseSequentialStream *out) {
   uint16_t base_calib_force = devspec_id->base_calib_force;
   // use default when not device flash not yet initialized
   if (base_calib_force == 0xffff) base_calib_force = CALIB_FORCE;
@@ -940,11 +940,11 @@ void buttonSetCalibration(void) {
     int status;
     int32_t c_force, zero_offset, pres;
     ks_key_state(n, &status, &c_force, &zero_offset, &pres);
-    chprintf((BaseSequentialStream *)&BDU1, "but[%d] c_force: %d zero_offset: %d\r\n", n, c_force, zero_offset);
+    chprintf(out, "but[%d] c_force: %d zero_offset: %d\r\n", n, c_force, zero_offset);
   }
   ks_reset_calibration(ks_cal, base_calib_force);
   ks_calibration_changed();
-  chprintf((BaseSequentialStream *)&BDU1, "c_force: %d\r\n", base_calib_force);
+  chprintf(out, "c_force: %d\r\n", base_calib_force);
 }
 
 /*

@@ -1,7 +1,7 @@
 // The keyboard's tuning math, shared by synth_control.cpp and the host tests (tests/test_tuning.cpp):
 // the isomorphic layout's coordinates per button and the pitch a key plays.
 //
-// Console command StcN (pconnection.c -> synth_tuning_print() in synth_control.cpp): read only,
+// Console command StcN (console.cpp -> synth_tuning_print() in synth_control.cpp): read only,
 // for tuning-aware note labels (Striso Live). Floats are the 8 hex digits of their IEEE bits (no
 // float printf), as in the other list commands:
 //   tuning <cur_tuning> <fifth> <octave> <offset> <color> <base> <count>

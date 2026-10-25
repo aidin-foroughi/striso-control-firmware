@@ -104,7 +104,7 @@ struct VoiceEntry {
 #define COUNT_PRESETS(ns) COUNT_PRESETS_(ns)
 #define COUNT_PRESETS_(ns) +ns::NUM_PRESETS
 static constexpr int MAX_ENTRIES = 0 VOICE_LIST(COUNT_ENTRY, COUNT_PRESETS);
-static_assert(MAX_ENTRIES <= 128, "the console selects an entry with one byte, 0x80 + n (pconnection.c)");
+static_assert(MAX_ENTRIES <= 128, "the console selects an entry with one byte, 0x80 + n (console.hpp)");
 static std::array<VoiceEntry, MAX_ENTRIES> entries;
 static int num_entries;
 

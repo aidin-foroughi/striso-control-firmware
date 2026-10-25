@@ -28,7 +28,7 @@
 extern "C" {
 #endif
 
-// a C header (button_read.c, key_calibration.c, pconnection.c): its types are C typedefs
+// a C header (button_read.c, key_calibration.c, console.cpp): its types are C typedefs
 // NOLINTBEGIN(modernize-use-using)
 
 enum {
@@ -119,8 +119,8 @@ void ks_key_state(int b, int* status, int32_t* c_force, int32_t* zero_offset, in
 
 // Raw recordings (StcR, key_scanner_capture.hpp). ks_capture(seconds > 0) records the next
 // scans for that long (or until the buffer is full), ks_capture(0) sends the last recording
-// over the bulk console (the StcS stream must be off). Both print their reply.
-void ks_capture(int seconds);
+// over the bulk console (the StcS stream must be off). Both print their reply to stream.
+void ks_capture(void* stream, int seconds);
 void ks_capture_start_dump_thread(void);
 // one line for StcE: the recording's state
 void ks_capture_print(void* stream);
