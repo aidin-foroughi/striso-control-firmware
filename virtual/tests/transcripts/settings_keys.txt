@@ -31,7 +31,7 @@ K err 14
 > StcK\x0F
 K ok 15
 > StcK\x10
-K err 16
+K ok 16
 > StcK\x11
 K err 17
 > StcK\x12
@@ -196,6 +196,15 @@ K err 69
   54 brass:plunger
   55 brass:section
   56 trumpet:trumpet
+  57 accordion:clarinet
+  58 accordion:bassoon
+  59 accordion:piccolo
+  60 accordion:violin
+  61 accordion:musette
+  62 accordion:organ
+  63 accordion:master
+  64 accordion:bandoneon
+  65 accordion:harmonium
 > StcN
 tuning 2 40DE50D7 41400000 00000000 0000AA 42780000 61
 0 F_1 4224A1B0 00000000

@@ -1399,7 +1399,7 @@ static int replay(int argc, char** argv) {
 // source check of config_but's cases)
 static void t_settings_whitelist() {
 	const std::set<int> expected = {0, 2, 4, 34, 36, 38, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 30, 32,
-	    18, 20, 22, 24, 26, 28, 13, 15, 63};
+	    18, 20, 22, 24, 26, 28, 13, 15, 16, 63};
 	const std::set<int> refused = {67, 65, 11, 17, 19, 21, 6, 8, 51, 53, 56, 58};
 	std::set<int> flagged;
 	for (const settings_keys::Key& k : settings_key_table)

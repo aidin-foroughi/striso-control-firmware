@@ -35,6 +35,6 @@ voice 53 brass:harmon
 > StcH
 H 53 mute mute_bp mute_hz wah brassiness tone_hz vibrato release | rvmix dlmix
 > Stc\xB9
-no voice 57
+voice 57 accordion:clarinet
 > StcH
-H 53 mute mute_bp mute_hz wah brassiness tone_hz vibrato release | rvmix dlmix
+H 57 beat bellows curve speak_ms cassotto ch_hz bend tilt | rvmix dlmix

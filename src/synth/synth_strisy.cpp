@@ -57,8 +57,9 @@ static volatile uint32_t prof_blocks;
 #include "striso_dsp/engines/ep.h"
 #include "striso_dsp/engines/brass.h"
 #include "striso_dsp/engines/trumpet.h"
+#include "striso_dsp/engines/accordion.h"
 // the engines of the VOICE=all firmware, in the order of the voice list ('v', the settings keys)
-#define SYNTH_ENGINES_ALL E::strisy, E::va, E::modal, E::bowed, E::wind, E::ep, E::brass, E::trumpet
+#define SYNTH_ENGINES_ALL E::strisy, E::va, E::modal, E::bowed, E::wind, E::ep, E::brass, E::trumpet, E::accordion
 #define SYNTH_ENGINES SYNTH_ENGINES_ALL
 #define SYNTH_DEFAULT_ENGINE "va" // at power on: its first entry
 #elif defined(SYNTH_ENGINE_HEADER)

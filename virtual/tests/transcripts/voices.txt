@@ -68,6 +68,15 @@ no voice 127
   54 brass:plunger
   55 brass:section
 * 56 trumpet:trumpet
+  57 accordion:clarinet
+  58 accordion:bassoon
+  59 accordion:piccolo
+  60 accordion:violin
+  61 accordion:musette
+  62 accordion:organ
+  63 accordion:master
+  64 accordion:bandoneon
+  65 accordion:harmonium
 > Stcp
 params 0 trumpet:trumpet 45
 0 gain level 3D4CCCCD 41A00000 419A75C3 0

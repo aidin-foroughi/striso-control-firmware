@@ -12,6 +12,7 @@
 
 #include "doctest/doctest.h"
 #include "striso_dsp/engine_set.h"
+#include "striso_dsp/engines/accordion.h"
 #include "striso_dsp/engines/bowed.h"
 #include "striso_dsp/engines/brass.h"
 #include "striso_dsp/engines/ep.h"
@@ -125,7 +126,7 @@ TEST_CASE("engine memory: the engines with regions say their init writes them al
 }
 
 TEST_CASE("engine memory: a switch starts every VOICE=all engine from its power-on state, after another") {
-	using Set = dsp::EngineSet<E::strisy, E::va, E::modal, E::bowed, E::wind, E::ep, E::brass, E::trumpet>;
+	using Set = dsp::EngineSet<E::strisy, E::va, E::modal, E::bowed, E::wind, E::ep, E::brass, E::trumpet, E::accordion>;
 	static Set::States states, fresh_states;
 	static Set::Fast fast, fresh_fast;
 	static Set::Large large, fresh_large;

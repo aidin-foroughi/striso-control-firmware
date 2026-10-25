@@ -1790,6 +1790,7 @@ static constexpr settings_keys::Key settings_key_table[] = {
 #ifdef USE_INTERNAL_SYNTH
     {13, kSwitch, kVoice, kConsole, -1, "brass", 0x402800, "brass", "Voice: brass", SK_VOICE_KNOB, Action::voice},
     {15, kSwitch, kVoice, kConsole, -1, "trumpet", 0x003030, "tpt", "Voice: trumpet", SK_VOICE_KNOB, Action::voice},
+    {16, kSwitch, kVoice, kConsole, -1, "accordion", 0x401024, "accord", "Voice: accordion", SK_VOICE_KNOB, Action::voice},
 #endif
     {17, kDial, kSens, 0, -1, nullptr, 0, "Thres", "Note-on threshold", "how light a touch starts a note (led dial 0 to 15)", Action::threshold},
 #ifdef USE_INTERNAL_SYNTH

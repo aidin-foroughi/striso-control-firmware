@@ -1,5 +1,5 @@
 > StcX
-X keys 41
+X keys 42
 X 0 switch midi - - k MPE|MPE MIDI mode|number of MPE voices, 1 to 15
 X 2 switch midi - - k Poly|Normal MIDI mode (all notes on one channel)|MIDI channel, 1 to 16
 X 4 switch midi - - k Mono|Mono (glissando) MIDI mode|MIDI channel, 1 to 16
@@ -8,6 +8,7 @@ X 8 dial sens - - - Tilt|Tilt (forward/back) sensitivity|0 to 3, steps of 1/8
 X 11 action layout - - - Flip|Flip the layout 180 degrees (with the glissando button also held: debug mode on/off)|
 X 13 switch voice brass 402800 k brass|Voice: brass|step through its presets (the up/down leds show which)
 X 15 switch voice trumpet 003030 k tpt|Voice: trumpet|step through its presets (the up/down leds show which)
+X 16 switch voice accordion 401024 k accord|Voice: accordion|step through its presets (the up/down leds show which)
 X 17 dial sens - - - Thres|Note-on threshold|how light a touch starts a note (led dial 0 to 15)
 X 18 switch voice strisy 282828 k strisy|Voice: strisy|step through its presets (the up/down leds show which)
 X 19 dial sens - - - Press|Pressure sensitivity|0 to 3, steps of 1/8
