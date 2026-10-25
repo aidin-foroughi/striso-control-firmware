@@ -1,0 +1,18 @@
+> Stcq
+q lanes 6 capacity 32
+q 0 drops 0 max 0 -
+q 1 drops 0 max 0 -
+q 2 drops 0 max 0 -
+q 3 drops 0 max 0 -
+q 4 drops 0 max 0 -
+q 5 drops 0 max 0 -
+~ key D_3 press
+~ key D_3 release
+> Stcq
+q lanes 6 capacity 32
+q 0 drops 0 max 1 read_buttons
+q 1 drops 0 max 0 -
+q 2 drops 0 max 0 -
+q 3 drops 0 max 0 -
+q 4 drops 0 max 0 -
+q 5 drops 0 max 0 -

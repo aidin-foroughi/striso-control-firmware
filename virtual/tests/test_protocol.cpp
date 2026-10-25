@@ -201,6 +201,15 @@ TEST_CASE("protocol: the binary stream (S) with keys and motion, then s") {
 	check_transcript("stream", s.text);
 }
 
+TEST_CASE("protocol: Stcq, the control thread's inbox per lane (R23), before and after keys") {
+	Session s;
+	s.cmd("q");
+	s.key("D_3 press", 30, 2000, 3000, 100, -200, 5);
+	s.key("D_3 release", 30, 0, -500, 0, 0, 5);
+	s.cmd("q");
+	check_transcript("inbox", s.text);
+}
+
 // --- the real board -------------------------------------------------------------------------------
 
 namespace {

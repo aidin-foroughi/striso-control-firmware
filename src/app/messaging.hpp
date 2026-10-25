@@ -3,6 +3,7 @@
  */
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <span>
 
@@ -27,5 +28,16 @@ KeyEvent receive();
 
 // the events refused since boot
 uint32_t drops();
+
+// The inbox's lanes (inbox.hpp: one per sending thread), for the console's Stcq (R23)
+inline constexpr std::size_t kLanes = 6;
+inline constexpr std::size_t kLaneCapacity = 32;
+struct LaneStats {
+	const char* owner;  // the sending thread's name ("?" if it has none); nullptr: not used yet
+	uint32_t drops;     // events refused (the lane was full)
+	uint32_t max_depth; // the most events it held
+};
+// every lane's, taken together under the kernel lock
+void lane_stats(std::span<LaneStats, kLanes> out);
 
 } // namespace messaging

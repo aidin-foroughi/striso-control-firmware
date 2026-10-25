@@ -158,7 +158,7 @@ if(EXISTS "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c")
     list(GET _t 1 _main)
     list(GET _t 2 _name)
     add_executable(${_exe}
-      ${_main} console_sim/sim.c config_defaults.c
+      ${_main} console_sim/sim.c console_sim/messaging_stub.cpp config_defaults.c
       "${PROJECT_SOURCE_DIR}/src/app/console.cpp"
       "${PROJECT_SOURCE_DIR}/src/usb/bulk_usb.c"
       "${PROJECT_SOURCE_DIR}/src/usb/midi_usb.c"

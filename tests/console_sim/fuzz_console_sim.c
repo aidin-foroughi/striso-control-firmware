@@ -39,7 +39,7 @@ static void fail(const char* what, int session, int step) {
 	failures++;
 }
 
-/* main.c ThreadSend's frame of a key message: id, pres 1000..1999, velo/x/y 0 */
+/* the control thread's frame of a key message (control_thread.cpp): id, pres 1000..1999, velo/x/y 0 */
 static void send_frame(void) {
 	if (!config.send_usb_bulk) return;
 	const int id = (int)below(61), pres = 1000 + (int)below(1000);
@@ -85,7 +85,7 @@ static void check_host(int session, int step) {
 	sim_halted = sim_deadlocks = 0;
 }
 
-static const char kCodes[] = "DBSsMmIKNXYyPpfgkQvLUtluCEZR";
+static const char kCodes[] = "DBSsMmIKNXYyPpfgkQvLUtluCEZRq";
 static uint8_t console_byte(void) {
 	switch (below(8)) {
 	case 0: return 'S';

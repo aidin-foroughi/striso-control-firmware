@@ -34,6 +34,7 @@ extern "C" {
 }
 
 #include "console.hpp"
+#include "messaging.hpp"
 #include "midi_in_parser.hpp"
 #include "out_stream.hpp"
 
@@ -304,6 +305,21 @@ struct BoardCommands {
 
 	// every button's zero_offset, c_force and factor (read only)
 	static void scanner_keys(Reply& o, const Request& /*r*/) { buttonPrintKeys(o.stream()); }
+
+	// the control thread's inbox, per lane (read only, R23): "q lanes <n> capacity <events>", then
+	// a line per lane "q <lane> drops <refused> max <most held> <thread>", the sending thread's
+	// name last (it may hold spaces), "-" for a lane not used yet. Counted since boot.
+	static void inbox_stats(Reply& o, const Request& /*r*/) {
+		static messaging::LaneStats s[messaging::kLanes]; // static: off main's stack
+		messaging::lane_stats(s);
+		BaseSequentialStream* out = o.stream();
+		chprintf(out, "q lanes %u capacity %u\r\n", static_cast<unsigned>(messaging::kLanes),
+		    static_cast<unsigned>(messaging::kLaneCapacity));
+		for (std::size_t i = 0; i < messaging::kLanes; i++) {
+			chprintf(out, "q %u drops %lu max %lu %s\r\n", static_cast<unsigned>(i), static_cast<unsigned long>(s[i].drops),
+			    static_cast<unsigned long>(s[i].max_depth), s[i].owner != nullptr ? s[i].owner : "-");
+		}
+	}
 
 	// a raw key scan recording: 2 ASCII digits, the seconds to record (StcR05), or 00: send the
 	// last recording (tools/record_raw.py; key_scanner.h)
