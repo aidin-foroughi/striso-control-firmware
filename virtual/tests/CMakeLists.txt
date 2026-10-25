@@ -102,7 +102,8 @@ endforeach()
 _virtual_render(render.strisy.fx --voice strisy --perf default --fx)
 _virtual_render(render.va.p5.fx --voice va --preset 5 --perf default --fx)
 message(STATUS "virtual board: engines ${STRISO_VIRTUAL_ENGINES}, ${_entries} voice entries")
-target_compile_definitions(striso_virtual_tests PRIVATE STRISO_VOICE_ENTRIES=${_entries})
+list(LENGTH STRISO_VIRTUAL_ENGINES _engines)
+target_compile_definitions(striso_virtual_tests PRIVATE STRISO_VOICE_ENTRIES=${_entries} STRISO_VOICE_ENGINES=${_engines})
 
 # voice switching: an engine renders its golden after the board ran another preset or engine
 # (engine_init must leave nothing of what ran before)
