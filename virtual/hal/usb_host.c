@@ -350,7 +350,13 @@ int32_t svh_console_read(uint8_t* out, int32_t max) {
 	return (int32_t)bytes_pop(&U.con_in, out, (size_t)max);
 }
 
-/* USB MIDI: whole 4-byte event packets */
+/* a control transfer of the host's own (sv_usb_control): the data stage's length, -1 stalled */
+int32_t svh_usb_control(uint8_t type, uint8_t req, uint16_t value, uint16_t index, uint8_t* data, uint16_t len) {
+	if (!svh_usb_attached()) return -1;
+	return control(&USBD1, type, req, value, index, data, len);
+}
+
+/* USB MIDI: whole 4-byte event packets (alt 1: UMP words) */
 int32_t svh_midi_write(const uint8_t* bytes, int32_t n) {
 	if (!svh_usb_attached()) return -1;
 	const size_t whole = (size_t)n & ~(size_t)3;

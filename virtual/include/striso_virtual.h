@@ -129,6 +129,12 @@ SV_API int32_t sv_midi_read(sv_board* b, uint8_t* out, int32_t max);
  * the other types are skipped; every group is played. Returns n, SV_EBUSY when the queue (1024
  * words) is full, SV_ENODEV when not attached. */
 SV_API int32_t sv_ump_write(sv_board* b, const uint32_t* words, int32_t n);
+/* A control transfer from the host (bmRequestType, bRequest, wValue, wIndex, then the data stage:
+ * len bytes in data, read or written by bmRequestType's direction), as a host's driver sends it,
+ * e.g. SET_INTERFACE(1, 1): USB MIDI 2.0, after which sv_midi_read/sv_midi_write carry Universal
+ * MIDI Packets (32-bit words, little endian) in place of USB-MIDI event packets. Returns the data
+ * stage's length, SV_ESTATE when the board stalled it, SV_ENODEV when not attached. */
+SV_API int32_t sv_usb_control(sv_board* b, uint8_t type, uint8_t req, uint16_t value, uint16_t index, uint8_t* data, uint16_t len);
 
 /* --- injection ------------------------------------------------------------------------------------ */
 

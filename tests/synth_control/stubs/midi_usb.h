@@ -4,4 +4,7 @@ extern "C" {
 void midi_usb_MidiSend1(uint8_t port, uint8_t b0);
 void midi_usb_MidiSend2(uint8_t port, uint8_t b0, uint8_t b1);
 void midi_usb_MidiSend3(uint8_t port, uint8_t b0, uint8_t b1, uint8_t b2);
+bool midi_usb_ump(void);
+bool midi_usb_UmpSend(const uint32_t* words, int n);
+uint32_t midi_usb_ump_drops(void);
 }

@@ -29,6 +29,7 @@
 #include "hal.h"
 #include "midi_usb.h"
 #include "usbcfg.h"
+#include "obq_discard.h"
 
 #define MIDISEND_TIMEOUT TIME_IMMEDIATE
 
@@ -556,7 +557,62 @@ uint8_t calcCIN1(uint8_t port, uint8_t b0) {
   return cin;
 }
 
+static volatile uint8_t midi_alt; /* the host's alternate setting of interface 1 */
+
+static volatile uint32_t ump_drops; /* UMPs the full IN queue refused (alt 1) */
+uint32_t midi_usb_ump_drops(void) { return ump_drops; }
+
+/* (from the USB interrupt: SET_INTERFACE, the bus reset, SET_CONFIGURATION) */
+void midi_usb_set_alt(uint8_t alt) {
+  osalSysLockFromISR();
+  if (alt != midi_alt && MDU1.state == MDU_READY && MDU1.config != NULL) {
+    /* the IN data of the old format not yet sent goes (a transfer in flight keeps its buffer) */
+    obq_discard_pendingI(&MDU1.obqueue, usbGetTransmitStatusI(MDU1.config->usbp, MDU1.config->bulk_in));
+  }
+  midi_alt = alt;
+  osalSysUnlockFromISR();
+}
+bool midi_usb_ump(void) { return midi_alt == 1; }
+
+/* the bytes the IN queue takes now: the current buffer's rest and the empty buffers */
+static size_t ob_space(void) {
+  output_buffers_queue_t *q = &MDU1.obqueue;
+  chSysLock();
+  const size_t n = (q->ptr != NULL ? (size_t)(q->top - q->ptr) : 0U) + bqSpaceI(q) * (q->bsize - sizeof(size_t));
+  chSysUnlock();
+  return n;
+}
+
+/* whole packets or nothing: a UMP cut in two would leave the stream out of step (a full queue
+ * drops the message, as MIDI 1.0's does) */
+bool midi_usb_UmpSend(const uint32_t *words, int n) {
+  if (midi_alt != 1) return true; /* (alt 0: not this stream's; not a drop) */
+  if (ob_space() < 4 * (size_t)n) {
+    ump_drops++;
+    return false;
+  }
+  uint8_t tx[16];
+  for (int i = 0; i < n && i < 4; i++) {
+    tx[4 * i] = (uint8_t)words[i];
+    tx[4 * i + 1] = (uint8_t)(words[i] >> 8);
+    tx[4 * i + 2] = (uint8_t)(words[i] >> 16);
+    tx[4 * i + 3] = (uint8_t)(words[i] >> 24);
+  }
+  _writet(&MDU1, tx, 4 * (size_t)(n < 4 ? n : 4), MIDISEND_TIMEOUT);
+  return true;
+}
+
+/* a MIDI 1.0 message (no SysEx) as one UMP: type 1 (system) or 2 (channel voice), group port - 1 */
+static bool ump_midi1(uint8_t port, uint8_t b0, uint8_t b1, uint8_t b2) {
+  if (midi_alt != 1) return false;
+  const uint32_t w = (uint32_t)(b0 >= 0xf0 ? 1 : 2) << 28 | (uint32_t)((port - 1) & 0x0f) << 24 |
+                     (uint32_t)b0 << 16 | (uint32_t)b1 << 8 | b2;
+  (void)midi_usb_UmpSend(&w, 1);
+  return true;
+}
+
 void midi_usb_MidiSend1(uint8_t port, uint8_t b0) {
+  if (ump_midi1(port, b0, 0, 0)) return;
   uint8_t tx[4];
   tx[0] = calcCIN1(port, b0);
   tx[1] = b0;
@@ -566,6 +622,7 @@ void midi_usb_MidiSend1(uint8_t port, uint8_t b0) {
 }
 
 void midi_usb_MidiSend2(uint8_t port, uint8_t b0, uint8_t b1) {
+  if (ump_midi1(port, b0, b1, 0)) return;
   uint8_t tx[4];
   tx[0] = calcCIN1(port, b0);
   tx[1] = b0;
@@ -575,6 +632,7 @@ void midi_usb_MidiSend2(uint8_t port, uint8_t b0, uint8_t b1) {
 }
 
 void midi_usb_MidiSend3(uint8_t port, uint8_t b0, uint8_t b1, uint8_t b2) {
+  if (ump_midi1(port, b0, b1, b2)) return;
   uint8_t tx[4];
   tx[0] = calcCIN1(port, b0);
   tx[1] = b0;

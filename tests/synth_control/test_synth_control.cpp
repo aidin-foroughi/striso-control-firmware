@@ -143,6 +143,15 @@ static std::vector<std::vector<uint8_t>> midi_log;
 extern "C" void midi_usb_MidiSend1(uint8_t /*port*/, uint8_t b0) { midi_log.push_back({b0}); }
 extern "C" void midi_usb_MidiSend2(uint8_t /*port*/, uint8_t b0, uint8_t b1) { midi_log.push_back({b0, b1}); }
 extern "C" void midi_usb_MidiSend3(uint8_t /*port*/, uint8_t b0, uint8_t b1, uint8_t b2) { midi_log.push_back({b0, b1, b2}); }
+// USB's alternate setting (midi_usb.h): MIDI 1.0 unless a test selects MIDI 2.0; the UMP it gets
+static bool usb_ump = false;
+static std::vector<uint32_t> ump_log;
+extern "C" bool midi_usb_ump(void) { return usb_ump; }
+extern "C" uint32_t midi_usb_ump_drops(void) { return 0; }
+extern "C" bool midi_usb_UmpSend(const uint32_t* words, int n) {
+	if (usb_ump) ump_log.insert(ump_log.end(), words, words + n);
+	return true;
+}
 extern "C" void serial_MidiSend1(uint8_t /*b0*/) {}
 extern "C" void serial_MidiSend2(uint8_t /*b0*/, uint8_t /*b1*/) {}
 extern "C" void serial_MidiSend3(uint8_t /*b0*/, uint8_t /*b1*/, uint8_t /*b2*/) {}

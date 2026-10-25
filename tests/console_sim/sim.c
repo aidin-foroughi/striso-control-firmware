@@ -287,6 +287,9 @@ const char *synth_voice_name(int n, const char **preset) {
   return "engine";
 }
 int synth_current_voice(void) { return cur_voice; }
+void synth_ump_out_stats(uint32_t *drops, uint32_t *held_back, uint32_t *offs_retried, int *offs_pending) {
+  *drops = 0; *held_back = 0; *offs_retried = 0; *offs_pending = 0;
+}
 int synth_select_voice(int n) { sim_logf("select_voice(%d)\n", n); if (n < 0 || n >= 12) return 0; cur_voice = n; return 1; }
 static int ua_target = 72, ua_tone;
 int usb_audio_set_target(int f) { sim_logf("ua_target(%d)\n", f); ua_target = f < 49 ? 49 : f > 256 ? 256 : f; return ua_target; }
@@ -312,4 +315,9 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t b0, uint8_t b1, u
   (void)dev;
   midi_in_calls++;
   sim_logf("midi(port=%u %02x %02x %02x)\n", port, b0, b1, b2);
+}
+int UmpInMsgHandler(midi_device_t dev, const uint32_t *words, int n) {
+  (void)dev;
+  for (int i = 0; i < n; i++) sim_logf("ump(%08x)\n", (unsigned)words[i]);
+  return n;
 }

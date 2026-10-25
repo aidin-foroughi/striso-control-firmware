@@ -66,7 +66,7 @@ inline constexpr Field kPreset[] = {
 	{.type = 'i', .name = "Mpgm", .text = "Send MIDI program change", .help = "[0-127]", .lo = 0, .hi = 127},
 	{.type = 'i', .name = "Mint", .value = "1", .text = "MIDI message interval", .help = "in ms [1-127]", .lo = 1, .hi = 127},
 	{.type = 'i', .name = "Mmint", .value = "127", .text = "MIDI motion sensor message interval", .help = " 0 = disable, 127 only internal, else x10ms [0-127]", .lo = 0, .hi = 127},
-	{.type = 's', .name = "Mmode", .value = "mpe", .text = "MIDI mode", .help = "[mpe/normal/mono]", .options = "|mpe|normal|mono"},
+	{.type = 's', .name = "Mmode", .value = "mpe", .text = "MIDI mode", .help = "[mpe/normal/mono/midi2]", .options = "|mpe|normal|mono|midi2"},
 	{.type = 's', .name = "Mnote", .value = "default", .text = "MIDI note mode", .help = "[default/tuning/button]", .options = "|default|tuning|button"},
 	{.type = 's', .name = "jack2", .value = "auto", .text = "Pedal/MIDI jack mode", .help = "[auto: autodetect MIDI or pedal, midi: TRS MIDI out type A, pedal_ex: expression pedal (TRS/wiper on tip), pedal_sw: sustain or 1/2/3 switch pedal, linein: forward audio to audio out]", .options = "|auto|midi|pedal_ex|pedal_sw|linein"},
 	{.type = 'i', .name = "tunin", .value = "0", .text = "Load tuning", .help = "[0-8]", .lo = 0, .hi = 8},

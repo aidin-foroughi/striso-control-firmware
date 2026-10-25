@@ -61,7 +61,9 @@ static const USBDescriptor vcom_device_descriptor = {
 
 /*
  * Configuration: 5 interfaces in 3 functions.
- *   IAD 0..1 MIDI:   0 AudioControl (no audio streaming), 1 MIDIStreaming (EP 0x01/0x81 bulk)
+ *   IAD 0..1 MIDI:   0 AudioControl (no audio streaming), 1 MIDIStreaming (EP 0x01/0x81 bulk;
+ *                    alt 0 USB MIDI 1.0, alt 1 USB MIDI 2.0: one Group Terminal Block, group 1,
+ *                    bidirectional, MIDI 2.0 protocol)
  *   IAD 2    vendor: 2 bulk console/stream (EP 0x02/0x82, WinUSB via the MS OS descriptors)
  *   IAD 3..4 audio:  3 AudioControl, 4 AudioStreaming (EP 0x83 isochronous IN, asynchronous;
  *                    alt 0 zero bandwidth, alt 1 48 kHz 24 bit, alt 2 48 kHz 16 bit).
@@ -69,10 +71,13 @@ static const USBDescriptor vcom_device_descriptor = {
  * The audio function is added after the existing ones so interfaces 0..2, their endpoints and
  * the MS OS descriptors (which name interface 2) are unchanged. The MIDI function stays a USB
  * Audio 1.0 MIDIStreaming function (Windows: usbaudio.sys, macOS/Linux: their USB
- * MIDI class drivers), as on other UAC2 devices with MIDI.
+ * MIDI class drivers), as on other UAC2 devices with MIDI. Its alternate setting 1 is USB MIDI 2.0
+ * (USB MIDI 2.0 1.0, 5.2-5.4): a host with a MIDI 2.0 driver (macOS 14+, Windows MIDI Services,
+ * Linux 6.5+) selects it, any other keeps alt 0. Same endpoints in both; the Group Terminal Block
+ * descriptor comes with GET_DESCRIPTOR(CS_GR_TRM_BLOCK) of interface 1 (get_descriptor).
  * Checked by tools/usbaudio/check_descriptors.py; documented in doc/usb_audio.md.
  */
-#define UA_CONFIG_TOTAL_LENGTH  304
+#define UA_CONFIG_TOTAL_LENGTH  (304 + 40)  /* + MIDIStreaming alt 1: 9 + 7 + (7 + 5) x 2 */
 /* AC class-specific descriptors: header 9 + clock source 8 + input terminal 17 + output 12 */
 #define UA2_AC_TOTAL            46
 #define UA_AS_ALT(alt, subslot, bits, maxpacket)                                \
@@ -125,6 +130,13 @@ static const uint8_t vcom_configuration_descriptor_data[]=
   0x05, 0x25, 0x01, 0x01, 0x01,                         //   CS EP IN  Jack         CLASS SPECIFIC MS BULK DATA EP DESC
   0x09, 0x05, 0x81, 0x02, 0x40, 0x00, 0x00, 0x00, 0x00, // Endpoint IN              ENDPOINT DESC  (bLength bDescType bEndpointAddr bmAttr wMaxPacketSize(2 bytes)  bInterval bRefresh bSyncAddress)
   0x05, 0x25, 0x01, 0x01, 0x03,                         //   CS EP OUT Jack          CLASS SPECIFIC MS BULK DATA EP DESC
+  /* Interface 1, alternate setting 1: USB MIDI 2.0 (the same endpoints, Universal MIDI Packets).*/
+  0x09, 0x04, 0x01, 0x01, 0x02, 0x01, 0x03, 0x00, 0x00, // Interface 1 alt 1       INTERFACE DESC (MIDIStreaming, 2 endpoints)
+  0x07, 0x24, 0x01, 0x00, 0x02, 0x07, 0x00,             // CS Interface (midi 2.0) MS HEADER (bcdMSC 2.00, wTotalLength 7)
+  0x07, 0x05, 0x01, 0x02, 0x40, 0x00, 0x00,             // Endpoint OUT            ENDPOINT DESC (0x01 bulk, 64)
+  0x05, 0x25, 0x02, 0x01, 0x01,                         //   CS EP                 MS_GENERAL_2_0 (1 block: block 1)
+  0x07, 0x05, 0x81, 0x02, 0x40, 0x00, 0x00,             // Endpoint IN             ENDPOINT DESC (0x81 bulk, 64)
+  0x05, 0x25, 0x02, 0x01, 0x01,                         //   CS EP                 MS_GENERAL_2_0 (1 block: block 1)
 
   /* Interface Association Descriptor.*/
   USB_DESC_INTERFACE_ASSOCIATION(0x02, /* bFirstInterface.                  */
@@ -301,6 +313,19 @@ static USBDescriptor vcom_strings[] = {
 
 static const USBDescriptor wcid_descriptor = {sizeof wcid_string, wcid_string};
 
+/*
+ * USB MIDI 2.0's Group Terminal Block descriptors of interface 1 alt 1 (USB MIDI 2.0 1.0, 5.4):
+ * one block, bidirectional, group 1 (one group), MIDI 2.0 protocol, bandwidth unknown. Its name
+ * is the product string's (index 2).
+ */
+static const uint8_t midi2_gtb_data[] = {
+  0x05, 0x26, 0x01, 0x12, 0x00,                         // GR_TRM_BLOCK_HEADER, wTotalLength 18
+  0x0d, 0x26, 0x02, 0x01, 0x00, 0x00, 0x01, 0x02, 0x11, // GR_TRM_BLOCK: id 1, bidirectional, group 1 of 1, iBlockItem 2, MIDI 2.0
+  0x00, 0x00, 0x00, 0x00                                //   wMaxInputBandwidth, wMaxOutputBandwidth (unknown)
+};
+static const USBDescriptor midi2_gtb = {sizeof midi2_gtb_data, midi2_gtb_data};
+#define USB_DESCRIPTOR_CS_GR_TRM_BLOCK 0x26
+
 void inttohex(uint32_t v, unsigned char *p){
   int nibble;
   for (nibble = 0;nibble<8;nibble++){
@@ -345,8 +370,11 @@ static const USBDescriptor *get_descriptor(USBDriver *usbp,
                                            uint8_t dindex,
                                            uint16_t lang) {
   (void)usbp;
-  (void)lang;
   switch (dtype) {
+  case USB_DESCRIPTOR_CS_GR_TRM_BLOCK: /* an interface's: wIndex (lang) 1, wValue's index the alt */
+    if (lang == 1 && dindex == 1)
+      return &midi2_gtb;
+    break;
   case USB_DESCRIPTOR_DEVICE:
     return &vcom_device_descriptor;
   case USB_DESCRIPTOR_CONFIGURATION:
@@ -457,6 +485,7 @@ static void usb_event(USBDriver *usbp, usbevent_t event) {
   case USB_EVENT_ADDRESS:
     return;
   case USB_EVENT_CONFIGURED:
+    midi_usb_set_alt(0); /* SET_CONFIGURATION: every interface at alt 0 */
     chSysLockFromISR();
     if (usbp->state == USB_ACTIVE) {
 
@@ -475,6 +504,7 @@ static void usb_event(USBDriver *usbp, usbevent_t event) {
     chSysUnlockFromISR();
     return;
   case USB_EVENT_RESET:
+    midi_usb_set_alt(0); /* MIDIStreaming back to alt 0 (USB MIDI 1.0) */
     /* GET_STATUS(device) answers usbp->status, which the reset cleared: report self powered
        (D0), as the configuration descriptor's bmAttributes (0xC0) says.*/
     usbp->status |= 1U;
@@ -590,6 +620,21 @@ static bool specialRequestsHook(USBDriver *usbp) {
     ) {
     usbSetupTransfer(usbp, (uint8_t *)&msdescriptor1, usbp->setup[6], NULL);
     return TRUE;
+  }
+
+  /* SET/GET_INTERFACE of interface 1 (MIDIStreaming): alt 0 USB MIDI 1.0, alt 1 USB MIDI 2.0 */
+  if ((usbp->setup[0] & 0x7f) == 0x01 && usbp->setup[4] == 1 && usbp->setup[5] == 0) {
+    static uint8_t alt;
+    if (usbp->setup[0] == 0x01 && usbp->setup[1] == USB_REQ_SET_INTERFACE && usbp->setup[2] <= 1) {
+      midi_usb_set_alt(usbp->setup[2]);
+      usbSetupTransfer(usbp, NULL, 0, NULL);
+      return true;
+    }
+    if (usbp->setup[0] == 0x81 && usbp->setup[1] == USB_REQ_GET_INTERFACE) {
+      alt = midi_usb_ump() ? 1 : 0;
+      usbSetupTransfer(usbp, &alt, 1, NULL);
+      return true;
+    }
   }
 
   /* USB audio: SET/GET_INTERFACE of interfaces 3 and 4, sampling frequency.*/

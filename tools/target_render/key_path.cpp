@@ -6,7 +6,8 @@
 // The keys play the default performance, quantised to the scanner's 14-bit codes; both paths
 // must give the same floats, bit for bit, every block.
 // Usage (QEMU semihosting arguments): key_path [seconds]
-// Prints "before <instr/block> after <instr/block> differences <n>".
+// Prints "before <instr/block> after <instr/block> differences <n> midi2 <instr/block> (<n> words)":
+// midi2 is MIDI mode midi2's MIDI 2.0 out on top of after (ump_out.h, to a buffer for the USB queue).
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -14,6 +15,7 @@
 
 #include "performance.h"
 #include "striso_dsp/ump.h"
+#include "striso_dsp/ump_out.h"
 
 #define SYST_CSR (*reinterpret_cast<volatile uint32_t*>(0xE000E010u))
 #define SYST_RVR (*reinterpret_cast<volatile uint32_t*>(0xE000E014u))
@@ -82,6 +84,36 @@ struct Host {
 };
 Host host;
 
+// MIDI mode midi2: the same packets to the MIDI 2.0 out
+struct UsbSink {
+	uint32_t w[64];
+	int n = 0;
+	void ump(uint32_t w0, uint32_t w1) {
+		w[n & 63] = w0;
+		w[(n + 1) & 63] = w1;
+		n += 2;
+	}
+};
+striso::ump::StandardOut<KEYS> ump_out;
+UsbSink usb;
+bool key_out[KEYS];
+
+__attribute__((noinline)) void update_midi2(int but) {
+	const Button& b = buttons[but];
+	float pb = 0.0f;
+	if (pitch_bend_x) pb = bend_sensitivity * pow3(b.but_x);
+	ump_out.packet(striso::ump::pitch_packet(but, b.note + pb));
+	ump_out.packet(striso::ump::pres_packet(but, b.pres));
+	ump_out.packet(striso::ump::signed_packet(but, striso::ump::ctl_vpres, b.vpres));
+	ump_out.packet(striso::ump::signed_packet(but, striso::ump::ctl_x, b.but_x));
+	ump_out.packet(striso::ump::signed_packet(but, striso::ump::ctl_y, b.but_y));
+	if (b.on != key_out[but]) {
+		ump_out.packet(b.on ? striso::ump::note_on_packet(but, b.vpres, false) : striso::ump::note_off_packet(but));
+		key_out[but] = b.on;
+	}
+	ump_out.flush(usb);
+}
+
 __attribute__((noinline)) void update_after(int but) {
 	const Button& b = buttons[but];
 	float pb = 0.0f;
@@ -122,7 +154,7 @@ int main(int argc, char** argv) {
 	SYST_CVR = 0;
 	SYST_CSR = 5; // enabled, CPU clock, no interrupt
 	const int nblocks = static_cast<int>(seconds * SAMPLERATE / BLOCK);
-	uint64_t ticks[2] = {0, 0};
+	uint64_t ticks[3] = {0, 0, 0};
 	long differences = 0;
 	Ctl c[NVOICES_MAX];
 	float g[8];
@@ -143,8 +175,11 @@ int main(int argc, char** argv) {
 			ticks[path] += (t0 - SYST_CVR) & 0xffffffu;
 		}
 		differences += std::memcmp(vctl[0], vctl[1], sizeof vctl[0]) != 0;
+		const uint32_t t2 = SYST_CVR;
+		for (int v = 0; v < NV; v++) update_midi2(20 + v);
+		ticks[2] += (t2 - SYST_CVR) & 0xffffffu;
 	}
-	std::printf("before %.0f after %.0f differences %ld\n", static_cast<double>(ticks[0]) * 40 / nblocks,
-	    static_cast<double>(ticks[1]) * 40 / nblocks, differences);
+	std::printf("before %.0f after %.0f differences %ld midi2 %.0f (%d words)\n", static_cast<double>(ticks[0]) * 40 / nblocks,
+	    static_cast<double>(ticks[1]) * 40 / nblocks, differences, static_cast<double>(ticks[2]) * 40 / nblocks, usb.n);
 	return 0;
 }

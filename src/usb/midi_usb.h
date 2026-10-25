@@ -188,6 +188,16 @@ extern "C" {
   void midi_usb_MidiSend1(uint8_t port, uint8_t b0);
   void midi_usb_MidiSend2(uint8_t port, uint8_t b0, uint8_t b1);
   void midi_usb_MidiSend3(uint8_t port, uint8_t b0, uint8_t b1, uint8_t b2);
+  /* The MIDIStreaming interface's alternate setting (usbcfg.c: SET_INTERFACE of interface 1):
+   * 0 USB MIDI 1.0 (4-byte event packets), 1 USB MIDI 2.0 (Universal MIDI Packets, 32-bit words,
+   * little endian). On 1, MidiSend1..3 go as MIDI 1.0 channel voice / system messages in UMP
+   * (types 2, 1: the same bytes) and midi_usb_UmpSend's words as they are; on 0 those are dropped
+   * (a MIDI 1.0 host gets the MIDI 1.0 stream). */
+  void midi_usb_set_alt(uint8_t alt);
+  bool midi_usb_ump(void);
+  /* false: the IN queue had no room for the whole packet, it was dropped (counted) */
+  bool midi_usb_UmpSend(const uint32_t *words, int n);
+  uint32_t midi_usb_ump_drops(void);
 #ifdef __cplusplus
 }
 #endif
