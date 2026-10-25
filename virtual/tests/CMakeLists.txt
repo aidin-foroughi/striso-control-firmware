@@ -125,6 +125,6 @@ foreach(sw "strisy;-1;1" "va;0;2" "va;3;1" "modal;0;10" "modal;2;33" "bowed;0;16
   endif()
 endforeach()
 
-# main.c's and motionsensor.c's loops, copied into virtual/board: the copies must stay the same
+# motionsensor.c's reader loop, copied into virtual/board: the copy must stay the same
 add_test(NAME virtual.mirror COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_mirror.py")
 set_tests_properties(virtual.mirror PROPERTIES LABELS virtual)

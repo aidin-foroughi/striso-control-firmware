@@ -162,7 +162,7 @@ The library is `build/host-virtual/virtual/striso_virtual.*`; its API is `virtua
 - console transcripts (`virtual/tests/transcripts`) and the real board's replies to the read-only commands, field for field (`transcripts/board`, recorded from a Striso);
 - the API: sound, LEDs, resets, the bootloader drive and its config, determinism, real time.
 
-Striso Live uses it as its **Virtual** Striso, and to audition a build with a real Striso as the controller (`--virtual-lib=<build>/virtual/striso_virtual.dll`): see its README. `test_mirror.py` keeps the virtual board's copies of `main.c`'s and `motionsensor.c`'s loops equal to the firmware's.
+Striso Live uses it as its **Virtual** Striso, and to audition a build with a real Striso as the controller (`--virtual-lib=<build>/virtual/striso_virtual.dll`): see its README. `test_mirror.py` keeps the virtual board's copy of `motionsensor.c`'s reader loop equal to the firmware's.
 
 ### Releases
 
