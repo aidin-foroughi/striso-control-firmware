@@ -3,6 +3,8 @@
 # tests/CMakeLists.txt: striso_dsp_headers), the host renderers and the tests, using the host
 # preset's compile_commands.json. Exit 1 on any finding.
 # Usage: [FW_DIR=<checkout>] tools/tidy.sh [files...]   (default: all of the above)
+# Not tests/test_config_store.cpp: bugprone-unchecked-optional-access and bugprone-assert-side-effect
+# hang clang-tidy 15 on it (research/STATUS.md backlog).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/docker_env.sh"
@@ -12,7 +14,7 @@ in_docker bash -c "set -e
 cmake --preset host > /dev/null
 cmake --build --preset host --target striso_dsp_headers > /dev/null
 F=\"$(q "$@")\"
-[ -n \"\$F\" ] || F=\"\$(ls build/host/tests/generated/header_*.cpp) tools/harness/render_strisy.cpp tools/harness/fx_test.cpp tests/test_params.cpp tests/test_bowed_bounds.cpp tests/test_tuning.cpp tests/test_key_scanner.cpp tests/scan_replay.cpp\"
+[ -n \"\$F\" ] || F=\"\$(ls build/host/tests/generated/header_*.cpp) tools/harness/render_strisy.cpp tools/harness/fx_test.cpp tests/test_params.cpp tests/test_bowed_bounds.cpp tests/test_tuning.cpp tests/test_key_scanner.cpp tests/scan_replay.cpp src/app/config_store.cpp tests/config_page.cpp\"
 run-clang-tidy -quiet -p build/host \$F 2>&1 | grep -v '^clang-tidy-15 \|^[0-9]* warnings\? generated\|Suppressed\|Use -header-filter\|^$' || true
 run-clang-tidy -quiet -p build/host \$F > /dev/null 2>&1"
 echo "clang-tidy: clean"
