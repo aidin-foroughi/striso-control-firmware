@@ -85,6 +85,18 @@ target_link_libraries(test_console PRIVATE striso_host_options)
 target_compile_options(test_console PRIVATE -O2)
 doctest_discover_tests(test_console TEST_PREFIX "console." PROPERTIES LABELS unit)
 
+# scanseq.*: the key scan's sequence (src/drivers/scan_thread.cpp over scan_sequencer.hpp) against
+# the old button_read.c (tests/ref/scan_seq_ref.c), call for call on a stand-in HAL (tests/scan_seq/stubs)
+add_executable(test_scan_seq main.cpp scan_seq/test_scan_seq.cpp ref/scan_seq_ref.c "${PROJECT_SOURCE_DIR}/src/drivers/scan_pins.c")
+target_include_directories(test_scan_seq PRIVATE
+  "${CMAKE_CURRENT_SOURCE_DIR}/scan_seq/stubs"
+  "${CMAKE_CURRENT_SOURCE_DIR}/ref"
+  "${PROJECT_SOURCE_DIR}/third_party/doctest"
+  "${PROJECT_SOURCE_DIR}/src/drivers")
+target_link_libraries(test_scan_seq PRIVATE striso_host_options)
+target_compile_options(test_scan_seq PRIVATE -O1 $<$<COMPILE_LANGUAGE:C>:-Wno-unused-parameter>)
+doctest_discover_tests(test_scan_seq TEST_PREFIX "scanseq." PROPERTIES LABELS unit)
+
 # scan_replay: the board's raw recordings (tests/scan/<name>.ksr, with the StcS stream recorded in
 # the same session, <name>.csv: tools/record_raw.py) replay to exactly the board's messages
 add_executable(scan_replay scan_replay.cpp)

@@ -40,6 +40,20 @@ target_link_options(target_motion PRIVATE ${_mcflags} ${_opt} --specs=rdimon.spe
 set_target_properties(target_motion PROPERTIES LINKER_LANGUAGE CXX SUFFIX ".elf"
   LINK_DEPENDS "${_dir}/target.ld" EXCLUDE_FROM_ALL ON)
 list(APPEND _targets target_motion)
+
+# the key scan's interrupt, old against new (tests/scan_seq/target_scan_seq.cpp): the old
+# button_read.c as the firmware compiles C, the sequencer as it compiles C++
+add_executable(target_scan_seq "${_tests}/scan_seq/target_scan_seq.cpp" "${_tests}/ref/scan_seq_ref.c"
+  "${PROJECT_SOURCE_DIR}/src/drivers/scan_pins.c" "${_dir}/startup.c")
+target_include_directories(target_scan_seq PRIVATE "${_tests}/scan_seq/target_stubs" "${_tests}/ref" "${PROJECT_SOURCE_DIR}/src/drivers")
+target_compile_options(target_scan_seq PRIVATE ${_mcflags} ${_opt}
+  "$<$<COMPILE_LANGUAGE:CXX>:${_cppopt}>" "$<$<COMPILE_LANGUAGE:C>:${_copt}>")
+target_link_options(target_scan_seq PRIVATE ${_mcflags} ${_opt} --specs=rdimon.specs -nostartfiles
+  "-T${_dir}/target.ld" -Wl,--gc-sections
+  $<$<VERSION_GREATER_EQUAL:${CMAKE_C_COMPILER_VERSION},12>:-Wl,--no-warn-rwx-segments>)
+set_target_properties(target_scan_seq PROPERTIES LINKER_LANGUAGE CXX SUFFIX ".elf"
+  LINK_DEPENDS "${_dir}/target.ld" EXCLUDE_FROM_ALL ON)
+list(APPEND _targets target_scan_seq)
 # the key path's instructions per block, before and after the UMP profile (key_path.cpp), with
 # synth_control.cpp's flags; ctest target.key_path checks both give the same controls
 add_executable(target_key_path "${_dir}/key_path.cpp" "${_dir}/startup.c")
@@ -83,6 +97,10 @@ add_test(NAME target.motion COMMAND "${QEMU_SYSTEM_ARM}" -M mps2-an500 -nographi
   -semihosting-config "enable=on,target=native,arg=target_motion" -kernel "$<TARGET_FILE:target_motion>")
 set_tests_properties(target.motion PROPERTIES LABELS target_render TIMEOUT 900
   PASS_REGULAR_EXPRESSION "motion: [0-9]+ readings, 0 differences")
+add_test(NAME target.scanseq COMMAND "${QEMU_SYSTEM_ARM}" -M mps2-an500 -nographic -monitor none -serial none -icount shift=0
+  -semihosting-config "enable=on,target=native,arg=target_scan_seq" -kernel "$<TARGET_FILE:target_scan_seq>")
+set_tests_properties(target.scanseq PROPERTIES LABELS target_render TIMEOUT 900
+  PASS_REGULAR_EXPRESSION "scanseq: [0-9]+ callbacks, outputs equal")
 
 add_test(NAME target.key_path COMMAND "${QEMU_SYSTEM_ARM}" -M mps2-an500 -nographic -monitor none -serial none
   -icount shift=0 -semihosting-config "enable=on,target=native,arg=key_path" -kernel "$<TARGET_FILE:target_key_path>")

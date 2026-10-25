@@ -34,6 +34,8 @@ extern "C" {
 // the compiler must not move the frame's loads and stores across the scan number's
 #define SCAN_BARRIER() __asm__ volatile("" ::: "memory")
 
+// a C header (button_read.c, scan_thread.cpp): its types are C typedefs
+// NOLINTBEGIN(modernize-use-using)
 typedef struct {
   ScanFrame frame[2];
   volatile uint32_t seq;    // the scan the interrupt is writing
@@ -47,6 +49,7 @@ typedef struct {
   uint32_t lost;     // times the interrupt overwrote a column before the thread took it
   uint32_t skipped;  // scans the thread didn't finish because of it
 } scan_pos_t;
+// NOLINTEND(modernize-use-using)
 
 // --- the interrupt --------------------------------------------------------------------------
 static inline ScanFrame *scan_link_begin(scan_link_t *l, uint32_t seq) {
