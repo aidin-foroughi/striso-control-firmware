@@ -12,8 +12,15 @@ q() { [ $# -eq 0 ] || printf "'%s' " "${@//\'/\'\\\'\'}"; }
 in_docker bash -c "set -e
 cmake --preset host > /dev/null
 cmake --build --preset host --target striso_dsp_headers > /dev/null
-F=\"$(q "$@")\"
-[ -n \"\$F\" ] || F=\"\$(ls build/host/tests/generated/header_*.cpp) tools/harness/render_strisy.cpp tools/harness/fx_test.cpp tests/test_params.cpp tests/test_bowed_bounds.cpp tests/test_tuning.cpp tests/test_key_scanner.cpp tests/scan_replay.cpp tests/test_event_queue.cpp tests/messaging/test_messaging_model.cpp src/app/messaging.cpp src/app/control_thread.cpp\"
-run-clang-tidy -quiet -p build/host \$F 2>&1 | grep -v '^clang-tidy-15 \|^[0-9]* warnings\? generated\|Suppressed\|Use -header-filter\|^$' || true
-run-clang-tidy -quiet -p build/host \$F > /dev/null 2>&1"
+F=($(q "$@"))
+if [ \${#F[@]} -eq 0 ]; then
+  F=(\$(ls build/host/tests/generated/header_*.cpp) tools/harness/render_strisy.cpp tools/harness/fx_test.cpp tests/test_params.cpp tests/test_bowed_bounds.cpp tests/test_tuning.cpp tests/test_key_scanner.cpp tests/scan_replay.cpp tests/test_event_queue.cpp tests/messaging/test_messaging_model.cpp src/app/messaging.cpp src/app/control_thread.cpp)
+fi
+# run-clang-tidy takes each file as a pattern and checks what matches in compile_commands.json:
+# a file that matches nothing would be skipped and the run would pass, so it is an error
+for f in \"\${F[@]}\"; do
+  grep -qF \"/\${f#./}\\\"\" build/host/compile_commands.json || { echo \"tidy.sh: \$f is not in build/host/compile_commands.json\" >&2; exit 2; }
+done
+run-clang-tidy -quiet -p build/host \"\${F[@]}\" 2>&1 | grep -v '^clang-tidy-15 \|^[0-9]* warnings\? generated\|Suppressed\|Use -header-filter\|^$' || true
+run-clang-tidy -quiet -p build/host \"\${F[@]}\" > /dev/null 2>&1"
 echo "clang-tidy: clean"
