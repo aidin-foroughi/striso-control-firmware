@@ -1,8 +1,9 @@
-// MIDI in: the notes that MIDI in plays on the internal synth, with the key signals a key would
-// give them (NoteInput), and the instrument's messages (InstrumentInput, below). The one copy:
-// the board's synth_control.cpp (MIDI in from USB and from the virtual board) and the SDK's hosts
-// (sdk/: the shell, the renderer's MIDI files) both run it. Pure: no HAL, no heap; the voices
-// (voice_allocator.h) and the echo filter are the host's.
+// MIDI in: the notes that MIDI in plays on the internal synth (NoteInput) and the instrument's
+// messages (InstrumentInput, below). NoteInput is the up-converter: MIDI 1.0 and MPE, and standard
+// MIDI 2.0 (an edge), into the Striso UMP profile (ump.h), whose decoder then plays the engines
+// like every other source. The one copy: the board's synth_control.cpp (MIDI in from USB and from
+// the virtual board) and the SDK's hosts (sdk/: the shell, the renderer's MIDI files) both run it.
+// Pure: no HAL, no heap; the voices (voice_allocator.h) and the echo filter are the host's.
 //
 // - MPE: the lower zone, member channels 2 .. 1 + members() (an MCM on channel 1 sets it with
 //   set_members(); 15 at the start). Per member channel: its notes; pitch bend x the host's bend
@@ -11,36 +12,34 @@
 //   (that note) or channel pressure (all its notes) -> pres; CC1 (the mod wheel) -> y (0..1),
 //   CC74 -> y (64 = 0). Its pitch bend is the instrument's (+-2 semitones: instrument_bend(),
 //   set_bend()), which the notes follow too.
-// - Note-on velocity -> vpres, a strike that fades (x0.6 per tick(), every TICK_SECONDS while
-//   fading()); until pressure comes, pres is the velocity (a keyboard without aftertouch still
-//   sounds), and a held note's pres never drops to 0. Note-off velocity -> the release (vpres < 0).
+// - Note-on velocity -> vpres, a strike (the decoder fades it, ump.h); until pressure comes, pres
+//   is the velocity (a keyboard without aftertouch still sounds), and a held note's pres never
+//   drops to 0. Note-off velocity -> the release (vpres < 0).
 // - With all NOTES slots held, a new note takes the oldest one.
+// - Standard MIDI 2.0 (message2): the same with its resolution: 16-bit velocities, 32-bit
+//   pressures and controllers (full scale = the Striso's full press, 1.0), CC74 and pitch bends
+//   bipolar by the spec (the centre exact), Registered Per-Note Controller 3 (Pitch 7.25: the
+//   note's absolute pitch), the Registered Controllers 0 (bend range) and 6 (MCM).
+// A note in slot s is the profile's note id_base() + s.
 //
 // The host (any type with these members; the calls are templates, inlined):
-//   void note_started(int s, const NoteSignals&)  a new note in slot s: give it a voice
-//   void note_changed(int s, const NoteSignals&)  slot s's signals changed: to its voice
-//   void note_silenced(int s)                     slot s is taken by a newer note: end its sound now
-//   void note_dropped(int s)                      all_off(): slot s ends silently
-//   bool echoed(int channel)                      the host's own notes went out on this channel
-//                                                 lately (an echo of them is not played)
-//   float bend_range()                            the notes' pitch bend range, semitones (RPN 0)
-// A host that runs MIDI in steps of TICK_SECONDS does, every step: tick() if fading(), then the
-// step's messages (the board: synth_tick, then the messages its main loop received).
+//   void ump(const ump::Packet&)    a packet of the Striso profile, for the decoder
+//   bool echoed(int channel)        the host's own notes went out on this channel lately (an echo
+//                                   of them is not played)
+//   float bend_range()              the notes' pitch bend range, semitones (RPN 0)
+// The host flushes its decoder after each message.
 #ifndef STRISO_DSP_MIDI_IN_H_
 #define STRISO_DSP_MIDI_IN_H_
 
 #include <stdint.h>
 
+#include "ump.h"
+
 namespace striso::midi {
 
-inline constexpr int NOTES = 16;              // notes held at once (the board's MIDI_IN_NOTES)
-inline constexpr double TICK_SECONDS = 0.002; // the strike fade's step (the board's synth_tick)
-
-// a note's key signals, as a key gives them (controls.h), and whether it is held
-struct NoteSignals {
-	float note, pres, vpres, but_x, but_y;
-	bool on;
-};
+inline constexpr int NOTES = 16; // notes held at once (the board's MIDI_IN_NOTES)
+using ump::NoteSignals;
+using ump::TICK_SECONDS;
 
 // the instrument's bend from a pitch bend message outside the MPE zone: +-2 semitones
 [[nodiscard]] inline float instrument_bend(uint8_t data1, uint8_t data2) {
@@ -70,14 +69,26 @@ private:
 	uint8_t msb_[16] = {0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f};
 };
 
+// a MIDI 2.0 value (32 bits) as a float: unsigned 0 .. 1, or bipolar -1 .. 1 by the spec (the
+// centre 0x80000000 is 0 exactly; each side scaled to its own end)
+[[nodiscard]] inline float unsigned32(uint32_t v) { return (float)((double)v / 4294967295.0); }
+[[nodiscard]] inline float bipolar32(uint32_t v) {
+	const double c = 2147483648.0, d = (double)v - c;
+	return (float)(d < 0 ? d / c : d / 2147483647.0);
+}
+
 class NoteInput {
 public:
-	// a note message (note on/off, poly and channel pressure, a member channel's pitch bend,
-	// CC1, CC74): played, or ignored as an echo; false: not a note message (the host's)
+	// the profile's note id of slot 0 (the board: after its keys)
+	void set_id_base(int base) { base_ = base; }
+	[[nodiscard]] int id_base() const { return base_; }
+
+	// a MIDI 1.0 note message (note on/off, poly and channel pressure, a member channel's pitch
+	// bend, CC1, CC74): played, or ignored as an echo; false: not a note message (the host's)
 	template <class Host> bool message(Host& h, uint8_t channel, uint8_t status, uint8_t data1, uint8_t data2) {
 		if (status == 0x80 || (status == 0x90 && data2 == 0)) {
 			// (always: a note-off of a MIDI note that sounds is never an echo)
-			note_off(h, channel, data1, status == 0x80 ? data2 : 0);
+			note_off(h, channel, data1, -(status == 0x80 ? data2 : 0) * (1.0f / 127.0f));
 			return true;
 		}
 		const bool note_data = status == 0x90 || status == 0xa0 || status == 0xd0 || (status == 0xe0 && member(channel)) ||
@@ -85,43 +96,58 @@ public:
 		if (!note_data) return false;
 		if (h.echoed(channel)) return true; // the host's own notes, echoed
 		switch (status) {
-		case 0x90: note_on(h, channel, data1, data2); break;
-		case 0xa0: pressure(h, channel, data1, data2); break;
-		case 0xd0: pressure(h, channel, -1, data1); break;
-		case 0xe0:
-			chan_bend_[channel] = (float)((int)((data2 << 7) + data1) - 0x2000) * (1.0f / 8192) * h.bend_range();
-			update(h, channel);
-			break;
+		case 0x90: note_on(h, channel, data1, data2 * (1.0f / 127.0f)); break;
+		case 0xa0: pressure(h, channel, data1, data2 * (1.0f / 127.0f)); break;
+		case 0xd0: pressure(h, channel, -1, data1 * (1.0f / 127.0f)); break;
+		case 0xe0: bend(h, channel, (float)((int)((data2 << 7) + data1) - 0x2000) * (1.0f / 8192)); break;
 		default: // CC1 (mod wheel, 0..1) or CC74 (64 = 0)
-			chan_y_[channel] = data1 == 1 ? data2 * (1.0f / 127.0f) : clampf((data2 - 64) * (1.0f / 64.0f), -1.0f, 1.0f);
-			update(h, channel);
+			tilt(h, channel, data1 == 1 ? data2 * (1.0f / 127.0f) : clampf((data2 - 64) * (1.0f / 64.0f), -1.0f, 1.0f));
 			break;
 		}
 		return true;
 	}
 
-	// the strikes fade one step
-	template <class Host> void tick(Host& h) {
-		bool fading = false;
-		for (int s = 0; s < NOTES; s++) {
-			Slot& m = slot_[s];
-			if (m.channel >= 0 && m.sig.vpres > 0.0f) {
-				m.sig.vpres = m.sig.vpres > 0.01f ? m.sig.vpres * 0.6f : 0.0f;
-				fading |= m.sig.vpres > 0.0f;
-				write(h, s);
-			}
+	// a standard MIDI 2.0 channel voice message (UMP type 4): the same notes in its resolution;
+	// false: not one of these (the host's: InstrumentInput::message2)
+	template <class Host> bool message2(Host& h, uint32_t w0, uint32_t w1) {
+		if ((w0 >> 28) != 4) return false;
+		const uint8_t status = (uint8_t)((w0 >> 16) & 0xf0), channel = (uint8_t)((w0 >> 16) & 0x0f);
+		const uint8_t d1 = (uint8_t)((w0 >> 8) & 0x7f), d2 = (uint8_t)(w0 & 0xff);
+		if (status == 0x80) {
+			note_off(h, channel, d1, -(float)((double)(w1 >> 16) / 65535.0));
+			return true;
 		}
-		fading_ = fading;
+		const bool note_data = status == 0x90 || status == 0xa0 || status == 0xd0 || status == 0x00 || (status == 0xe0 && member(channel)) ||
+		    (status == 0xb0 && (d1 == 1 || d1 == 74));
+		if (!note_data) return false;
+		if (h.echoed(channel)) return true;
+		switch (status) {
+		case 0x90: note_on(h, channel, d1, (float)((double)(w1 >> 16) / 65535.0)); break;
+		case 0xa0: pressure(h, channel, d1, unsigned32(w1)); break;
+		case 0xd0: pressure(h, channel, -1, unsigned32(w1)); break;
+		case 0xe0: bend(h, channel, bipolar32(w1)); break;
+		case 0x00: // Registered Per-Note Controller: 3, Pitch 7.25 (the note's absolute pitch)
+			if (d2 == 3) {
+				const int s = find(channel, d1);
+				if (s >= 0) {
+					slot_[s].pitch = (float)((double)w1 / 33554432.0);
+					slot_[s].absolute = true;
+					h.ump(ump::pitch_packet(base_ + s, pitch(s)));
+				}
+			}
+			break;
+		default: // CC1 (0 .. 1) or CC74 (bipolar)
+			tilt(h, channel, d1 == 1 ? unsigned32(w1) : bipolar32(w1));
+			break;
+		}
+		return true;
 	}
-	// a strike is fading: tick() is due every TICK_SECONDS
-	[[nodiscard]] bool fading() const { return fading_; }
 
 	// every note off at once, silently (the panic key)
 	template <class Host> void all_off(Host& h) {
 		for (int s = 0; s < NOTES; s++) {
 			if (slot_[s].channel >= 0) {
-				h.note_dropped(s);
-				slot_[s].sig.on = false;
+				h.ump(ump::management_packet(base_ + s, ump::PNM_DROP));
 				slot_[s].channel = -1;
 			}
 		}
@@ -140,8 +166,7 @@ public:
 	[[nodiscard]] int members() const { return members_; }
 	[[nodiscard]] bool member(int channel) const { return channel >= 1 && channel <= members_; }
 
-	// slot s's note: its signals (on: held), its channel (-1: free) and key
-	[[nodiscard]] const NoteSignals& signals(int s) const { return slot_[s].sig; }
+	// slot s's note: its channel (-1: free) and key
 	[[nodiscard]] int channel(int s) const { return slot_[s].channel; }
 	[[nodiscard]] int key(int s) const { return slot_[s].key; }
 
@@ -150,8 +175,9 @@ private:
 		int8_t channel = -1; // -1: free
 		uint8_t key = 0;
 		bool pressure = false; // pressure received: pres follows it, not the velocity
+		bool absolute = false; // its pitch came as Pitch 7.25 (MIDI 2.0)
 		uint32_t age = 0;
-		NoteSignals sig = {};
+		float pitch = 0; // (absolute)
 	};
 
 	[[nodiscard]] static float clampf(float x, float lo, float hi) { return x > hi ? hi : (x < lo ? lo : x); }
@@ -164,17 +190,13 @@ private:
 		return -1;
 	}
 
-	// the slot's pitch and y from its channel, then to the host
-	template <class Host> void write(Host& h, int s) {
-		Slot& m = slot_[s];
-		if (m.channel >= 0) {
-			m.sig.note = m.key + bend_ + (member(m.channel) ? chan_bend_[m.channel] : 0.0f);
-			m.sig.but_y = chan_y_[m.channel];
-		}
-		h.note_changed(s, m.sig);
+	// the slot's pitch: its key, the instrument's bend and its channel's (or its own, absolute)
+	[[nodiscard]] float pitch(int s) const {
+		const Slot& m = slot_[s];
+		return m.absolute ? m.pitch + bend_ : m.key + bend_ + (member(m.channel) ? chan_bend_[m.channel] : 0.0f);
 	}
 
-	template <class Host> void note_on(Host& h, int channel, int key, int velo) {
+	template <class Host> void note_on(Host& h, int channel, int key, float velo) {
 		int s = find(channel, key);
 		for (int n = 0; s < 0 && n < NOTES; n++)
 			if (slot_[n].channel < 0) s = n;
@@ -182,39 +204,40 @@ private:
 			s = 0;
 			for (int n = 1; n < NOTES; n++)
 				if (slot_[n].age < slot_[s].age) s = n;
-			h.note_silenced(s);
+			h.ump(ump::management_packet(base_ + s, ump::PNM_SILENCE));
 		}
 		Slot& m = slot_[s];
 		m.channel = (int8_t)channel;
 		m.key = (uint8_t)key;
 		m.age = ++age_;
+		m.absolute = false;
 		m.pressure = chan_pres_set_[channel]; // MPE: the pressure sent before the note-on
-		m.sig.on = true;
-		m.sig.vpres = velo * (1.0f / 127.0f);
-		m.sig.pres = held_pres(m.pressure ? chan_pres_[channel] : m.sig.vpres);
-		m.sig.but_x = 0.0f;
-		fading_ = true;
-		h.note_started(s, m.sig); // (its pitch and y follow in write)
-		write(h, s);
+		const int id = base_ + s;
+		h.ump(ump::pitch_packet(id, pitch(s)));
+		h.ump(ump::pres_packet(id, held_pres(m.pressure ? chan_pres_[channel] : velo)));
+		h.ump(ump::signed_packet(id, ump::ctl_vpres, velo));
+		h.ump(ump::signed_packet(id, ump::ctl_x, 0.0f));
+		h.ump(ump::signed_packet(id, ump::ctl_y, chan_y_[channel]));
+		h.ump(ump::note_on_packet(id, velo, true));
 	}
 
-	template <class Host> void note_off(Host& h, int channel, int key, int velo) {
+	// release: the note-off velocity, negative
+	template <class Host> void note_off(Host& h, int channel, int key, float release) {
 		const int s = find(channel, key);
 		if (s < 0) return;
 		Slot& m = slot_[s];
-		m.sig.on = false;
-		m.sig.pres = 0.0f;
-		m.sig.vpres = -velo * (1.0f / 127.0f);
-		write(h, s);
+		const int id = base_ + s;
+		h.ump(ump::pres_packet(id, 0.0f));
+		h.ump(ump::signed_packet(id, ump::ctl_vpres, release));
+		h.ump(ump::note_off_packet(id));
 		m.channel = -1;
 		bool any = false;
 		for (const Slot& x : slot_) any |= x.channel == channel;
 		if (!any) chan_pres_set_[channel] = false; // pressure is per note (MPE)
 	}
 
-	// pressure 0..127 of the notes of a channel (key -1: channel pressure)
-	template <class Host> void pressure(Host& h, int channel, int key, int value) {
-		const float p = value * (1.0f / 127.0f);
+	// pressure of the notes of a channel (key -1: channel pressure)
+	template <class Host> void pressure(Host& h, int channel, int key, float p) {
 		if (key < 0) {
 			chan_pres_[channel] = p;
 			chan_pres_set_[channel] = true;
@@ -222,19 +245,32 @@ private:
 		for (int s = 0; s < NOTES; s++) {
 			if (slot_[s].channel == channel && (key < 0 || slot_[s].key == key)) {
 				slot_[s].pressure = true;
-				slot_[s].sig.pres = held_pres(p);
-				write(h, s);
+				h.ump(ump::pres_packet(base_ + s, held_pres(p)));
 			}
 		}
 	}
 
-	// rewrite the notes of a channel (-1: all) after a change of its bend or y
+	// a member channel's bend, -1 .. 1 (x the bend range)
+	template <class Host> void bend(Host& h, int channel, float b) {
+		chan_bend_[channel] = b * h.bend_range();
+		update(h, channel);
+	}
+
+	// a channel's y
+	template <class Host> void tilt(Host& h, int channel, float y) {
+		chan_y_[channel] = y;
+		for (int s = 0; s < NOTES; s++)
+			if (slot_[s].channel == channel) h.ump(ump::signed_packet(base_ + s, ump::ctl_y, y));
+	}
+
+	// the pitches of the notes of a channel (-1: all) after a change of its bend
 	template <class Host> void update(Host& h, int channel) {
 		for (int s = 0; s < NOTES; s++)
-			if (slot_[s].channel >= 0 && (channel < 0 || slot_[s].channel == channel)) write(h, s);
+			if (slot_[s].channel >= 0 && (channel < 0 || slot_[s].channel == channel)) h.ump(ump::pitch_packet(base_ + s, pitch(s)));
 	}
 
 	Slot slot_[NOTES];
+	int base_ = 0;
 	uint32_t age_ = 0;
 	int members_ = 15;
 	float bend_ = 0.0f;        // the instrument's bend (semitones)
@@ -242,7 +278,6 @@ private:
 	float chan_y_[16] = {};
 	float chan_pres_[16] = {};
 	bool chan_pres_set_[16] = {};
-	volatile bool fading_ = false; // (read by the board's main loop: synth_tick)
 };
 
 // The messages of the instrument that MIDI in plays (after NoteInput took the notes'): the RPN
@@ -286,6 +321,38 @@ public:
 			// a bend of the whole instrument, unless it is the echo of the host's own bends
 			if (!h.bends_out_on(channel)) {
 				const float bend = instrument_bend(data1, data2);
+				h.bend_moved(bend - notes.bend());
+				notes.set_bend(h, bend);
+			}
+			return true;
+		}
+		return false;
+	}
+
+	// the same in standard MIDI 2.0 (UMP type 4): the Registered Controllers 0 (the bend range:
+	// semitones in the top 7 bits) and 6 (the MCM: members in the top 7 bits), CC64, the pitch
+	// bend outside the zone (32-bit bipolar, x 2 semitones)
+	template <class Host> bool message2(Host& h, NoteInput& notes, uint32_t w0, uint32_t w1) {
+		if ((w0 >> 28) != 4) return false;
+		const uint8_t status = (uint8_t)((w0 >> 16) & 0xf0), channel = (uint8_t)((w0 >> 16) & 0x0f);
+		const uint8_t d1 = (uint8_t)((w0 >> 8) & 0x7f), d2 = (uint8_t)(w0 & 0x7f);
+		if (status == 0x20) { // Registered Controller: bank d1, index d2
+			const int top = (int)(w1 >> 25);
+			if (d1 == 0 && d2 == 0) {
+				if (top >= 1 && !h.zone_master(channel)) h.set_bend_range((float)((double)w1 / 33554432.0));
+			} else if (d1 == 0 && d2 == 6) {
+				if (channel == 0 && top <= 15) notes.set_members(top);
+				h.zone_configured(channel, top);
+			}
+			return true;
+		}
+		if (status == 0xb0 && d1 == 64) {
+			h.set_pedal(unsigned32(w1));
+			return true;
+		}
+		if (status == 0xe0) {
+			if (!h.bends_out_on(channel)) {
+				const float bend = bipolar32(w1) * 2.0f;
 				h.bend_moved(bend - notes.bend());
 				notes.set_bend(h, bend);
 			}

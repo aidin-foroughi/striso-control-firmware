@@ -19,9 +19,17 @@ int MidiVoices::notes_held() const {
 bool MidiVoices::message(const uint8_t* m, int len) {
 	if (len < 1 || m[0] < 0x80 || m[0] >= 0xf0) return true; // (system messages: nothing to play)
 	if (queued_ == QUEUE) return false;
-	queue_[queued_][0] = m[0];
-	queue_[queued_][1] = len > 1 ? m[1] & 0x7f : 0;
-	queue_[queued_][2] = len > 2 ? m[2] & 0x7f : 0;
+	queue_[queued_][0] = (uint32_t)m[0] << 16 | (uint32_t)(len > 1 ? m[1] & 0x7f : 0) << 8 | (uint32_t)(len > 2 ? m[2] & 0x7f : 0);
+	queue_[queued_][1] = 0xffffffffu;
+	queued_++;
+	return true;
+}
+
+bool MidiVoices::ump2(uint32_t w0, uint32_t w1) {
+	if ((w0 >> 28) != 4) return true; // (only MIDI 2.0 channel voice messages play)
+	if (queued_ == QUEUE) return false;
+	queue_[queued_][0] = w0;
+	queue_[queued_][1] = w1;
 	queued_++;
 	return true;
 }
@@ -29,8 +37,13 @@ bool MidiVoices::message(const uint8_t* m, int len) {
 // as the board's main loop: synth_tick (the level decay, the strike fade), then the messages
 void MidiVoices::step() {
 	alloc_.tick(*this);
-	if (in_.fading()) in_.tick(*this);
-	for (int i = 0; i < queued_; i++) apply(queue_[i][0], queue_[i][1], queue_[i][2]);
+	if (dec_.fading()) dec_.tick(*this);
+	for (int i = 0; i < queued_; i++) {
+		const uint32_t w0 = queue_[i][0], w1 = queue_[i][1];
+		if (w1 == 0xffffffffu && (w0 >> 24) == 0) apply((uint8_t)(w0 >> 16), (uint8_t)(w0 >> 8), (uint8_t)w0);
+		else if (!in_.message2(*this, w0, w1)) (void)instrument_.message2(*this, in_, w0, w1);
+		dec_.flush(*this);
+	}
 	queued_ = 0;
 }
 

@@ -449,51 +449,68 @@ class Instrument {
             }
             synth_interface = si;
             set_volume(volume_linear);
+            midi_in.set_id_base(BUTTONCOUNT);  // a MIDI note's id: its Button after the keys
         }
 
         /*
-         * MIDI note input (striso_dsp/midi_in.h: the mapping, shared with the SDK's hosts): notes
-         * from MIDI in (USB MIDI, and the virtual board's sv_midi_write, which comes the same way)
-         * play the internal synth with the controls the keys give it. Each note is a Button slot
-         * after the keys and takes an internal voice from the same pool (get_synth_voice), so keys
-         * and MIDI notes share the voices and steal from each other by the same rule. Nothing of
-         * it goes out as MIDI. The Instrument is midi_in's host (the note_* calls below); the
-         * instrument's bend, the bend range (RPN 0), the zone (MCM) and the other CCs are
-         * midi_in_message's. Sustain (CC64) is the pedal, as before.
+         * The internal synth is played in MIDI 2.0: the Striso UMP profile (striso_dsp/ump.h).
+         * The keys (update_synth_voice) and MIDI in (striso_dsp/midi_in.h: MIDI 1.0, MPE, the
+         * up-converter shared with the SDK's hosts) send it; one decoder (synth_in) gives the
+         * engines their controls. A note's id is its Button: a key 0 .. BUTTONCOUNT-1, a MIDI in
+         * note BUTTONCOUNT + its slot. MIDI notes take an internal voice from the same pool as the
+         * keys (get_synth_voice), so keys and MIDI notes steal from each other by the same rule;
+         * nothing of them goes out as MIDI. The Instrument is the decoder's host (the note_*
+         * calls below) and midi_in's (ump, echoed, bend_range); the instrument's bend, the bend
+         * range (RPN 0), the zone (MCM) and the other CCs are midi_in_message's. Sustain (CC64)
+         * is the pedal, as before.
          */
         striso::midi::NoteInput midi_in;
+        striso::ump::Decoder<BUTTONCOUNT + MIDI_IN_NOTES> synth_in;
+        bool key_sounding[BUTTONCOUNT] = {};  // a key's Note On went out (its Note Off not yet)
 
-        // midi_in's host: a MIDI note's slot is the Button BUTTONCOUNT + s
-        void note_started(int s, const striso::midi::NoteSignals& n) {
-            Button& b = buttons[BUTTONCOUNT + s];
+        // the decoder's host: the touch factors are the keys' sensitivities, a MIDI note's 1
+        striso::ump::Touch touch(int id) const {
+            return id < BUTTONCOUNT ? striso::ump::Touch{pres_sensitivity, velo_sensitivity, y_sensitivity}
+                                    : striso::ump::Touch{1.0f, 1.0f, 1.0f};
+        }
+
+        // a MIDI note starts: its Button, its level, a voice (a key's voice is the key logic's)
+        void note_started(int id, const striso::ump::NoteSignals& n) {
+            if (id < BUTTONCOUNT) return;
+            Button& b = buttons[id];
             b.state = STATE_ON;
             b.vpres = n.vpres;
             b.pres = n.pres;
             b.but_x = n.but_x;
-            synth_alloc.set_level(BUTTONCOUNT + s, b.pres + b.vpres);  // a new note: no old estimate
-            get_synth_voice(BUTTONCOUNT + s);  // (-1: every voice plays a louder held note)
+            synth_alloc.set_level(id, b.pres + b.vpres);  // a new note: no old estimate
+            get_synth_voice(id);  // (-1: every voice plays a louder held note)
         }
 
-        void note_changed(int s, const striso::midi::NoteSignals& n) {
-            Button& b = buttons[BUTTONCOUNT + s];
-            b.state = n.on ? STATE_ON : STATE_OFF;
-            b.note = n.note;
-            b.pres = n.pres;
-            b.vpres = n.vpres;
-            b.but_x = n.but_x;
-            b.but_y = n.but_y;
-            b.vol0 = b.state == STATE_ON ? b.pres + b.vpres : -1.0f;
-            synth_alloc.raise_level(BUTTONCOUNT + s, b.vol0);
-            update_synth_voice(BUTTONCOUNT + s);
+        void note_changed(int id, const striso::ump::NoteSignals& n) {
+            if (id >= BUTTONCOUNT) {
+                Button& b = buttons[id];
+                b.state = n.on ? STATE_ON : STATE_OFF;
+                b.note = n.note;
+                b.pres = n.pres;
+                b.vpres = n.vpres;
+                b.but_x = n.but_x;
+                b.but_y = n.but_y;
+                b.vol0 = b.state == STATE_ON ? b.pres + b.vpres : -1.0f;
+                synth_alloc.raise_level(id, b.vol0);
+            }
+            write_synth_voice(id, n);
         }
 
-        void note_silenced(int s) { silence_synth_voice(BUTTONCOUNT + s); }
+        void note_silenced(int id) { silence_synth_voice(id); }
 
-        void note_dropped(int s) {
-            silence_synth_voice(BUTTONCOUNT + s);
-            buttons[BUTTONCOUNT + s].state = STATE_OFF;
-            buttons[BUTTONCOUNT + s].vol0 = -1.0f;
+        void note_dropped(int id) {
+            silence_synth_voice(id);
+            buttons[id].state = STATE_OFF;
+            buttons[id].vol0 = -1.0f;
         }
+
+        // midi_in's host: its packets go to the decoder (flushed after each message)
+        void ump(const striso::ump::Packet& p) { synth_in.packet(p); }
 
         bool echoed(int channel) const { return note_out_recently(channel); }  // (SC-16)
 
@@ -563,6 +580,7 @@ class Instrument {
         void panic(void) {
             end_all_notes();
             midi_in.all_off(*this);
+            synth_in.flush(*this);
 #ifdef USE_MIDI_OUT
             // the MPE master channel, and every channel of the mode
             int first = config.midi_mode == MIDI_MODE_MPE && midi_channel_offset >= 1 ? -1 : 0;
@@ -1168,26 +1186,47 @@ class Instrument {
         // the note of but goes on with key to (portamento and free transpose hand-overs)
         void hand_over_synth_voice(int but, int to) { synth_alloc.hand_over(but, to); }
 
-        // the internal synth controls of but's voice (if it still has one)
+        // a key's controls for the internal synth, in the Striso UMP profile, through the decoder
+        // to its voice (if it still has one): pitch (with the tilt's bend), pres, vpres, x, y,
+        // and its Note On / Off as its state changes
         void update_synth_voice(int but) {
 #ifdef USE_INTERNAL_SYNTH
-            const int voice = synth_alloc.voice(but);
+            const Button& b = buttons[but];
+            float pb = 0.0f;
+            if (config.mpe_x == CFG_PITCH_BEND) {
+                pb = bend_sensitivity * pow3(b.but_x);
+            }
+            const bool on = b.state == STATE_ON;
+            synth_in.packet(striso::ump::pitch_packet(but, b.note + pb));
+            synth_in.packet(striso::ump::pres_packet(but, b.pres));
+            synth_in.packet(striso::ump::signed_packet(but, striso::ump::ctl_vpres, b.vpres));
+            synth_in.packet(striso::ump::signed_packet(but, striso::ump::ctl_x, b.but_x));
+            synth_in.packet(striso::ump::signed_packet(but, striso::ump::ctl_y, b.but_y));
+            if (on != key_sounding[but]) {
+                synth_in.packet(on ? striso::ump::note_on_packet(but, b.vpres, false) : striso::ump::note_off_packet(but));
+                key_sounding[but] = on;
+            }
+            synth_in.flush(*this);
+#else
+            (void)but;
+#endif
+        }
+
+        // the decoded controls of note id to its voice (if it still has one)
+        void write_synth_voice(int id, const striso::ump::NoteSignals& n) {
+#ifdef USE_INTERNAL_SYNTH
+            const int voice = synth_alloc.voice(id);
             if (voice < 0 || !synth_interface) {
                 return;
             }
-            float pb = 0.0f;
-            if (config.mpe_x == CFG_PITCH_BEND) {
-                pb = bend_sensitivity * pow3(buttons[but].but_x);
-            }
-            // (the touch sensitivities are the keys'; a MIDI in note is as MIDI gives it)
-            const bool key = but < BUTTONCOUNT;
-            *(synth_interface->note[voice])  = buttons[but].note + pb;
-            *(synth_interface->pres[voice])  = buttons[but].pres * (key ? pres_sensitivity : 1.0f);
-            *(synth_interface->vpres[voice]) = buttons[but].vpres * (key ? velo_sensitivity : 1.0f);
-            *(synth_interface->but_x[voice]) = buttons[but].but_x;
-            *(synth_interface->but_y[voice]) = clamp(buttons[but].but_y * (key ? y_sensitivity : 1.0f), -1.0f, 1.0f);
+            *(synth_interface->note[voice])  = n.note;
+            *(synth_interface->pres[voice])  = n.pres;
+            *(synth_interface->vpres[voice]) = n.vpres;
+            *(synth_interface->but_x[voice]) = n.but_x;
+            *(synth_interface->but_y[voice]) = n.but_y;
 #else
-            (void)but;
+            (void)id;
+            (void)n;
 #endif
         }
 
@@ -1462,7 +1501,7 @@ int synth_message(int size, int* msg) {
     if (src == ID_INTERNAL) {  // requests queued for this thread: StcK, MIDI in, its tick
         if (id == IDI_SETTINGS_KEY && size >= 1) settings_key_press(msg[0]);
         if (id == IDI_MIDI_IN && size >= 3) midi_in_message(msg[0], msg[1], msg[2]);
-        if (id == IDI_MIDI_IN_TICK) dis.midi_in.tick(dis);
+        if (id == IDI_MIDI_IN_TICK) dis.synth_in.tick(dis);
         return 0;
     }
 
@@ -2369,10 +2408,7 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
 struct MidiInInstrument {
     Instrument& d;
     // NoteInput's host: the Instrument's
-    void note_started(int s, const striso::midi::NoteSignals& n) { d.note_started(s, n); }
-    void note_changed(int s, const striso::midi::NoteSignals& n) { d.note_changed(s, n); }
-    void note_silenced(int s) { d.note_silenced(s); }
-    void note_dropped(int s) { d.note_dropped(s); }
+    void ump(const striso::ump::Packet& p) { d.ump(p); }
     bool echoed(int channel) const { return d.echoed(channel); }
     float bend_range() const { return d.bend_range(); }
     // the MPE master channel's own range (2) is not the notes'
@@ -2418,6 +2454,7 @@ static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2) {
     }
 
     if (status != 0xf0 && dis.midi_in.message(dis, channel, status, data1, data2)) {
+        dis.synth_in.flush(dis);
         return;
     }
     if (status == MIDI_CONTROL_CHANGE && data1 < 120 && note_channel(channel) && note_cc(data1)) {
@@ -2430,6 +2467,7 @@ static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2) {
 
     MidiInInstrument host{dis};
     if (status != 0xf0 && instrument_in.message(host, dis.midi_in, channel, status, data1, data2)) {
+        dis.synth_in.flush(dis);  // (the instrument's bend moved the MIDI notes)
         return;
     }
 
@@ -2806,7 +2844,7 @@ void synth_control_init(void) {
 
 void synth_tick(void) {
     dis.tick();
-    if (dis.midi_in.fading()) {
+    if (dis.synth_in.fading()) {
         (void)messaging::send(Source::internal, IDI_MIDI_IN_TICK);  // (a full queue: the next tick)
     }
     // system reset (settings + key 67) waits for the settings button to be released: reset while it's
