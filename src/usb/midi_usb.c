@@ -561,8 +561,20 @@ static volatile uint8_t midi_alt; /* the host's alternate setting of interface 1
 void midi_usb_set_alt(uint8_t alt) { midi_alt = alt; }
 bool midi_usb_ump(void) { return midi_alt == 1; }
 
+/* the bytes the IN queue takes now: the current buffer's rest and the empty buffers */
+static size_t ob_space(void) {
+  output_buffers_queue_t *q = &MDU1.obqueue;
+  chSysLock();
+  const size_t n = (q->ptr != NULL ? (size_t)(q->top - q->ptr) : 0U) + bqSpaceI(q) * (q->bsize - sizeof(size_t));
+  chSysUnlock();
+  return n;
+}
+
+/* whole packets or nothing: a UMP cut in two would leave the stream out of step (a full queue
+ * drops the message, as MIDI 1.0's does) */
 void midi_usb_UmpSend(const uint32_t *words, int n) {
   if (midi_alt != 1) return;
+  if (ob_space() < 4 * (size_t)n) return;
   uint8_t tx[16];
   for (int i = 0; i < n && i < 4; i++) {
     tx[4 * i] = (uint8_t)words[i];
