@@ -42,6 +42,7 @@ extern "C" {
 #include "chprintf.h"
 #include "messaging.hpp"
 #include "striso_dsp/midi_in.h"
+#include "striso_dsp/voice_allocator.h"
 
 #include <bit>
 #include <cstdint>
@@ -58,8 +59,9 @@ static_assert(MIDI_IN_NOTES == striso::midi::NOTES, "a Button slot per MIDI in n
 #define MAX_PORTAMENTO_BUTTONS 8
 static constexpr uint8_t MIDI_C_ALL_SOUND_OFF = 0x78;  // (midi.h has All Notes Off, 0x7b)
 
-#define VOL_TICK (0.0005) // (1.0 / (SAMPLINGFREQ / CHANNEL_BUFFER_SIZE) / 0.5) // decay time of estimated volume
-#define VOL_TICK_FACT (0.998) // 0.5**(1/(SAMPLINGFREQ / CHANNEL_BUFFER_SIZE)/0.1)
+// the estimated volume's decay per tick (the MIDI voices'; the internal synth's: voice_allocator.h)
+#define VOL_TICK (striso::voices::LEVEL_STEP)
+#define VOL_TICK_FACT (striso::voices::LEVEL_DECAY)
 
 float volume_linear = 90.0f; // volume in range 0-127
 void set_volume(float vol) {
@@ -350,10 +352,8 @@ class Button {
         float but_y;
         float vol0;
         float vol = 0.0;
-        float synth_vol = 0.0;  // the same estimate, for the internal synth voices (tick)
         button_state_t state = STATE_OFF;
         int voice = -1;        // MIDI voice: the MPE channel slot (index into voices[])
-        int synth_voice = -1;  // internal synth voice (index into synth_voices[]), -1: none
         uint8_t midi_channel = 0;  // the channel of its MIDI note-on (end_all_notes)
         bool stolen = false;  // its channel was taken while it was held (get_voice), until released
 
@@ -380,16 +380,22 @@ class Button {
                 vol0 = pres + vpres;
             if (vol < vol0)
                 vol = vol0;
-            if (synth_vol < vol0)
-                synth_vol = vol0;
         }
+};
+
+// the voice allocator's view of the buttons (voice_allocator.h's host): held, and the level floor
+struct SynthVoiceHost {
+    const Button* buttons;
+    bool held(int b) const { return buttons[b].state == STATE_ON; }
+    float floor(int b) const { return buttons[b].vol0; }
 };
 
 class Instrument {
     public:
         Button buttons[BUTTONCOUNT + MIDI_IN_NOTES];  // the keys, then the notes from MIDI in
         int voices[MAX_VOICECOUNT];
-        int synth_voices[VOICECOUNT];  // the key of each internal synth voice, -1: none yet
+        // the internal synth's voices: which key (or MIDI in note) plays each (voice_allocator.h)
+        striso::voices::VoiceAllocator<BUTTONCOUNT + MIDI_IN_NOTES, VOICECOUNT> synth_alloc;
         int portamento_buttons[MAX_PORTAMENTO_BUTTONS];
         float notegen0 = 12.00;
         float notegen1 = 7.00;
@@ -438,9 +444,6 @@ class Instrument {
             for (n = 0; n < MAX_VOICECOUNT; n++) {
                 voices[n] = -1;
             }
-            for (n = 0; n < VOICECOUNT; n++) {
-                synth_voices[n] = -1;
-            }
             for (n = 0; n < MAX_PORTAMENTO_BUTTONS; n++) {
                 portamento_buttons[n] = -1;
             }
@@ -467,7 +470,7 @@ class Instrument {
             b.vpres = n.vpres;
             b.pres = n.pres;
             b.but_x = n.but_x;
-            b.synth_vol = b.pres + b.vpres;  // a new note: no old estimate
+            synth_alloc.set_level(BUTTONCOUNT + s, b.pres + b.vpres);  // a new note: no old estimate
             get_synth_voice(BUTTONCOUNT + s);  // (-1: every voice plays a louder held note)
         }
 
@@ -480,7 +483,7 @@ class Instrument {
             b.but_x = n.but_x;
             b.but_y = n.but_y;
             b.vol0 = b.state == STATE_ON ? b.pres + b.vpres : -1.0f;
-            if (b.synth_vol < b.vol0) b.synth_vol = b.vol0;
+            synth_alloc.raise_level(BUTTONCOUNT + s, b.vol0);
             update_synth_voice(BUTTONCOUNT + s);
         }
 
@@ -736,6 +739,7 @@ class Instrument {
             static systime_t next_knobchange;
             // process button message and send osc messages
             buttons[but].message(msg);
+            synth_alloc.raise_level(but, buttons[but].vol0);
 
             // handle alternative functions of note buttons
             if ((altmode == 1 && buttons[but].state == STATE_OFF)
@@ -1145,60 +1149,16 @@ class Instrument {
          * channel count (SC-01), and Normal mode plays the internal synth too, each key with its
          * own expression (SC-10). Mono mode keeps its one voice: its MIDI voice (0).
          */
-        void take_synth_voice(int but, int v) {
-            int old = synth_voices[v];
-            if (old >= 0 && old != but) {
-                buttons[old].synth_voice = -1;  // one key drives a voice
-            }
-            int mine = buttons[but].synth_voice;
-            if (mine >= 0 && mine != v && synth_voices[mine] == but) {
-                synth_voices[mine] = -1;
-            }
-            synth_voices[v] = but;
-            buttons[but].synth_voice = v;
-        }
-
-        // the internal voice for a new note of but: its own voice (a repeated note), else an empty
-        // one, else the quietest released one (by the estimated volume), else the quietest held
-        // one if it is quieter than the new note (that key goes on on MIDI only); -1 if none
+        // the internal voice for a new note of but (voice_allocator.h's rule); -1 if none
         int get_synth_voice(int but) {
 #ifdef USE_INTERNAL_SYNTH
-            int voice = -1;
-            // (in Mono mode voice 0 is the keys': a MIDI in note takes another)
-            const int first = config.midi_mode == MIDI_MODE_MONO ? 1 : 0;
             if (config.midi_mode == MIDI_MODE_MONO && but < BUTTONCOUNT) {
-                if (buttons[but].voice >= 0 && buttons[but].voice < VOICECOUNT) {
-                    voice = buttons[but].voice;
-                }
-            } else if (buttons[but].synth_voice >= first && synth_voices[buttons[but].synth_voice] == but) {
-                voice = buttons[but].synth_voice;
-            } else {
-                int released = -1, held = -1;
-                float min_released = 0, min_held = buttons[but].synth_vol;
-                for (int n = first; n < VOICECOUNT; n++) {
-                    if (synth_voices[n] == -1) {
-                        voice = n;
-                        break;
-                    }
-                    const Button& b = buttons[synth_voices[n]];
-                    if (b.state != STATE_ON) {
-                        if (released < 0 || b.synth_vol < min_released) {
-                            min_released = b.synth_vol;
-                            released = n;
-                        }
-                    } else if (b.synth_vol < min_held) {
-                        min_held = b.synth_vol;
-                        held = n;
-                    }
-                }
-                if (voice < 0) {
-                    voice = released >= 0 ? released : held;
-                }
+                // Mono mode keeps its one voice: its MIDI voice (0); a MIDI in note takes another
+                const int voice = buttons[but].voice >= 0 && buttons[but].voice < VOICECOUNT ? buttons[but].voice : -1;
+                if (voice >= 0) synth_alloc.take(but, voice);
+                return voice;
             }
-            if (voice >= 0) {
-                take_synth_voice(but, voice);
-            }
-            return voice;
+            return synth_alloc.start(SynthVoiceHost{buttons}, but, config.midi_mode == MIDI_MODE_MONO ? 1 : 0);
 #else
             (void)but;
             return -1;
@@ -1206,18 +1166,13 @@ class Instrument {
         }
 
         // the note of but goes on with key to (portamento and free transpose hand-overs)
-        void hand_over_synth_voice(int but, int to) {
-            int v = buttons[but].synth_voice;
-            if (v >= 0 && synth_voices[v] == but) {
-                take_synth_voice(to, v);
-            }
-        }
+        void hand_over_synth_voice(int but, int to) { synth_alloc.hand_over(but, to); }
 
         // the internal synth controls of but's voice (if it still has one)
         void update_synth_voice(int but) {
 #ifdef USE_INTERNAL_SYNTH
-            int voice = buttons[but].synth_voice;
-            if (voice < 0 || voice >= VOICECOUNT || synth_voices[voice] != but || !synth_interface) {
+            const int voice = synth_alloc.voice(but);
+            if (voice < 0 || !synth_interface) {
                 return;
             }
             float pb = 0.0f;
@@ -1239,8 +1194,8 @@ class Instrument {
         // end the internal sound of but's note (its key is still held)
         void silence_synth_voice(int but) {
 #ifdef USE_INTERNAL_SYNTH
-            int voice = buttons[but].synth_voice;
-            if (voice >= 0 && voice < VOICECOUNT && synth_voices[voice] == but && synth_interface) {
+            const int voice = synth_alloc.voice(but);
+            if (voice >= 0 && synth_interface) {
                 *(synth_interface->pres[voice])  = 0.0f;
                 *(synth_interface->vpres[voice]) = 0.0f;
             }
@@ -1446,14 +1401,7 @@ class Instrument {
                 }
             }
             // the same for the keys of the internal synth voices
-            for (int n = 0; n < VOICECOUNT; n++) {
-                if (synth_voices[n] >= 0) {
-                    Button& b = buttons[synth_voices[n]];
-                    b.synth_vol = b.synth_vol * VOL_TICK_FACT - VOL_TICK;
-                    if (b.synth_vol < b.vol0)
-                        b.synth_vol = b.vol0;
-                }
-            }
+            synth_alloc.tick(SynthVoiceHost{buttons});
         }
 };
 
