@@ -1,5 +1,5 @@
 > StcX
-X keys 42
+X keys 43
 X 0 switch midi - - k MPE|MPE MIDI mode|number of MPE voices, 1 to 15
 X 2 switch midi - - k Poly|Normal MIDI mode (all notes on one channel)|MIDI channel, 1 to 16
 X 4 switch midi - - k Mono|Mono (glissando) MIDI mode|MIDI channel, 1 to 16
