@@ -145,7 +145,7 @@ TEST_CASE("api: a key sounds on the selected voice, finite, and falls silent aft
 	}
 }
 
-TEST_CASE("api: a live parameter change (Q) changes the render; Q to the same value does not") {
+TEST_CASE("api: a live parameter change (Q) changes the render, Q to the same value does not") {
 	auto take = [](float gain, bool set) {
 		Board bd;
 		REQUIRE(sv_select_voice(bd.b, 1) == 0); // va:classic
@@ -170,7 +170,7 @@ TEST_CASE("api: a live parameter change (Q) changes the render; Q to the same va
 	CHECK(rms(louder) > 1.5 * rms(plain));
 }
 
-TEST_CASE("api: the binary stream carries injected keys; the board's MIDI out sends MPE") {
+TEST_CASE("api: the binary stream carries injected keys, the board's MIDI out sends MPE") {
 	Board bd;
 	bd.cmd("S", 10);
 	sv_inject_key(bd.b, 0, 30, 3000, 2000, 0, 0);
@@ -184,7 +184,7 @@ TEST_CASE("api: the binary stream carries injected keys; the board's MIDI out se
 	CHECK(note_on);
 }
 
-TEST_CASE("api: settings + a voice key switch the voice and show its colour; the LEDs") {
+TEST_CASE("api: settings + a voice key switch the voice and show its colour, the LEDs") {
 	Board bd;
 	sv_leds l{};
 	sv_get_leds(bd.b, &l);
@@ -206,7 +206,7 @@ TEST_CASE("api: settings + a voice key switch the voice and show its colour; the
 	CHECK(l.rgb[1] == 0xaa); // back to the tuning's colour (12-TET green)
 }
 
-TEST_CASE("api: settings + key 67 resets the board when Settings is let go; it comes back") {
+TEST_CASE("api: settings + key 67 resets the board when Settings is let go, it comes back") {
 	Board bd;
 	sv_inject_control(bd.b, IDC_ALT, 1);
 	sv_inject_key(bd.b, 0, 67, 3000, 0, 0, 0);
@@ -223,7 +223,7 @@ TEST_CASE("api: settings + key 67 resets the board when Settings is let go; it c
 	CHECK(bd.cmd("V").rfind(sv_firmware_version(), 0) == 0);
 }
 
-TEST_CASE("api: StcB: the bootloader's drive; a config written there is flashed and kept") {
+TEST_CASE("api: StcB: the bootloader's drive, a config written there is flashed and kept") {
 	Board bd;
 	bd.cmd("B", 50);
 	REQUIRE(sv_usb_state(bd.b) == SV_USB_BOOTLOADER);
