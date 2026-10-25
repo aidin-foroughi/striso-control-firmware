@@ -8,6 +8,7 @@
 //   Shell s(*striso::sdk::find_engine("va"), 48000);
 //   s.set_preset(5);
 //   s.midi(0x90, 60, 100);           // MIDI in (applied at the next block)
+//   s.midi(0x80, 60, 0, 17);         // ... at frame 17 of the next process() call
 //   s.process(left, right, frames);  // stereo out, about +-4 full scale (x0.25 for unity)
 #ifndef STRISO_SDK_SHELL_H_
 #define STRISO_SDK_SHELL_H_
@@ -31,9 +32,16 @@ public:
 	void set_fx(bool on) { fx_on_ = on; }
 	void set_preset(int i) { engine_.set_preset(i); }
 
-	// MIDI in (midi_voices.h); takes effect at the next 2 ms step
-	void midi(const uint8_t* msg, int len) { midi_.message(msg, len); }
-	void midi(uint8_t status, uint8_t d1, uint8_t d2) { midi_.message(status, d1, d2); }
+	// MIDI in (midi_voices.h); takes effect at the next 2 ms step. offset: the message's frame in
+	// the next process() call (a plugin host's sample offset): it goes in before the block that
+	// frame is in, so where it lands doesn't depend on the call sizes. 0: now. (Up to kTimed
+	// messages wait; more, and messages of more than 3 bytes, go in now.)
+	void midi(const uint8_t* msg, int len, int offset = 0);
+	void midi(uint8_t status, uint8_t d1, uint8_t d2, int offset = 0) {
+		const uint8_t m[3] = {status, d1, d2};
+		midi(m, 3, offset);
+	}
+	static constexpr int kTimed = 64;
 
 	// or the key signals directly (a Striso over USB, OSC, a test): from now on these, not MIDI;
 	// gate, strike and release follow from them (dsp::track_key)
@@ -61,6 +69,14 @@ private:
 	std::vector<VoiceControls> vc_;
 	GlobalControls g_;
 	uint64_t frames_ = 0, steps_ = 0; // frames rendered, MIDI steps run
+	uint64_t out_ = 0;                // frames handed out
+	struct Timed {
+		uint64_t frame; // handed-out frame it belongs to
+		uint8_t msg[3];
+		int len;
+	};
+	Timed timed_[kTimed];
+	int ntimed_ = 0;
 	float mono_[dsp::BLOCK], l_[dsp::BLOCK], r_[dsp::BLOCK];
 	int pos_ = dsp::BLOCK; // next frame of l_, r_ to hand out
 };

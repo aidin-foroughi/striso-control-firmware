@@ -350,9 +350,10 @@ struct Engine {
 	FastMemory* fast;   // the host's (init)
 	LargeMemory* large; // the host's (init)
 	real sr, inv_sr, c_period, two_pi_sr, pi_sr, hp_k, dc_k, ts_k, block_dt;
-	real shake; // smoothed accelerometer magnitude
-	Params p;   // live parameters (written by the app / presets)
-	Params ps;  // smoothed copy used by the DSP
+	real shake;    // smoothed accelerometer magnitude
+	Params p;      // live parameters (written by the app / presets)
+	Params ps;     // smoothed copy used by the DSP
+	uint64_t live; // the parameters written live (changed()) since the last preset: their glide arrives
 	// section
 	uint32_t ew;
 	real e_ph[2]; // delay modulation phases 0..1
@@ -451,6 +452,7 @@ static inline void set_preset(Engine& e, int i) {
 	if (i < 0 || i >= NUM_PRESETS) i = 0;
 	e.preset = i;
 	e.p = preset_params(i);
+	e.live = 0; // (a preset's values glide in as they always have)
 }
 
 static inline void init(Engine& e, int sample_rate, int nvoices) {
@@ -1082,60 +1084,6 @@ static inline void process_section(Engine& e, real* __restrict__ output) {
 	e.ew = w;
 }
 
-static inline void process(Engine& e, real* __restrict__ output) {
-#ifdef BOWED_TEST_SWITCH
-	{
-		static int nb = 0;
-		if (++nb % BOWED_TEST_SWITCH == 0) set_preset(e, (e.preset + 1) % NUM_PRESETS);
-	}
-#endif
-#ifdef BOWED_TEST_HOOK
-	bowed_test_hook(e);
-#endif
-	// smooth the parameters towards the set values (live edits glide in ~20 ms); pizz switches
-	{
-		real* ps = &e.ps.gain;
-		const real* pp = &e.p.gain;
-		// the values that reshape the string's motion (force window, bow position, corner
-		// rounding) move slower (~150 ms), so the motion and its pitch correction follow smoothly
-		// (and the body size: a fast moving resonance bends the pitch of what passes through it)
-		const real* slow[5] = {&e.p.force_lo, &e.p.force_hi, &e.p.pos, &e.p.bright, &e.p.body_size};
-		for (int i = 0; i < NPARAMS; i++) {
-			real x = pp[i];
-			if (!(x == x)) x = ps[i]; // ignore NaN writes
-			bool sl = false;
-			for (int j = 0; j < 5; j++) sl |= pp + i == slow[j];
-			ps[i] += (sl ? 0.006f : 0.03f) * (x - ps[i]);
-		}
-		e.ps.pizz = e.p.pizz >= 0.5f ? 1.0f : 0.0f;
-	}
-	for (int n = 0; n < BLOCK; n++) output[n] = 0.0f;
-	// shaking the instrument moves the bow: speed modulation, strong shakes reverse it (tremolo)
-	const real acc_abs = clampf(e.g.acc_abs, 0.0f, 4.0f);
-	e.shake += 0.3f * (acc_abs - e.shake);
-	if (bad(e.shake, 10.0f)) e.shake = 1.0f;
-	const real trem = 1.0f - clampf(e.ps.trem, 0.0f, 2.0f) * rmin(rmax(e.shake - 1.08f, 0.0f), 1.4f);
-	// rotation shifts the body resonances
-	const real rot = clampf(e.g.rot_x + e.g.rot_y + e.g.rot_z, -1.0f, 1.0f);
-	const real body_shift = exp2_fast(clampf(e.ps.body_rot, -2.0f, 2.0f) * rot);
-	e.seed_budget = SEED_BUDGET;
-	for (int v = 0; v < e.nvoices; v++) process_voice(e, v, trem, body_shift, output);
-	process_section(e, output);
-	// safety soft limiter: linear up to 4, then smoothly towards 8 (C1 at the knee)
-	for (int n = 0; n < BLOCK; n++) {
-		real x = output[n];
-		if (!(x == x)) x = 0.0f;
-		const real a = rmax(fabsf(x) - 4.0f, 0.0f) * 0.25f;
-		// (below the knee, a = 0, the expression is exactly x * 1 / 1 = x: the division is skipped)
-		output[n] = a > 0.0f ? x * (1.0f + 2.0f * a) / ((1.0f + a) * (1.0f + a)) : x;
-	}
-	if (bad(e.e_d[0] + e.e_d[1] + e.e_lvl, 1e5f)) { // (cannot happen) reset the section
-		e.e_d[0] = e.e_d[1] = 600.0f;
-		e.e_lvl = 0.0f;
-		for (int i = 0; i < ENS_LEN; i++) e.large->ens[i] = 0.0f;
-	}
-}
-
 // ---------------------------------------------------------------------------------------------
 // live parameter table
 
@@ -1185,6 +1133,69 @@ static constexpr ParamEntry param_table[] = {
 };
 static constexpr int NUM_LIVE_PARAMS = sizeof(param_table) / sizeof(param_table[0]);
 static_assert(NUM_LIVE_PARAMS == NPARAMS, "every Params field is exposed once");
+static_assert(NUM_LIVE_PARAMS <= 64, "Engine::live has a bit per parameter");
+
+static inline void process(Engine& e, real* __restrict__ output) {
+#ifdef BOWED_TEST_SWITCH
+	{
+		static int nb = 0;
+		if (++nb % BOWED_TEST_SWITCH == 0) set_preset(e, (e.preset + 1) % NUM_PRESETS);
+	}
+#endif
+#ifdef BOWED_TEST_HOOK
+	bowed_test_hook(e);
+#endif
+	// smooth the parameters towards the set values (live edits glide in ~20 ms); pizz switches
+	{
+		// the values that reshape the string's motion (force window, bow position, corner
+		// rounding) move slower (~150 ms), so the motion and its pitch correction follow smoothly
+		// (and the body size: a fast moving resonance bends the pitch of what passes through it).
+		// A live edit's glide arrives (strisy::glide_param: back at a value it sounds as if it
+		// was never moved); a preset change glides as it always has (the goldens: a preset's
+		// renders start with the glide from the default preset)
+		for (int i = 0; i < NUM_LIVE_PARAMS; i++) {
+			const ParamEntry& r = param_table[i];
+			const bool slow = r.m == &Params::force_lo || r.m == &Params::force_hi || r.m == &Params::pos ||
+			    r.m == &Params::bright || r.m == &Params::body_size;
+			const real k = slow ? 0.006f : 0.03f;
+			real& a = e.ps.*r.m;
+			if (e.live >> i & 1) {
+				a = strisy::glide_param(a, e.p.*r.m, k, r.d);
+			} else {
+				real x = e.p.*r.m;
+				if (!(x == x)) x = a; // ignore NaN writes
+				a += k * (x - a);
+			}
+		}
+		e.ps.pizz = e.p.pizz >= 0.5f ? 1.0f : 0.0f;
+	}
+	for (int n = 0; n < BLOCK; n++) output[n] = 0.0f;
+	// shaking the instrument moves the bow: speed modulation, strong shakes reverse it (tremolo)
+	const real acc_abs = clampf(e.g.acc_abs, 0.0f, 4.0f);
+	e.shake += 0.3f * (acc_abs - e.shake);
+	if (bad(e.shake, 10.0f)) e.shake = 1.0f;
+	const real trem = 1.0f - clampf(e.ps.trem, 0.0f, 2.0f) * rmin(rmax(e.shake - 1.08f, 0.0f), 1.4f);
+	// rotation shifts the body resonances
+	const real rot = clampf(e.g.rot_x + e.g.rot_y + e.g.rot_z, -1.0f, 1.0f);
+	const real body_shift = exp2_fast(clampf(e.ps.body_rot, -2.0f, 2.0f) * rot);
+	e.seed_budget = SEED_BUDGET;
+	for (int v = 0; v < e.nvoices; v++) process_voice(e, v, trem, body_shift, output);
+	process_section(e, output);
+	// safety soft limiter: linear up to 4, then smoothly towards 8 (C1 at the knee)
+	for (int n = 0; n < BLOCK; n++) {
+		real x = output[n];
+		if (!(x == x)) x = 0.0f;
+		const real a = rmax(fabsf(x) - 4.0f, 0.0f) * 0.25f;
+		// (below the knee, a = 0, the expression is exactly x * 1 / 1 = x: the division is skipped)
+		output[n] = a > 0.0f ? x * (1.0f + 2.0f * a) / ((1.0f + a) * (1.0f + a)) : x;
+	}
+	if (bad(e.e_d[0] + e.e_d[1] + e.e_lvl, 1e5f)) { // (cannot happen) reset the section
+		e.e_d[0] = e.e_d[1] = 600.0f;
+		e.e_lvl = 0.0f;
+		for (int i = 0; i < ENS_LEN; i++) e.large->ens[i] = 0.0f;
+	}
+}
+
 
 static inline void update_derived(Engine&) {}
 
@@ -1195,7 +1206,10 @@ template <> struct EngineParams<bowed::Engine> {
 	static constexpr int count = bowed::NUM_LIVE_PARAMS;
 	static const ParamDesc* desc(int i) { return (i >= 0 && i < count) ? &bowed::param_table[i].d : nullptr; }
 	static float* ptr(bowed::Engine& e, int i) { return (i >= 0 && i < count) ? &(e.p.*(bowed::param_table[i].m)) : nullptr; }
-	static void changed(bowed::Engine& e, int) { bowed::update_derived(e); }
+	static void changed(bowed::Engine& e, int i) {
+		if (i >= 0 && i < count) e.live |= uint64_t{1} << i; // its glide arrives
+		bowed::update_derived(e);
+	}
 };
 } // namespace strisy
 

@@ -18,7 +18,7 @@ An engine is a plain-data object. Zero-filled storage is a valid engine before `
 | `process(vc, g, out)` | One block. `vc[voices()]` are the voices' controls and `g` the globals. `out[0..channels)` gets `BLOCK` samples each, at about ±4 full scale (the board's volume is ×0.25 and it clips at ±1). |
 | `active_voices()`, `voices()` | The voices sounding now, and the count `init()` set. |
 | `num_presets()`, `preset_name(i)`, `set_preset(i)`, `preset()` | Presets. `set_preset` works at any time between blocks. `preset()` is -1 for an engine without presets. |
-| `param_desc(i)`, `param(i)`, `set_param(i, v)` | Live parameters. `param_desc` is `nullptr` past the last one. `set_param` is a write by `write_param`'s rule: NaN is ignored, the value is clamped to [min, max] and rounded unless continuous. Then the engine's `changed()` runs. |
+| `param_desc(i)`, `param(i)`, `set_param(i, v)` | Live parameters. `param_desc` is `nullptr` past the last one. `set_param` is a write by `write_param`'s rule: NaN is ignored, the value is clamped to [min, max] and rounded unless continuous. Then the engine's `changed()` runs. An engine that glides to a written value (wind, bowed) glides with `strisy::glide_param`: the glide arrives on the value exactly, so a parameter taken to its extremes and back sounds as if it was never touched (the contract checks it). |
 | `info` | An `EngineInfo` (below). |
 
 An `Effect` is the same, with `init(fast, large, sample_rate)` and `process(in, out)`. `EffectInfo` gives its channel counts.
@@ -271,7 +271,7 @@ The WAV's INFO chunk says the same. An unknown engine, preset or performance, a 
 - `process(left, right, frames)` for its audio callback;
 - `engine()` for presets and parameters.
 
-The engines run 32-sample blocks, and a MIDI event takes effect at the next block (within 0.67 ms at 48 kHz). A plugin that wants sample-accurate events splits its block at the events.
+The engines run 32-sample blocks, and a MIDI event takes effect at the next block (within 0.67 ms at 48 kHz). A plugin passes each event's sample offset in its block, `midi(status, d1, d2, offset)`. The event then goes in before the engine block that frame falls in, whatever the plugin's block size, so a plugin doesn't have to split its block at the events.
 
 #### MIDI in and the voices
 
