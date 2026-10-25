@@ -2569,7 +2569,7 @@ static bool note_cc(int cc) {
 }
 
 /*
- * MIDI in (pconnection.c's USB MIDI, on the main thread) goes to the thread that handles the keys
+ * MIDI in (console.cpp's USB MIDI, on the main thread) goes to the thread that handles the keys
  * (synth_message, ID_INTERNAL), which owns the voices, the channels and the configuration: MIDI
  * in no longer changes them halfway through a key's message (SC-33). A full queue is waited for.
  */

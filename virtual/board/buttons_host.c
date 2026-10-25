@@ -113,15 +113,15 @@ int buttonSetKeyFactor(int n, float f) {
 }
 
 /* console 'C': button_read.c's, the calibration print and reset */
-void buttonSetCalibration(void) {
+void buttonSetCalibration(BaseSequentialStream* out) {
 	uint16_t base_calib_force = devspec_id->base_calib_force;
 	if (base_calib_force == 0xffff) base_calib_force = CALIB_FORCE;
 	if (base_calib_force == 0x0000) base_calib_force = ((1 << 18) / 64);
 	for (int n = 0; n < N_BUTTONS; n++) {
-		chprintf((BaseSequentialStream*)&BDU1, "but[%d] c_force: %d zero_offset: %d\r\n", n, ks_cal[n].c_force, zero_offset[n]);
+		chprintf(out, "but[%d] c_force: %d zero_offset: %d\r\n", n, ks_cal[n].c_force, zero_offset[n]);
 	}
 	ks_reset_calibration(ks_cal, base_calib_force);
-	chprintf((BaseSequentialStream*)&BDU1, "c_force: %d\r\n", base_calib_force);
+	chprintf(out, "c_force: %d\r\n", base_calib_force);
 }
 
 /* console 'E': button_read.c's lines, for a scanner that never scanned (and its idle recorder) */
@@ -154,9 +154,9 @@ void buttonPrintKeys(BaseSequentialStream* out) {
 }
 
 /* console 'R': no scans to record */
-void ks_capture(int seconds) {
+void ks_capture(void* stream, int seconds) {
 	(void)seconds;
-	chprintf((BaseSequentialStream*)&BDU1, "R err no key scanner (virtual board)\r\n");
+	chprintf((BaseSequentialStream*)stream, "R err no key scanner (virtual board)\r\n");
 }
 
 /* ButtonReadStart without the ADC: the boot calibration as button_read.c's (key_calibration.c) */

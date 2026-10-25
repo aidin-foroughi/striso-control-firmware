@@ -105,7 +105,7 @@ template <class... V> static constexpr int count_entries() {
 	return (0 + ... + (V::info.num_presets > 0 ? V::info.num_presets : 1));
 }
 static constexpr int MAX_ENTRIES = count_entries<SYNTH_ENGINES>();
-static_assert(MAX_ENTRIES <= 128, "the console selects an entry with one byte, 0x80 + n (pconnection.c)");
+static_assert(MAX_ENTRIES <= 128, "the console selects an entry with one byte, 0x80 + n (console.hpp)");
 static std::array<VoiceEntry, MAX_ENTRIES> entries;
 static int num_entries;
 

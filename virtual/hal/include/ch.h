@@ -93,7 +93,7 @@ typedef uint32_t time_msecs_t;
 	"READY", "CURRENT", "WTSTART", "SUSPENDED", "QUEUED", "WTSEM", "WTMTX", "WTCOND", "SLEEPING", "WTEXIT", \
 	    "WTOREVT", "WTANDEVT", "SNDMSGQ", "SNDMSG", "WTMSG", "FINAL"
 
-/* A thread: the fields the firmware reads (pconnection.c cmd_threads, usb_audio.c) under their
+/* A thread: the fields the firmware reads (console.cpp StcI, usb_audio.c) under their
  * ChibiOS names; the scheduler keeps the rest. */
 typedef struct ch_thread thread_t;
 struct ch_thread {

@@ -13,6 +13,7 @@ FILES='dsp/include/striso_dsp/strisy.h dsp/include/striso_dsp/fx.h dsp/include/s
   dsp/include/striso_dsp/engine_set.h dsp/include/striso_dsp/engines/*.h dsp/include/striso_dsp/effects/*.h
   src/synth/synth_strisy.cpp src/synth/tuning.h
   src/drivers/key_scanner.h src/drivers/key_scanner.hpp src/drivers/key_scanner_capture.hpp src/drivers/key_scanner.cpp
+  src/app/console.hpp src/app/console.cpp src/app/midi_in_parser.hpp src/app/out_stream.hpp virtual/board/fw_console.cpp
   src/app/event_queue.hpp src/app/wire.hpp src/app/inbox.hpp src/app/messaging.hpp src/app/messaging.cpp
   src/app/control_thread.cpp
   src/usb/usb_audio.c src/usb/usb_audio.h src/usb/usb_audio_core.h

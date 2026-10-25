@@ -68,6 +68,17 @@ target_compile_options(test_key_scanner PRIVATE -O2 -ffp-contract=off)
 set_source_files_properties(ref/button_read_ref.c PROPERTIES COMPILE_OPTIONS "-fwrapv")
 doctest_discover_tests(test_key_scanner TEST_PREFIX "scanner." PROPERTIES LABELS unit)
 
+# --- the USB console's grammar and USB MIDI in (src/app/console.hpp, midi_in_parser.hpp) --------
+# console.*: the command table, the parser against a reference on random streams (the fuzz), the
+# MIDI event checks; the board's handlers end to end: console_sim, console_fuzz below
+add_executable(test_console main.cpp test_console.cpp)
+target_include_directories(test_console PRIVATE
+  "${PROJECT_SOURCE_DIR}/third_party/doctest"
+  "${PROJECT_SOURCE_DIR}/src/app")
+target_link_libraries(test_console PRIVATE striso_host_options)
+target_compile_options(test_console PRIVATE -O2)
+doctest_discover_tests(test_console TEST_PREFIX "console." PROPERTIES LABELS unit)
+
 # scan_replay: the board's raw recordings (tests/scan/<name>.ksr, with the StcS stream recorded in
 # the same session, <name>.csv: tools/record_raw.py) replay to exactly the board's messages
 add_executable(scan_replay scan_replay.cpp)
@@ -115,40 +126,47 @@ if(EXISTS "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c")
   target_compile_options(test_obq_discard PRIVATE -O1 -Wno-unused-parameter)
   add_test(NAME usb_obq_discard COMMAND test_obq_discard)
   set_tests_properties(usb_obq_discard PROPERTIES LABELS unit)
-  # console_sim: the USB console and USB MIDI in end to end (R1, R3-R10): the real pconnection.c,
+  # console_sim: the USB console and USB MIDI in end to end (R1, R3-R10, B14): the real console.cpp,
   # bulk_usb.c, midi_usb.c, config_store.c and ChibiOS hal_buffers.c/chprintf.c against a fake USB
   # controller and a host that parses like Striso Live. chprintf.c gets a larger digit buffer:
   # on the 64-bit host "%lx" of a uint32_t reads 64 bits (on the board long is 32 bits).
+  # console_fuzz: the same code under random hosts (console_sim/fuzz_console_sim.c).
   set(_streams "${STRISO_CHIBIOS_DIR}/os/hal/lib/streams")
   file(READ "${_streams}/chprintf.c" _chprintf)
   string(REPLACE "#define MAX_FILLER 11" "#define MAX_FILLER 23" _chprintf "${_chprintf}")
   file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/chprintf_lp64.c" CONTENT "${_chprintf}" @ONLY)
-  add_executable(test_console_sim
-    console_sim/test_console_sim.c console_sim/sim.c config_defaults.c
-    "${PROJECT_SOURCE_DIR}/src/app/pconnection.c"
-    "${PROJECT_SOURCE_DIR}/src/usb/bulk_usb.c"
-    "${PROJECT_SOURCE_DIR}/src/usb/midi_usb.c"
-    "${PROJECT_SOURCE_DIR}/src/app/config_store.c"
-    "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c"
-    "${CMAKE_CURRENT_BINARY_DIR}/generated/chprintf_lp64.c"
-    "${_streams}/memstreams.c")
-  target_include_directories(test_console_sim PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}/console_sim/stubs"
-    "${CMAKE_CURRENT_SOURCE_DIR}/console_sim"
-    "${PROJECT_SOURCE_DIR}/src/app"
-    "${PROJECT_SOURCE_DIR}/src/usb"
-    "${PROJECT_SOURCE_DIR}/src/synth"
-    "${PROJECT_SOURCE_DIR}/src/drivers"
-    "${STRISO_CHIBIOS_DIR}/os/hal/include"
-    "${_streams}")
-  target_link_libraries(test_console_sim PRIVATE striso_host_options)
-  target_compile_options(test_console_sim PRIVATE -O1 -Wno-unused-parameter -Wno-unused-function
-    -Wno-sign-compare -Wno-missing-field-initializers -Wno-format -Wno-unused-but-set-variable
-    -fno-strict-aliasing $<$<BOOL:${STRISO_SANITIZE}>:-fno-sanitize=alignment>)
-  add_test(NAME console_sim COMMAND test_console_sim)
-  set_tests_properties(console_sim PROPERTIES LABELS unit)
+  foreach(_t IN ITEMS "test_console_sim;console_sim/test_console_sim.c;console_sim"
+                      "test_console_fuzz;console_sim/fuzz_console_sim.c;console_fuzz")
+    list(GET _t 0 _exe)
+    list(GET _t 1 _main)
+    list(GET _t 2 _name)
+    add_executable(${_exe}
+      ${_main} console_sim/sim.c config_defaults.c
+      "${PROJECT_SOURCE_DIR}/src/app/console.cpp"
+      "${PROJECT_SOURCE_DIR}/src/usb/bulk_usb.c"
+      "${PROJECT_SOURCE_DIR}/src/usb/midi_usb.c"
+      "${PROJECT_SOURCE_DIR}/src/app/config_store.c"
+      "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c"
+      "${CMAKE_CURRENT_BINARY_DIR}/generated/chprintf_lp64.c"
+      "${_streams}/memstreams.c")
+    target_include_directories(${_exe} PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/console_sim/stubs"
+      "${CMAKE_CURRENT_SOURCE_DIR}/console_sim"
+      "${PROJECT_SOURCE_DIR}/src/app"
+      "${PROJECT_SOURCE_DIR}/src/usb"
+      "${PROJECT_SOURCE_DIR}/src/synth"
+      "${PROJECT_SOURCE_DIR}/src/drivers"
+      "${STRISO_CHIBIOS_DIR}/os/hal/include"
+      "${_streams}")
+    target_link_libraries(${_exe} PRIVATE striso_host_options)
+    target_compile_options(${_exe} PRIVATE -O1 -Wno-unused-parameter -Wno-unused-function
+      -Wno-sign-compare -Wno-missing-field-initializers -Wno-format -Wno-unused-but-set-variable
+      -fno-strict-aliasing $<$<BOOL:${STRISO_SANITIZE}>:-fno-sanitize=alignment>)
+    add_test(NAME ${_name} COMMAND ${_exe})
+    set_tests_properties(${_name} PROPERTIES LABELS unit)
+  endforeach()
 else()
-  message(WARNING "ChibiOS not found (git submodule update --init): tests usb_obq_discard, console_sim skipped")
+  message(WARNING "ChibiOS not found (git submodule update --init): tests usb_obq_discard, console_sim, console_fuzz skipped")
 endif()
 
 # aux_jack: src/drivers/aux_jack.c's detection state machine against an electrical model of the
