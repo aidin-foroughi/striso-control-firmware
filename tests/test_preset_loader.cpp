@@ -124,7 +124,7 @@ TEST_CASE("preset loader: preset 1's defaults, in the firmware's order") {
 	CHECK(at("midi_config") == static_cast<long>(log.size()) - 2);
 }
 
-TEST_CASE("preset loader: Normal mode's CCs and program change; out of range and malformed values are left alone") {
+TEST_CASE("preset loader: Normal mode's CCs and program change, out of range and malformed values are left alone") {
 	RecordingBoard b;
 	const auto log = load({{"sP2Mmode", "normal"}, {"iP2Mpres", "10"}, {"iP2MChan", "17"}, {"iP2Mpgm", "5"},
 	                          {"fP2presS", "1.2.3"}, {"iP2voice", "4"}, {"fP2volum", "255"}, {"fP2decay", "200"}},

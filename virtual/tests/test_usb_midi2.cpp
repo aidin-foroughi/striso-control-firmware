@@ -82,7 +82,7 @@ std::vector<uint32_t> words(const std::vector<uint8_t>& b) {
 
 } // namespace
 
-TEST_CASE("usb midi2: interface 1 has alt 1 with its Group Terminal Block; SET/GET_INTERFACE") {
+TEST_CASE("usb midi2: interface 1 has alt 1 with its Group Terminal Block, SET/GET_INTERFACE") {
 	MidiBoard m("mpe");
 	uint8_t alt = 0xff;
 	CHECK(sv_usb_control(m.bd.b, 0x81, 0x0a, 0, 1, &alt, 1) == 1);

@@ -56,7 +56,7 @@ TEST_CASE("ump stream: endpoint discovery, every notification") {
 	CHECK(s.m[5] == std::array<uint32_t, 4>{0xf0060100u, 0, 0, 0}); // MIDI 1.0 protocol (mpe, normal, mono)
 }
 
-TEST_CASE("ump stream: the configuration is the mode's; a request doesn't change it") {
+TEST_CASE("ump stream: the configuration is the mode's, a request doesn't change it") {
 	Sink s;
 	const uint32_t req[4] = {0xf0050200u, 0, 0, 0}; // the host asks for MIDI 2.0
 	REQUIRE(ump_stream::reply(req, identity(ump_stream::PROTOCOL_MIDI1), s));
