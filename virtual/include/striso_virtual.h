@@ -66,6 +66,8 @@ typedef struct sv_options {
 	int32_t port_key_held;  /* boot with the portamento key held: synth_control_init skips the config */
 	uint32_t serial;        /* the last word of the board's UID (to tell boards apart), 0: 1 */
 	int32_t boot_ms;        /* virtual time sv_create runs the boot for: 0 the default 1000, < 0 none */
+	const char* engine_dir; /* engine components (awva/component, .dll/.dylib/.so) to load, listed after the
+	                           compiled-in engines ('v'); NULL: none */
 } sv_options;
 
 SV_API int32_t sv_api_version(void);

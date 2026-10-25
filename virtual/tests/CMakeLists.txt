@@ -6,15 +6,17 @@
 #   virtual.midi in: *   MIDI note input through sv_midi_write (sounds, falls silent, no echo)
 include("${PROJECT_SOURCE_DIR}/third_party/doctest/cmake/doctest.cmake")
 
-add_executable(striso_virtual_tests main.cpp test_api.cpp test_message_path.cpp test_protocol.cpp test_midi_in.cpp test_midi_shell.cpp test_state.cpp test_ump_in.cpp test_usb_midi2.cpp)
+add_executable(striso_virtual_tests main.cpp test_api.cpp test_message_path.cpp test_protocol.cpp test_midi_in.cpp test_midi_shell.cpp test_state.cpp test_ump_in.cpp test_usb_midi2.cpp test_external_engines.cpp)
 target_include_directories(striso_virtual_tests PRIVATE
   "${PROJECT_SOURCE_DIR}/third_party/doctest"
   "${AWVA_HARNESS_DIR}")
 target_compile_definitions(striso_virtual_tests PRIVATE
   "STRISO_GOLDEN_FILE=\"${PROJECT_SOURCE_DIR}/tests/golden/renders.txt\""
   "STRISO_REC_DIR=\"${AWVA_HARNESS_DIR}/rec\""
-  "STRISO_TRANSCRIPTS=\"${CMAKE_CURRENT_SOURCE_DIR}/transcripts\"")
-target_link_libraries(striso_virtual_tests PRIVATE striso_virtual awva::dsp awva_sdk awva_engine_strisy awva_host_options)
+  "STRISO_TRANSCRIPTS=\"${CMAKE_CURRENT_SOURCE_DIR}/transcripts\""
+  "NSC_COMPONENT_DIR=\"${AWVA_COMPONENT_DIR}\"")
+add_dependencies(striso_virtual_tests nsc_components)
+target_link_libraries(striso_virtual_tests PRIVATE striso_virtual awva::dsp awva_sdk awva_performances awva_engine_strisy awva_host_options)
 target_compile_options(striso_virtual_tests PRIVATE -O2 -ffp-contract=off)
 target_compile_definitions(striso_virtual_tests PRIVATE _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS)
 if(APPLE)

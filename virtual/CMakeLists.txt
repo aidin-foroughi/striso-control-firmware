@@ -50,6 +50,7 @@ add_library(striso_virtual SHARED
   board/fw_app.cpp
   board/fw_usbcfg.c
   board/fw_synth_strisy.cpp
+  board/external_engines_host.cpp
   "${_fw}/usb/bulk_usb.c"
   "${_fw}/usb/midi_usb.c"
   "${_fw}/synth/synth_control.cpp"
@@ -75,7 +76,7 @@ target_include_directories(striso_virtual
     ${STRISO_DSP_INCLUDE_DIRS}
     "${_gen}")
 # as the firmware build (cmake/StrisoFirmware.cmake) for VOICE=all with the C++ engines
-target_compile_definitions(striso_virtual PRIVATE STRISO_VIRTUAL_BUILD SYNTH_ENGINE_STRISY SYNTH_VOICE_ALL
+target_compile_definitions(striso_virtual PRIVATE STRISO_VIRTUAL_BUILD SYNTH_EXTERNAL_ENGINES SYNTH_ENGINE_STRISY SYNTH_VOICE_ALL
   CORTEX_USE_FPU=TRUE _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS)
 set_target_properties(striso_virtual PROPERTIES
   C_EXTENSIONS ON CXX_EXTENSIONS ON

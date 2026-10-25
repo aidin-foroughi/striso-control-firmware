@@ -83,6 +83,8 @@ int32_t svh_ump_write(const uint32_t* words, int32_t n); /* MIDI 2.0 in: whole U
 void svh_inject_motion(const int16_t raw[6]);
 /* sv_set_engine_controls took the globals over: the motion thread writes to a dummy (fw_synth_strisy.cpp) */
 void svh_motion_off(void);
+/* the loaded engine components (board/external_engines_host.cpp) */
+void svh_external_free(void);
 
 /* the shared memory of the front (fw_api.h sv_shared) */
 struct sv_shared;

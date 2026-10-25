@@ -78,6 +78,10 @@ static volatile uint32_t prof_blocks;
 namespace E = awva::engines;
 using Engines = awva::EngineSet<SYNTH_ENGINES>;
 
+// engines loaded at run time (synth_external.h; none on the board): engine numbers Engines::count and up
+#include "synth_external.h"
+[[nodiscard]] static SynthExternal* external(int k) { return k >= Engines::count ? synth_external(k - Engines::count) : nullptr; }
+
 // full scale of the codec's 24 bit samples, and the volume smoothing (one pole per block)
 static constexpr int32_t MAX_VAL = 1 << 23;
 static constexpr float VOLUME_FILTER = 0.99f;
@@ -107,8 +111,12 @@ struct VoiceEntry {
 template <class... V> static constexpr int count_entries() {
 	return (0 + ... + (V::info.num_presets > 0 ? V::info.num_presets : 1));
 }
+#ifdef SYNTH_EXTERNAL_ENGINES
+static constexpr int MAX_ENTRIES = 128; // (the loaded engines' entries after the compiled-in ones)
+#else
 static constexpr int MAX_ENTRIES = count_entries<SYNTH_ENGINES>();
-static_assert(MAX_ENTRIES <= 128, "the console selects an entry with one byte, 0x80 + n (console.hpp)");
+#endif
+static_assert(count_entries<SYNTH_ENGINES>() <= MAX_ENTRIES && MAX_ENTRIES <= 128, "the console selects an entry with one byte, 0x80 + n (console.hpp)");
 static std::array<VoiceEntry, MAX_ENTRIES> entries;
 static int num_entries;
 
@@ -122,6 +130,15 @@ static void build_entries(void) {
 				entries[num_entries++] = {(uint8_t)k, (int8_t)i, in.name, e.preset_name(i)};
 		});
 	}
+#ifdef SYNTH_EXTERNAL_ENGINES
+	for (int x = 0; x < synth_external_count(); x++) {
+		const nsc_desc& d = *synth_external(x)->c->desc;
+		const uint8_t k = (uint8_t)(Engines::count + x);
+		if (d.num_presets == 0 && num_entries < MAX_ENTRIES) entries[num_entries++] = {k, -1, d.id, nullptr};
+		for (int i = 0; i < d.num_presets && num_entries < MAX_ENTRIES; i++)
+			entries[num_entries++] = {k, (int8_t)i, d.id, d.presets[i].name};
+	}
+#endif
 }
 
 // voice at power on: the first entry of this engine
@@ -151,21 +168,36 @@ static int voice_current = -1;         // entry running in the synth thread
 // engine k takes over the arenas (in the synth thread, between blocks: the engine before it has
 // stopped)
 static void engine_init(int k) {
+	if (auto* x = external(k)) {
+		const nsc_desc& d = *x->c->desc;
+		memset(x->state, 0, d.state_bytes); // (a fresh instance, as an arena share is zeroed)
+		if (d.fast_bytes) memset(x->fast, 0, d.fast_bytes);
+		if (d.large_bytes) memset(x->large, 0, d.large_bytes);
+		x->c->init(x->state, x->fast, x->large, SAMPLINGFREQ, VOICECOUNT);
+		return;
+	}
 	Engines::start(k, engines, engines_fast, engines_large,
 	    [](auto& e, auto& fast, auto& large, auto) { e.init(fast, large, SAMPLINGFREQ, VOICECOUNT); });
 }
 
 static void engine_set_preset(int k, int p) {
+	if (auto* x = external(k)) return x->c->set_preset(x->state, p);
 	Engines::visit(k, engines, [p](auto& e, auto) { e.set_preset(p); });
 }
 
 static void engine_process(int k, float* out) {
 	for (int v = 0; v < VOICECOUNT; v++) awva::track_key(controls_vc[v]);
 	float* const outs[1] = {out};
+	if (auto* x = external(k)) {
+		static_assert(sizeof(nsc_voice) == sizeof(awva::VoiceControls) && sizeof(nsc_globals) == sizeof(awva::GlobalControls));
+		return x->c->process_voices(x->state, reinterpret_cast<const nsc_voice*>(controls_vc),
+		    reinterpret_cast<const nsc_globals*>(&controls_g), outs);
+	}
 	Engines::visit(k, engines, [&outs](auto& e, auto) { e.process(controls_vc, controls_g, outs); });
 }
 
 [[nodiscard]] static int engine_active_voices(int k) {
+	if (auto* x = external(k)) return x->c->active_voices(x->state);
 	int n = 0;
 	Engines::visit(k, engines, [&n](auto& e, auto) { n = e.active_voices(); });
 	return n;
@@ -183,24 +215,32 @@ static awva::effects::fx::LargeMemory fx_large;
 // Target 0 is the current voice's engine, target 1 the master effects.
 
 [[nodiscard]] static int engine_param_count(int k) {
+	if (auto* x = external(k)) return x->c->desc->num_params;
 	int n = 0;
 	Engines::visit(k, engines, [&n](auto& e, auto) { n = e.num_params; });
 	return n;
 }
 
 [[nodiscard]] static const awva::ParamDesc* engine_param_desc(int k, int i) {
+	if (auto* x = external(k)) return i >= 0 && i < x->c->desc->num_params ? &x->params[i] : nullptr;
 	const awva::ParamDesc* d = nullptr;
 	Engines::visit(k, engines, [&d, i](auto& e, auto) { d = e.param_desc(i); });
 	return d;
 }
 
 [[nodiscard]] static float* engine_param_ptr(int k, int i) {
+	if (auto* x = external(k)) { // (a copy of the value, read now)
+		if (i < 0 || i >= x->c->desc->num_params) return nullptr;
+		x->values[i] = x->c->param(x->state, i);
+		return &x->values[i];
+	}
 	float* p = nullptr;
 	Engines::visit(k, engines, [&p, i](auto& e, auto) { p = e.param(i); });
 	return p;
 }
 
 static void engine_set_param(int k, int i, float v) {
+	if (auto* x = external(k)) return (void)x->c->set_param(x->state, i, v);
 	Engines::visit(k, engines, [i, v](auto& e, auto) { (void)e.set_param(i, v); });
 }
 
@@ -438,10 +478,15 @@ void synth_heroes_print(void* chp) {
 	const int n = voice_request;
 	const VoiceEntry& en = entries[n];
 	chprintf(out, "H %d", n);
-	Engines::visit(en.engine, engines, [&en, out](auto& e, auto) {
-		for (const char* h : awva::heroes_of(e.info, en.preset_name).name)
-			if (h) chprintf(out, " %s", h);
-	});
+	if (auto* x = external(en.engine)) {
+		const nsc_desc& d = *x->c->desc;
+		const char* const* h = en.preset >= 0 && d.presets[en.preset].heroes[0] ? d.presets[en.preset].heroes : d.heroes;
+		for (int i = 0; i < NSC_MAX_HEROES && h[i]; i++) chprintf(out, " %s", h[i]);
+	} else
+		Engines::visit(en.engine, engines, [&en, out](auto& e, auto) {
+			for (const char* h : awva::heroes_of(e.info, en.preset_name).name)
+				if (h) chprintf(out, " %s", h);
+		});
 	chprintf(out, " |");
 	for (const char* h : fx_engine.info.heroes.name)
 		if (h) chprintf(out, " %s", h);

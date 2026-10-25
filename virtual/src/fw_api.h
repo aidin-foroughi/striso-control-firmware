@@ -16,7 +16,7 @@
 extern "C" {
 #endif
 
-#define SV_FW_API_VERSION 3
+#define SV_FW_API_VERSION 4
 #define SV_DEVSPEC_SIZE 1024 /* 0x081e0000: devspec_id, calib_dis_force, _breakpoint, _force2 */
 #define SV_BOOTLOADER_SIGNATURE 0x71a21877u /* console.cpp kBootloaderRtcSignature */
 
@@ -26,6 +26,7 @@ typedef struct sv_shared {
 	uint32_t uid[3];                   /* UID_BASE */
 	uint32_t rtc_bkp[32];              /* RTC->BKPxR: survive a reset */
 	int32_t port_key_held;             /* LINE_BUTTON_PORT reads 0 at boot */
+	char engine_dir[1024];             /* sv_options.engine_dir ("": none) */
 } sv_shared;
 
 typedef struct sv_fw_api {

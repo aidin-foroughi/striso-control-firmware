@@ -138,6 +138,7 @@ int32_t fw_boot(sv_shared* shared) {
 
 void fw_shutdown() {
 	svh_sched_shutdown();
+	svh_external_free();
 	svh_usb_free();
 	delete taps;
 	taps = nullptr;

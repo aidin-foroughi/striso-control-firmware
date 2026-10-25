@@ -20,7 +20,7 @@ if(NOT EXISTS "${AWVA_DIR}/dsp/CMakeLists.txt")
 endif()
 set(STRISO_DSP_INCLUDE_DIR "${PROJECT_SOURCE_DIR}/dsp/include")           # the firmware's: strisy, ump_out
 set(AWVA_INCLUDE_DIR "${AWVA_DIR}/dsp/include")                          # awva's
-set(STRISO_DSP_INCLUDE_DIRS "${STRISO_DSP_INCLUDE_DIR}" "${AWVA_INCLUDE_DIR}")
+set(STRISO_DSP_INCLUDE_DIRS "${STRISO_DSP_INCLUDE_DIR}" "${AWVA_INCLUDE_DIR}" "${AWVA_DIR}/component/include")
 # the scripted performances, harness_util.h, rec/: the submodule's unless given (-DAWVA_HARNESS_DIR);
 # not cached, so a build directory configured before a move can't keep a stale path
 if(NOT AWVA_HARNESS_DIR)

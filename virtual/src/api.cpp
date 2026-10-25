@@ -450,6 +450,7 @@ SV_API sv_board* sv_create(const sv_options* o) {
 	if (opt.flash && opt.flash_len) std::memcpy(b->shared->flash, opt.flash, std::min<uint32_t>(opt.flash_len, SV_FLASH_SIZE));
 	make_devspec(b->shared, opt.serial ? opt.serial : 1);
 	b->shared->port_key_held = opt.port_key_held;
+	if (opt.engine_dir) std::snprintf(b->shared->engine_dir, sizeof b->shared->engine_dir, "%s", opt.engine_dir);
 	static std::atomic<uint32_t> boards{0};
 	if (opt.drive_dir && *opt.drive_dir) {
 		b->drive = fs::path(opt.drive_dir);
