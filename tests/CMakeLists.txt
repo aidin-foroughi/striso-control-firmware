@@ -26,6 +26,7 @@ add_executable(striso_tests
   test_preset_loader.cpp
   test_settings_keys.cpp
   test_led_view.cpp
+  test_ump_stream.cpp
   test_tuning.cpp
   test_key_calibration.cpp
   test_event_queue.cpp

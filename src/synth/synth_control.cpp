@@ -46,6 +46,7 @@ extern "C" {
 #include "messaging.hpp"
 #include "striso_dsp/midi_in.h"
 #include "striso_dsp/ump_out.h"
+#include "ump_stream.hpp"
 #include "striso_dsp/voice_allocator.h"
 
 #include <array>
@@ -1228,10 +1229,46 @@ class Instrument {
             if (any) ump_out.flush(*this);
         }
 
-        // ump_out's sink: USB's MIDI 2.0 alt setting (nothing on the MIDI 1.0 one, or on DIN)
+        // ump_out's sink: USB's MIDI 2.0 alt setting (nothing on the MIDI 1.0 one, or on DIN). A
+        // full USB queue drops a message (midi_usb_ump_drops), but never a Note Off: that waits
+        // (ump_off_w1, per note number) and goes ahead of everything else, at the next message or
+        // synth_tick's retry; while one waits, the rest is held back (counted) so a later Note On
+        // can't overtake it.
+        uint32_t ump_off_w1[128] = {};
+        uint32_t ump_off_waiting[4] = {};
+        volatile bool ump_offs_waiting = false;
+        uint32_t ump_held_back = 0, ump_offs_retried = 0;
+
+        bool ump_offs_flush() {
+            if (!ump_offs_waiting) return true;
+            for (int n = 0; n < 128; n++) {
+                if (!(ump_off_waiting[n >> 5] & (1u << (n & 31)))) continue;
+                const uint32_t w[2] = {0x40800000u | (uint32_t)n << 8, ump_off_w1[n]};
+                if (!midi_usb_UmpSend(w, 2)) return false;
+                ump_off_waiting[n >> 5] &= ~(1u << (n & 31));
+            }
+            ump_offs_waiting = false;
+            return true;
+        }
+
         void ump(uint32_t w0, uint32_t w1) {
             const uint32_t w[2] = {w0, w1};
-            midi_usb_UmpSend(w, 2);
+            const bool flushed = ump_offs_flush();
+            if (flushed && midi_usb_UmpSend(w, 2)) return;
+            if (!flushed) ump_held_back++;
+            if ((w0 & 0xfff00000u) == 0x40800000u) {  // a Note Off (group 1, channel 1): it waits
+                const int n = (int)((w0 >> 8) & 0x7f);
+                ump_off_w1[n] = w1;
+                ump_off_waiting[n >> 5] |= 1u << (n & 31);
+                ump_offs_waiting = true;
+                ump_offs_retried++;
+            }
+        }
+
+        int ump_offs_pending() const {
+            int n = 0;
+            for (const uint32_t m : ump_off_waiting) n += std::popcount(m);
+            return n;
         }
 
         // the decoded controls of note id to its voice (if it still has one)
@@ -1534,6 +1571,7 @@ int synth_message(int size, int* msg) {
         if (id == IDI_SETTINGS_KEY && size >= 1) settings_key_press(msg[0]);
         if (id == IDI_MIDI_IN && size >= 3) midi_in_message(msg[0], msg[1], msg[2]);
         if (id == IDI_MIDI_IN_TICK) dis.synth_in.tick(dis);
+        if (id == IDI_UMP_OUT_RETRY) (void)dis.ump_offs_flush();
         if (id == IDI_UMP_IN && size >= 4) {
             const auto word = [](int hi, int lo) { return (uint32_t)(uint16_t)hi << 16 | (uint16_t)lo; };
             midi_in_message2(word(msg[0], msg[1]), word(msg[2], msg[3]));
@@ -2238,7 +2276,7 @@ int UmpInMsgHandler(midi_device_t dev, const uint32_t* words, int n) {
         const uint8_t type = (uint8_t)(w0 >> 28), port = (uint8_t)(((w0 >> 24) & 0x0f) + 1);
         if (type == 1 || type == 2) {
             MidiInMsgHandler(dev, port, (uint8_t)(w0 >> 16), (uint8_t)(w0 >> 8) & 0x7f, (uint8_t)w0 & 0x7f);
-        } else if (type == 4) {
+        } else if (type == 4 || type == 0xf) {  // (a Stream request: its first two words)
             const uint32_t w1 = words[i + 1];
             const auto half = [](uint32_t w) { return (int)(int16_t)(uint16_t)w; };
             for (int k = 0; !messaging::send(Source::internal, IDI_UMP_IN,
@@ -2337,7 +2375,42 @@ static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2) {
  * the notes and the instrument as MIDI 1.0's in their resolution (midi_in.h, message2), the
  * board's own CCs and the echo filter with the value's top 7 bits (MIDI 2.0's down-scaling).
  */
+// UMP Stream (ump_stream.hpp): the endpoint as a MIDI 2.0 host discovers it, on USB MIDI 2.0
+static ump_stream::Identity ump_identity(void) {
+    static char serial[25];  // the board's serial, as StcV and the USB serial number give it
+#ifdef UID_BASE
+    if (serial[0] == '\0') {
+        const uint32_t* uid = (const uint32_t*)UID_BASE;
+        const uint32_t v[3] = {uid[2], uid[1], uid[0]};
+        for (int i = 0; i < 24; i++) serial[i] = "0123456789ABCDEF"[(v[i / 8] >> (28 - 4 * (i % 8))) & 0xf];
+    }
+#endif
+    return {"Striso", serial, {0x7d, 0x00, 0x00}, 0, 0, {0, 0, 0, 0},
+            config.midi2 ? ump_stream::PROTOCOL_MIDI2 : ump_stream::PROTOCOL_MIDI1};
+}
+
+struct UmpStreamSink {
+    void ump4(const uint32_t* w) { (void)midi_usb_UmpSend(w, 4); }
+};
+
+// a protocol change (the MIDI mode) goes to a MIDI 2.0 host unasked
+static void ump_stream_changed(void) {
+    static uint8_t was = ump_stream::PROTOCOL_MIDI1;  // the protocol in effect (told or not)
+    const ump_stream::Identity id = ump_identity();
+    const bool changed = id.protocol != was;
+    was = id.protocol;
+    if (!changed || !midi_usb_ump()) return;
+    UmpStreamSink sink;
+    ump_stream::configuration(sink, id);
+}
+
 static void midi_in_message2(uint32_t w0, uint32_t w1) {
+    if ((w0 >> 28) == 0xf) {  // a Stream message: discovery, the stream's configuration
+        const uint32_t w[4] = {w0, w1, 0, 0};
+        UmpStreamSink sink;
+        (void)ump_stream::reply(w, ump_identity(), sink);
+        return;
+    }
     const uint8_t channel = (uint8_t)((w0 >> 16) & 0x0f), status = (uint8_t)((w0 >> 16) & 0xf0);
     const uint8_t index = (uint8_t)((w0 >> 8) & 0x7f), value = (uint8_t)(w1 >> 25);
 
@@ -2431,11 +2504,25 @@ static void board_cc(uint8_t channel, uint8_t data1, uint8_t data2) {
     }
 }
 
+static bool setting_midi2 = false;
+
+// MIDI 2.0 out over USB (console Stcq): UMPs the full queue dropped, held back behind a waiting
+// Note Off, Note Offs that had to wait, and those waiting now (none is ever dropped)
+void synth_ump_out_stats(uint32_t* drops, uint32_t* held_back, uint32_t* offs_retried, int* offs_pending) {
+    *drops = midi_usb_ump_drops();
+    *held_back = dis.ump_held_back;
+    *offs_retried = dis.ump_offs_retried;
+    *offs_pending = dis.ump_offs_pending();
+}
+
 // MIDI mode midi2: MPE on MIDI 1.0 (DIN, USB's MIDI 1.0 alt setting), MIDI 2.0 on USB's MIDI 2.0
 // alt setting
 void set_midi2(void) {
+    setting_midi2 = true;  // (one notification: MIDI 2.0's, not MPE's first)
     set_midi_mode(MIDI_MODE_MPE);
+    setting_midi2 = false;
     config.midi2 = true;
+    ump_stream_changed();
 }
 
 void set_midi_mode(midi_mode_t mode) {
@@ -2464,6 +2551,7 @@ void set_midi_mode(midi_mode_t mode) {
         } break;
     }
     dis.channels_changed();
+    if (!setting_midi2) ump_stream_changed();
 }
 
 void midi_config(void) {
@@ -2752,6 +2840,9 @@ void synth_tick(void) {
     dis.tick();
     if (dis.synth_in.fading()) {
         (void)messaging::send(Source::internal, IDI_MIDI_IN_TICK);  // (a full queue: the next tick)
+    }
+    if (dis.ump_offs_waiting) {
+        (void)messaging::send(Source::internal, IDI_UMP_OUT_RETRY);  // MIDI 2.0 out's Note Offs waiting
     }
     // system reset (settings + key 67) waits for the settings button to be released: reset while it's
     // held and the UF2 bootloader sees its button and stays in update mode

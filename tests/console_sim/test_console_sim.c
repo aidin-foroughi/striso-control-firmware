@@ -305,13 +305,13 @@ static void inbox_stats(void) {
 	sim_host_drain();
 	static const char* const want[] = {"q lanes 6 capacity 32", "q 0 drops 3 max 32 read_buttons",
 	    "q 1 drops 0 max 5 send messages", "q 2 drops 0 max 0 -", "q 3 drops 0 max 0 -", "q 4 drops 0 max 0 -",
-	    "q 5 drops 0 max 0 -"};
+	    "q 5 drops 0 max 0 -", "q ump_out drops 0 held_back 0 note_offs_waited 0 note_offs_waiting 0"};
 	host_parser_t* p = calloc(1, sizeof *p);
 	hp_push(p, host_in[2], host_in_len[2]);
-	int ok = p->lines == 7 && !p->messages;
-	for (int i = 0; ok && i < 7; i++) ok = strcmp(p->line[i], want[i]) == 0;
-	for (int i = 0; i < p->lines && i < 7; i++) printf("    \"%s\"\n", p->line[i]);
-	check("R23: Stcq lists every lane of the inbox: drops, max depth, the sending thread", ok);
+	int ok = p->lines == 8 && !p->messages;
+	for (int i = 0; ok && i < 8; i++) ok = strcmp(p->line[i], want[i]) == 0;
+	for (int i = 0; i < p->lines && i < 8; i++) printf("    \"%s\"\n", p->line[i]);
+	check("R23: Stcq lists every lane of the inbox: drops, max depth, the sending thread; then MIDI 2.0 out's drops", ok);
 	free(p);
 }
 

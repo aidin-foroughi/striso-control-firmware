@@ -147,8 +147,10 @@ extern "C" void midi_usb_MidiSend3(uint8_t /*port*/, uint8_t b0, uint8_t b1, uin
 static bool usb_ump = false;
 static std::vector<uint32_t> ump_log;
 extern "C" bool midi_usb_ump(void) { return usb_ump; }
-extern "C" void midi_usb_UmpSend(const uint32_t* words, int n) {
+extern "C" uint32_t midi_usb_ump_drops(void) { return 0; }
+extern "C" bool midi_usb_UmpSend(const uint32_t* words, int n) {
 	if (usb_ump) ump_log.insert(ump_log.end(), words, words + n);
+	return true;
 }
 extern "C" void serial_MidiSend1(uint8_t /*b0*/) {}
 extern "C" void serial_MidiSend2(uint8_t /*b0*/, uint8_t /*b1*/) {}

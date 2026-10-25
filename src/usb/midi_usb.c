@@ -29,6 +29,7 @@
 #include "hal.h"
 #include "midi_usb.h"
 #include "usbcfg.h"
+#include "obq_discard.h"
 
 #define MIDISEND_TIMEOUT TIME_IMMEDIATE
 
@@ -558,7 +559,19 @@ uint8_t calcCIN1(uint8_t port, uint8_t b0) {
 
 static volatile uint8_t midi_alt; /* the host's alternate setting of interface 1 */
 
-void midi_usb_set_alt(uint8_t alt) { midi_alt = alt; }
+static volatile uint32_t ump_drops; /* UMPs the full IN queue refused (alt 1) */
+uint32_t midi_usb_ump_drops(void) { return ump_drops; }
+
+/* (from the USB interrupt: SET_INTERFACE, the bus reset, SET_CONFIGURATION) */
+void midi_usb_set_alt(uint8_t alt) {
+  osalSysLockFromISR();
+  if (alt != midi_alt && MDU1.state == MDU_READY && MDU1.config != NULL) {
+    /* the IN data of the old format not yet sent goes (a transfer in flight keeps its buffer) */
+    obq_discard_pendingI(&MDU1.obqueue, usbGetTransmitStatusI(MDU1.config->usbp, MDU1.config->bulk_in));
+  }
+  midi_alt = alt;
+  osalSysUnlockFromISR();
+}
 bool midi_usb_ump(void) { return midi_alt == 1; }
 
 /* the bytes the IN queue takes now: the current buffer's rest and the empty buffers */
@@ -572,9 +585,12 @@ static size_t ob_space(void) {
 
 /* whole packets or nothing: a UMP cut in two would leave the stream out of step (a full queue
  * drops the message, as MIDI 1.0's does) */
-void midi_usb_UmpSend(const uint32_t *words, int n) {
-  if (midi_alt != 1) return;
-  if (ob_space() < 4 * (size_t)n) return;
+bool midi_usb_UmpSend(const uint32_t *words, int n) {
+  if (midi_alt != 1) return true; /* (alt 0: not this stream's; not a drop) */
+  if (ob_space() < 4 * (size_t)n) {
+    ump_drops++;
+    return false;
+  }
   uint8_t tx[16];
   for (int i = 0; i < n && i < 4; i++) {
     tx[4 * i] = (uint8_t)words[i];
@@ -583,6 +599,7 @@ void midi_usb_UmpSend(const uint32_t *words, int n) {
     tx[4 * i + 3] = (uint8_t)(words[i] >> 24);
   }
   _writet(&MDU1, tx, 4 * (size_t)(n < 4 ? n : 4), MIDISEND_TIMEOUT);
+  return true;
 }
 
 /* a MIDI 1.0 message (no SysEx) as one UMP: type 1 (system) or 2 (channel voice), group port - 1 */
@@ -590,7 +607,7 @@ static bool ump_midi1(uint8_t port, uint8_t b0, uint8_t b1, uint8_t b2) {
   if (midi_alt != 1) return false;
   const uint32_t w = (uint32_t)(b0 >= 0xf0 ? 1 : 2) << 28 | (uint32_t)((port - 1) & 0x0f) << 24 |
                      (uint32_t)b0 << 16 | (uint32_t)b1 << 8 | b2;
-  midi_usb_UmpSend(&w, 1);
+  (void)midi_usb_UmpSend(&w, 1);
   return true;
 }
 

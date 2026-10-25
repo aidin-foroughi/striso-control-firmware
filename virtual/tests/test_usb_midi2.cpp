@@ -3,6 +3,7 @@
 // were on alt 0, and the same bytes as MIDI 1.0 in UMP on alt 1; mode midi2 is MPE on alt 0 and
 // the keys as standard MIDI 2.0 (ump_out.h) on alt 1. USB MIDI 2.0 in plays as sv_ump_write does.
 #include <cstdint>
+#include <initializer_list>
 #include <ios>
 #include <iterator>
 #include <string>
@@ -175,4 +176,84 @@ TEST_CASE("usb midi2: MIDI 2.0 in on alt 1 plays as sv_ump_write does") {
 		sounding |= sb.controls[v][1] == static_cast<float>(0x9abcdef0u / 4294967295.0);
 	}
 	CHECK(sounding);
+}
+
+namespace {
+
+// UMPs to the board over USB (alt 1: the OUT endpoint's words, little endian)
+void send_ump(MidiBoard& m, std::initializer_list<uint32_t> w) {
+	std::vector<uint8_t> b;
+	for (const uint32_t x : w)
+		for (int k = 0; k < 4; k++) b.push_back(static_cast<uint8_t>(x >> (8 * k)));
+	REQUIRE(sv_midi_write(m.bd.b, b.data(), static_cast<int32_t>(b.size())) == static_cast<int32_t>(b.size()));
+	m.bd.run_ms(20);
+}
+
+} // namespace
+
+TEST_CASE("usb midi2: UMP endpoint discovery and the stream's protocol, per mode") {
+	for (const auto& [mode, protocol] : {std::pair{"mpe", 1u}, std::pair{"midi2", 2u}}) {
+		INFO(mode);
+		MidiBoard m(mode);
+		REQUIRE(m.set_alt(1) == 0);
+		m.read();
+		send_ump(m, {0xf0000101u, 0x0000001fu, 0, 0}); // Endpoint Discovery: everything
+		const std::vector<uint32_t> w = words(m.read());
+		REQUIRE(w.size() == 24); // info, identity, name, product id (2), configuration
+		CHECK(w[0] == 0xf0010101u);
+		CHECK(w[1] == 0x81000300u); // static, 1 function block, MIDI 2.0 + MIDI 1.0, no JR
+		CHECK(w[4] == 0xf0020000u);
+		CHECK((w[8] >> 16) == 0xf003u); // Endpoint Name ...
+		CHECK((w[8] & 0xffff) == 0x5374u); // "St"
+		CHECK((w[12] >> 16) == 0xf404u); // Product Instance Id, start
+		CHECK((w[16] >> 16) == 0xfc04u); // ... end
+		CHECK(w[20] == (0xf0060000u | protocol << 8)); // the mode's protocol
+		send_ump(m, {0xf0050200u, 0, 0, 0}); // the host asks for MIDI 2.0: the mode's stays
+		const std::vector<uint32_t> c = words(m.read());
+		REQUIRE(c.size() == 4);
+		CHECK(c[0] == (0xf0060000u | protocol << 8));
+		send_ump(m, {0xf010ff03u, 0, 0, 0}); // Function Block Discovery
+		const std::vector<uint32_t> fb = words(m.read());
+		REQUIRE(fb.size() == 8);
+		CHECK(fb[0] == 0xf0118033u);
+		CHECK(fb[1] == 0x00010000u);
+	}
+}
+
+TEST_CASE("usb midi2: a mode change tells a MIDI 2.0 host the protocol") {
+	MidiBoard m("midi2");
+	REQUIRE(m.set_alt(1) == 0);
+	m.read();
+	send_ump(m, {0x20b07f00u}); // MIDI 1.0 in UMP: CC127 (poly mode) on channel 1: normal mode
+	const std::vector<uint32_t> w = words(m.read());
+	bool told = false;
+	for (size_t i = 0; i + 3 < w.size(); i++) told |= w[i] == 0xf0060100u;
+	CHECK(told);
+}
+
+TEST_CASE("usb midi2: a full USB queue drops MIDI 2.0 messages but never a Note Off") {
+	MidiBoard m("midi2");
+	REQUIRE(m.set_alt(1) == 0);
+	m.read();
+	// ten keys at once, then all released at once: more than the queue takes in a frame
+	for (int k = 0; k < 10; k++) sv_inject_key(m.bd.b, 0, 20 + k, 4000 + 100 * k, 3000, 200, -100);
+	m.bd.run_ms(1);
+	for (int k = 0; k < 10; k++) sv_inject_key(m.bd.b, 0, 20 + k, 0, -1000, 0, 0);
+	m.bd.run_ms(200);
+	const std::vector<uint32_t> w = words(m.read());
+	std::vector<int> on(128), off(128);
+	for (size_t i = 0; i + 1 < w.size();) {
+		const uint32_t s = w[i] & 0xfff00000u;
+		if (s == 0x40900000u) on[(w[i] >> 8) & 0x7f]++;
+		if (s == 0x40800000u) off[(w[i] >> 8) & 0x7f]++;
+		i += (w[i] >> 28) == 4 ? 2 : ((w[i] >> 28) == 0xf ? 4 : 1);
+	}
+	for (int n = 0; n < 128; n++) {
+		INFO("note " << n);
+		CHECK(off[n] >= on[n]); // every note that started ended
+	}
+	const std::string q = m.bd.cmd("q");
+	INFO(q);
+	CHECK(q.find("note_offs_waiting 0") != std::string::npos);
+	CHECK(q.find("q ump_out drops 0 ") == std::string::npos); // (the test did fill the queue)
 }

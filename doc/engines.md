@@ -212,7 +212,23 @@ The rule when the setting and the alt setting disagree: **the setting picks what
 
 In every case the board says something useful, and nothing is said twice. MIDI in on alt 1 takes UMP (`UmpInMsgHandler`, as `sv_ump_write`).
 
-`virtual.usb midi2: ...` covers the rule, the descriptors and the input. `target.key_path` measures the MIDI 2.0 out: 3594 extra instructions per block for 10 moving keys.
+A MIDI 2.0 host's discovery (UMP Stream messages, type 0xF) gets its answers (`src/app/ump_stream.hpp`):
+- Endpoint Info: UMP 1.1, one static function block, MIDI 2.0 and MIDI 1.0 protocol capable, no JR timestamps.
+- Device Identity: manufacturer 7D 00 00 (non-commercial), family, model and revision 0.
+- Endpoint Name "Striso".
+- Product Instance Id: the board's serial, as StcV gives it.
+- Function Block 0 (Info and Name): the Group Terminal Block's group 1, bidirectional.
+- Stream Configuration: the mode's protocol. It is MIDI 2.0 in `midi2` and MIDI 1.0 otherwise, since alt 1 then carries MIDI 1.0 in UMP. A request doesn't change it, and a mode change sends the notification unasked.
+
+A SET_INTERFACE that changes the alt setting drops the IN data of the old format not yet sent.
+
+**Dropped messages.** A full USB queue drops a MIDI 2.0 message, never part of one. Note Offs are never dropped:
+- A Note Off that doesn't fit waits, and goes ahead of everything else.
+- While a Note Off waits, the rest is held back, so a later Note On can't overtake it.
+- `synth_tick` retries every 2 ms.
+- `Stcq`'s last line counts them: `q ump_out drops <n> held_back <n> note_offs_waited <n> note_offs_waiting <n>`.
+
+`virtual.usb midi2: ...` covers the rule, the descriptors, discovery, the input, and ten keys at once overfilling the queue. `target.key_path` measures the MIDI 2.0 out: 3594 extra instructions per block for 10 moving keys.
 
 **Not in it yet.** The globals have numbers (the pedal CC64; the accelerometer and gyroscope, Assignable Controllers 0x10..0x16), but the board still writes them directly.
 

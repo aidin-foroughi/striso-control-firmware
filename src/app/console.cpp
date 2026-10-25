@@ -311,7 +311,9 @@ struct BoardCommands {
 
 	// the control thread's inbox, per lane (read only, R23): "q lanes <n> capacity <events>", then
 	// a line per lane "q <lane> drops <refused> max <most held> <thread>", the sending thread's
-	// name last (it may hold spaces), "-" for a lane not used yet. Counted since boot.
+	// name last (it may hold spaces), "-" for a lane not used yet; then MIDI 2.0 out over USB:
+	// "q ump_out drops <n> held_back <n> note_offs_waited <n> note_offs_waiting <n>" (a Note Off
+	// is never dropped: it waits for room). Counted since boot.
 	static void inbox_stats(Reply& o, const Request& /*r*/) {
 		static messaging::LaneStats s[messaging::kLanes]; // static: off main's stack
 		messaging::lane_stats(s);
@@ -322,6 +324,11 @@ struct BoardCommands {
 			chprintf(out, "q %u drops %lu max %lu %s\r\n", static_cast<unsigned>(i), static_cast<unsigned long>(s[i].drops),
 			    static_cast<unsigned long>(s[i].max_depth), s[i].owner != nullptr ? s[i].owner : "-");
 		}
+		uint32_t drops = 0, held = 0, waited = 0;
+		int waiting = 0;
+		synth_ump_out_stats(&drops, &held, &waited, &waiting);
+		chprintf(out, "q ump_out drops %lu held_back %lu note_offs_waited %lu note_offs_waiting %d\r\n",
+		    static_cast<unsigned long>(drops), static_cast<unsigned long>(held), static_cast<unsigned long>(waited), waiting);
 	}
 
 	// a raw key scan recording: 2 ASCII digits, the seconds to record (StcR05), or 00: send the

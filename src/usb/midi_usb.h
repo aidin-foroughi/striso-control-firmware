@@ -195,7 +195,9 @@ extern "C" {
    * (a MIDI 1.0 host gets the MIDI 1.0 stream). */
   void midi_usb_set_alt(uint8_t alt);
   bool midi_usb_ump(void);
-  void midi_usb_UmpSend(const uint32_t *words, int n);
+  /* false: the IN queue had no room for the whole packet, it was dropped (counted) */
+  bool midi_usb_UmpSend(const uint32_t *words, int n);
+  uint32_t midi_usb_ump_drops(void);
 #ifdef __cplusplus
 }
 #endif

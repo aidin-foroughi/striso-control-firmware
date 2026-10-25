@@ -74,6 +74,8 @@ int synth_num_voices(void);
 // engine name of voice n (NULL past the end); *preset gets the preset name or NULL
 const char* synth_voice_name(int n, const char** preset);
 int synth_current_voice(void);
+// MIDI 2.0 out over USB: drops, held back behind a waiting Note Off, Note Offs that waited, waiting now
+void synth_ump_out_stats(uint32_t* drops, uint32_t* held_back, uint32_t* offs_retried, int* offs_pending);
 // switch to voice n at the next audio block; returns 0 if n is out of range
 int synth_select_voice(int n);
 
