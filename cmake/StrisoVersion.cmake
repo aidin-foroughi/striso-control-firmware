@@ -6,7 +6,7 @@
 #
 # Included by the project: striso_git_version(<out-var>) sets <out-var> to the date_describe part,
 # from STRISO_GIT_VERSION if set (tools/build.sh computes it on the host: inside Docker a
-# worktree's .git link points nowhere), else from git, else "unknown".
+# worktree's .git link points nowhere), else from git, else "nogit_v0.0.0".
 #
 # Run as a script at build time (cmake -P, every build, so the version follows commits without a
 # reconfigure, as the Makefile did):
@@ -15,7 +15,8 @@
 
 function(_striso_describe dir out)
   find_package(Git QUIET)
-  set(v "unknown")
+  # without git: still of the form the tools look for (tools/striso.py version(): _v<version>, R28)
+  set(v "nogit_v0.0.0")
   if(GIT_FOUND)
     execute_process(COMMAND "${GIT_EXECUTABLE}" --no-pager show -s --date=short --format=%ad
                     WORKING_DIRECTORY "${dir}" OUTPUT_VARIABLE date

@@ -12,6 +12,7 @@
 #include "host_parser.h"
 #include "sim.h"
 #include "striso.h"
+#include "version.h"
 
 /* the control thread: a frame to the bulk console */
 #ifndef TS_WRITE
@@ -62,7 +63,7 @@ static int contains(const uint8_t* hay, size_t n, const char* needle) {
 		if (!memcmp(hay + i, needle, m)) return 1;
 	return 0;
 }
-static int got_version(void) { return contains(host_in[2], host_in_len[2], "v0.6"); }
+static int got_version(void) { return contains(host_in[2], host_in_len[2], FWVERSION " "); }
 static void key_msg(int* m, int id, int pres) {
 	m[0] = ID_DIS;
 	m[1] = id;

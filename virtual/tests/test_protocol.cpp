@@ -350,7 +350,7 @@ TEST_CASE("protocol: the read-only replies are the real board's, field for field
 
 	SUBCASE("V: version, UID, device id and model; calibration date") {
 		const auto a = vt::lines(board_v), b = vt::lines(bd.cmd("V"));
-		// the version: <date>_<git describe>_all (in Docker a worktree has no git: unknown_all)
+		// the version: <date>_<git describe>_all (in Docker a worktree has no git: nogit_v0.0.0_all)
 		const std::regex v1(R"(^\S+_all [0-9A-F]{24} .*Striso board$)"), v2(R"(^Calibration date: \S+$)");
 		REQUIRE(a.size() >= 2);
 		REQUIRE(b.size() >= 2);
@@ -358,6 +358,11 @@ TEST_CASE("protocol: the read-only replies are the real board's, field for field
 		CHECK(std::regex_match(b[0], v1));
 		CHECK(std::regex_match(a[1], v2));
 		CHECK(std::regex_match(b[1], v2));
+		// the tools find the version with this (tools/striso.py version(), Striso Live's
+		// protocol.dart), also in a build without git (R28)
+		const std::regex tools_version(R"(\S*_v[\w.\-]+)");
+		CHECK(std::regex_search(a[0], tools_version));
+		CHECK(std::regex_search(b[0], tools_version));
 		MESSAGE("board: " << a[0] << " / virtual: " << b[0]);
 	}
 	SUBCASE("L: the synth load line, the same budget") {
