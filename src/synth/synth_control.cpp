@@ -48,6 +48,7 @@ extern "C" {
 #include "striso_dsp/ump_out.h"
 #include "ump_stream.hpp"
 #include "striso_dsp/voice_allocator.h"
+#include "striso_dsp/legato.h"
 
 #include <array>
 #include <bit>
@@ -418,6 +419,10 @@ class Instrument {
         int voices[MAX_VOICECOUNT];
         // the internal synth's voices: which key (or MIDI in note) plays each (voice_allocator.h)
         striso::voices::VoiceAllocator<BUTTONCOUNT + MIDI_IN_NOTES, VOICECOUNT> synth_alloc;
+        // mono legato (legato.h): the internal synth on one voice, the held notes slur (the preset
+        // setting "mono", settings key 9; off by default)
+        bool legato = false;
+        striso::voices::Legato<16> legato_notes;
         int portamento_buttons[MAX_PORTAMENTO_BUTTONS];
         float notegen0 = 12.00;
         float notegen1 = 7.00;
@@ -1160,6 +1165,12 @@ class Instrument {
         // the internal voice for a new note of but (voice_allocator.h's rule); -1 if none
         int get_synth_voice(int but) {
 #ifdef USE_INTERNAL_SYNTH
+            if (legato) {
+                // mono legato: the one voice, taken over without an attack while a note is held
+                // (write_synth_voice gives it the newest held note's pitch)
+                synth_alloc.take(but, 0);
+                return 0;
+            }
             if (config.midi_mode == MIDI_MODE_MONO && but < BUTTONCOUNT) {
                 // Mono mode keeps its one voice: its MIDI voice (0); a MIDI in note takes another
                 const int voice = buttons[but].voice >= 0 && buttons[but].voice < VOICECOUNT ? buttons[but].voice : -1;
@@ -1274,6 +1285,10 @@ class Instrument {
         // the decoded controls of note id to its voice (if it still has one)
         void write_synth_voice(int id, const striso::ump::NoteSignals& n) {
 #ifdef USE_INTERNAL_SYNTH
+            if (legato) {
+                write_legato_voice(id, n);
+                return;
+            }
             const int voice = synth_alloc.voice(id);
             if (voice < 0 || !synth_interface) {
                 return;
@@ -1286,6 +1301,49 @@ class Instrument {
 #else
             (void)id;
             (void)n;
+#endif
+        }
+
+        // mono legato: the one voice plays the newest held note, at the strongest held note's
+        // pressure; a release returns to the newest still held (no new attack); the last
+        // note's release is the voice's
+        void write_legato_voice(int id, const striso::ump::NoteSignals& n) {
+#ifdef USE_INTERNAL_SYNTH
+            legato_notes.note(id, n);
+            if (!synth_interface) return;
+            striso::ump::NoteSignals s = n;
+            if (legato_notes.empty()) {
+                if (synth_alloc.voice(id) < 0) return;  // (a note the voice had left: nothing)
+            } else {
+                const int top = legato_notes.top();
+                if (synth_alloc.voice(top) < 0) synth_alloc.take(top, 0);
+                s = legato_notes.signals();
+            }
+            *(synth_interface->note[0])  = s.note;
+            *(synth_interface->pres[0])  = s.pres;
+            *(synth_interface->vpres[0]) = s.vpres;
+            *(synth_interface->but_x[0]) = s.but_x;
+            *(synth_interface->but_y[0]) = s.but_y;
+#else
+            (void)id;
+            (void)n;
+#endif
+        }
+
+        // mono legato on or off: the held notes are forgotten (a key held across the switch is
+        // new to the stack at its next message), the voices beyond the first go quiet in mono
+        void set_legato(bool on) {
+            if (on == legato) return;
+            legato = on;
+            legato_notes.clear();
+#ifdef USE_INTERNAL_SYNTH
+            if (on && synth_interface) {
+                for (int v = 1; v < VOICECOUNT; v++) {
+                    *(synth_interface->pres[v])  = 0.0f;
+                    *(synth_interface->vpres[v]) = 0.0f;
+                }
+            }
+            synth_alloc.set_voices(on ? 1 : VOICECOUNT);
 #endif
         }
 
@@ -1302,6 +1360,7 @@ class Instrument {
         // the decoder's: the internal sound of note id's voice ends
         void silence_synth_voice(int but) {
 #ifdef USE_INTERNAL_SYNTH
+            if (legato) legato_notes.note(but, striso::ump::NoteSignals{0.0f, 0.0f, 0.0f, 0.0f, 0.0f, false});
             const int voice = synth_alloc.voice(but);
             if (voice >= 0 && synth_interface) {
                 *(synth_interface->pres[voice])  = 0.0f;
@@ -1685,6 +1744,7 @@ struct InstrumentBoard {
     void set_midi2() { ::set_midi2(); }
     void midinote_mode(midinote_mode_t m) { config.midinote_mode = m; }
     void jack2(jack2_mode_t m) { aux_jack_switch_mode_setting(m); }
+    void legato(bool on) { in.set_legato(on); }
     int flipdir() const { return in.flipdir; }
     void flip() { in.flip(); }
     void load_tuning(int n) { in.load_tuning(n); }
@@ -1786,6 +1846,7 @@ static constexpr settings_keys::Key settings_key_table[] = {
     {4, kSwitch, kMidi, kConsole, -1, nullptr, 0, "Mono", "Mono (glissando) MIDI mode", "MIDI channel, 1 to 16", Action::mono},
     {6, kDial, kSens, 0, -1, nullptr, 0, "Bend", "Pitch bend sensitivity (sideways tilt)", "0 to 4, steps of 1/4", Action::bend},
     {8, kDial, kSens, 0, -1, nullptr, 0, "Tilt", "Tilt (forward/back) sensitivity", "0 to 3, steps of 1/8", Action::tilt},
+    {9, kSwitch, kLayout, kConsole, -1, nullptr, 0, "Legato", "Mono legato: one internal voice, a key pressed while one is held slurs to it, its release returns to the held one (on/off)", "", Action::legato},
     {11, kActionKind, kLayout, 0, -1, nullptr, 0, "Flip", "Flip the layout 180 degrees (with the glissando button also held: debug mode on/off)", "", Action::flip},
 #ifdef USE_INTERNAL_SYNTH
     {13, kSwitch, kVoice, kConsole, -1, "brass", 0x402800, "brass", "Voice: brass", SK_VOICE_KNOB, Action::voice},
@@ -2043,6 +2104,11 @@ struct SettingsKeyActions {
         } return 0;
     }
     // row 2:  1  3  5  7  9 11
+    float legato(const Key&, int type, float) { // mono legato on/off (the internal synth)
+        if (type == 0) dis.set_legato(!dis.legato);
+        led_rgb(dis.legato ? led_view::kLegatoOn : led_view::kLegatoOff);
+        return 0;
+    }
     float flip(const Key&, int type, float) { // debug setting for easy testing
         if (type == 0) {
             if (dis.portamento & 1) {
@@ -2671,7 +2737,7 @@ typedef struct {
     float pres, velo, tilt, bend;
     int32_t zero_offset;
     float volume, pedal;
-    int32_t message_interval, alt, portamento, flipdir, debug;
+    int32_t message_interval, alt, portamento, flipdir, debug, legato;
     int32_t led[3];
     uint32_t updown;
 } observed_state_t;
@@ -2718,6 +2784,7 @@ static void observe(observed_state_t* o) {
     o->portamento = dis.portamento;
     o->flipdir = dis.flipdir;
     o->debug = config.debug;
+    o->legato = dis.legato ? 1 : 0;
     for (int i = 0; i < 3; i++) o->led[i] = last_color[i];
     o->updown = led_updown_get();
 }
@@ -2765,7 +2832,8 @@ static void put_fixed(char* buf, size_t size, float v, int decimals) {
  * other tunings); pres velo tilt bendsens thres: the touch parameters (target 2, as Stcg lists them);
  * vol: the volume (CC7); sustain: the synth's pedal value; rate: the MIDI message interval; alt: the
  * Settings button is held; porta: glissando on (mono mode keeps it on); led: the indicator colour as
- * last set (r g b, a blink not shown). Floats with 3 decimals, fine with 2.
+ * last set (r g b, a blink not shown); legato: mono legato on (settings key 9, the preset setting
+ * "mono"). Floats with 3 decimals, fine with 2.
  */
 void synth_state_print(void* chp) {
     BaseSequentialStream* out = (BaseSequentialStream*)chp;
@@ -2793,11 +2861,11 @@ void synth_state_print(void* chp) {
     const int mode = o.midi_mode >= 0 && o.midi_mode <= 2 ? o.midi_mode : 0;
     chprintf(out, "Y %lu voice=%d midi=%s ch=%d voices=%d bend=%d tuning=%d fine=%s transpose=%s "
                   "pres=%s velo=%s tilt=%s bendsens=%s thres=%s vol=%d sustain=%s rate=%d alt=%d porta=%d "
-                  "flip=%d led=%02x%02x%02x updown=%s\r\n",
+                  "flip=%d led=%02x%02x%02x updown=%s legato=%d\r\n",
              (unsigned long)counter, (int)o.voice, modes[mode], (int)o.channel_offset + 1, (int)o.voicecount,
              (int)(o.bend_range + 0.5f), (int)o.tuning, fine, transpose, pres, velo, tilt, bend, thres,
              (int)(o.volume + 0.5f), sustain, (int)o.message_interval, (int)o.alt, o.portamento ? 1 : 0,
-             o.flipdir < 0 ? 1 : 0, rgb[0], rgb[1], rgb[2], updown);
+             o.flipdir < 0 ? 1 : 0, rgb[0], rgb[1], rgb[2], updown, (int)o.legato);
 }
 
 // the general settings at boot, out of line: main calls synth_control_init, and main's stack is

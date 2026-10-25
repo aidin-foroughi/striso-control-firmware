@@ -73,6 +73,15 @@ The Striso is now also a **class-compliant USB sound card**, called **"Striso Sy
 2. Press a key in the row the official settings card marks **"(future use)"**: one key per voice, and the indicator LED shows the voice's colour.
 3. To step through that voice's presets, keep the key pressed and **nudge it up or down**, or **circle** it. The up/down LEDs show the preset number. Each voice remembers its last preset until power off.
 
+## Mono legato (for the wind and brass voices)
+
+Hold **settings** and press **key 9**, the fifth key of the second row, next to the flip key. The indicator LED turns teal while it is on and dim red when it is off; press again to switch back. In mono legato the internal synth plays one note:
+- a key pressed while another is held takes that note over without a new attack (a slur);
+- releasing it returns to the key still held;
+- with nothing held, a key starts a new note as usual.
+
+Chords become single notes. MIDI out is unchanged. To have a settings preset switch it on, set **`Mono legato`** to `on` for that preset in the config editor (`sP<n>mono`); it is off in every preset until you do.
+
 [`doc/quick_start_guide.pdf`](doc/quick_start_guide.pdf) has the full settings card. [Striso Live](https://github.com/aidin-foroughi/striso-live) also shows it as an overlay on the board.
 
 ## Installing Striso Live (optional)

@@ -228,9 +228,10 @@ TEST_CASE("state: StcY has every field, its counter is Stcy's, idle reads don't 
 	const Z z = state(bd);
 	MESSAGE(z.line);
 	for (const char* k : {"voice", "midi", "ch", "voices", "bend", "tuning", "fine", "transpose", "pres", "velo", "tilt",
-	         "bendsens", "thres", "vol", "sustain", "rate", "alt", "porta", "flip", "led", "updown"})
+	         "bendsens", "thres", "vol", "sustain", "rate", "alt", "porta", "flip", "led", "updown", "legato"})
 		CHECK_MESSAGE(z.f.count(k) == 1, "no " << k);
-	CHECK(z.f.size() == 21);
+	CHECK(z.f.size() == 22);
+	CHECK(z["legato"] == "0");
 	CHECK(z["voice"] == "1");
 	CHECK(z["midi"] == "mpe");
 	CHECK(z["ch"] == "2");
@@ -341,6 +342,18 @@ TEST_CASE("state: every switch StcK may press changes what StcY shows (or is pan
 			CHECK(bd.cmd(k_cmd(k.id)) == "K ok 63\r\n");
 			continue;
 		}
+		if (k.label == "Legato") { // a toggle: on, then off again
+			const Z off = state(bd);
+			REQUIRE(bd.cmd(k_cmd(k.id), 30) == "K ok " + std::to_string(k.id) + "\r\n");
+			const Z on = state(bd);
+			CHECK(off["legato"] == "0");
+			CHECK(on["legato"] == "1");
+			CHECK(on.counter > off.counter);
+			REQUIRE(bd.cmd(k_cmd(k.id), 30) == "K ok " + std::to_string(k.id) + "\r\n");
+			CHECK(state(bd)["legato"] == "0");
+			pressed++;
+			continue;
+		}
 		// another key of the group first, so this one has something to change
 		const SettingsKey* other = nullptr;
 		for (const SettingsKey& x : keys)
@@ -364,5 +377,5 @@ TEST_CASE("state: every switch StcK may press changes what StcY shows (or is pan
 		pressed++;
 	}
 	// MIDI modes, one voice key per engine of this firmware (StcX lists only those), tunings, presets
-	CHECK(pressed == 3 + STRISO_VOICE_ENGINES + 9 + 8);
+	CHECK(pressed == 3 + 1 + STRISO_VOICE_ENGINES + 9 + 8); // midi, legato, voices, tunings, presets
 }

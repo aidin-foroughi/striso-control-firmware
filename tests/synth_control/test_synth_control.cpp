@@ -7,7 +7,7 @@
 //   test_synth_control <scenario>       one scenario per process (the firmware's state is global);
 //                                       exit 1 if one of its checks fails (ctest synth_control.*)
 //   test_synth_control list             the scenario names
-//   test_synth_control replay <take.csv> [--mode mpe|normal|mono] [--trace FILE] [--expect HASH]
+//   test_synth_control replay <take.csv> [--mode mpe|normal|mono|legato] [--trace FILE] [--expect HASH]
 //                                       [--golden-name N]
 //   test_synth_control settings <presets|keys|leds> [--trace FILE] [--expect HASH] [--golden-name N]
 //       every settings preset in every tuning, every settings key: the state after each step;
@@ -1297,6 +1297,7 @@ static int replay(int argc, char** argv) {
 	midi_config();
 	if (std::string(mode) == "normal") stck(2);
 	else if (std::string(mode) == "mono") stck(4);
+	else if (std::string(mode) == "legato") stck(9); // MPE, mono legato on
 	else if (std::string(mode) != "mpe") {
 		std::fprintf(stderr, "unknown mode %s\n", mode);
 		return 2;
@@ -1393,12 +1394,122 @@ static int replay(int argc, char** argv) {
 	return rc;
 }
 
+// ----------------------------------------------------------------------------------- mono legato
+// (settings key 9, the preset setting "mono": the internal synth on one voice, legato.h)
+
+// the voices other than the first are quiet (mono)
+static bool others_quiet() {
+	for (int v = 1; v < VOICECOUNT; v++)
+		if (vc[v].pres > 0.0f) return false;
+	return true;
+}
+static float pitch_of(int but) { return dis.buttons[but].note; }
+static bool about(float a, float b) { return std::fabs(a - b) < 2e-3f; } // (pressures are key codes / 8191)
+static void legato_on() {
+	config_but(9, 0, 0);
+	EXPECT(dis.legato, "settings key 9 turns mono legato on");
+}
+
+// a key pressed while one is held takes the voice over: its pitch, the gate held (no attack), the
+// dynamic of the strongest key; then the older key lifts and the newer one plays on
+static void t_legato_up() {
+	legato_on();
+	const int a = K(20), b = K(27); // a fifth up
+	key(a, 0.6f, 0.4f);
+	key(a, 0.6f, 0.0f);
+	EXPECT(near(vc[0].note, pitch_of(a)) && vc[0].pres > 0.5f, "a: note %g pres %g", vc[0].note, vc[0].pres);
+	key(b, 0.1f, 0.5f); // pressed while a is held
+	EXPECT(near(vc[0].note, pitch_of(b)), "b took the voice: note %g, b %g", vc[0].note, pitch_of(b));
+	EXPECT(about(vc[0].pres, 0.6f), "the dynamic is a's (the stronger): pres %g", vc[0].pres);
+	EXPECT(std::fabs(vc[0].vpres) < 2e-3f, "b's strike doesn't tongue the slur: vpres %g", vc[0].vpres);
+	EXPECT(others_quiet(), "one voice");
+	float lowest = 1.0f;
+	for (int i = 1; i <= 6; i++) { // a lifts, b goes down
+		key(a, 0.6f - 0.1f * static_cast<float>(i), -0.1f);
+		key(b, 0.1f + 0.1f * static_cast<float>(i), 0.1f);
+		lowest = std::fmin(lowest, vc[0].pres);
+		EXPECT(near(vc[0].note, pitch_of(b)), "step %d: b's pitch", i);
+	}
+	EXPECT(lowest > 0.3f, "the gate stays open and the level carries over: lowest pres %g", lowest);
+	EXPECT(about(vc[0].pres, 0.7f), "b's pressure now: %g", vc[0].pres);
+	key(b, 0.0f, -0.3f);
+	EXPECT(vc[0].pres == 0.0f, "the last release ends the note: pres %g", vc[0].pres);
+	EXPECT(others_quiet(), "one voice");
+}
+
+// releasing the newer key while the older one is held returns to the older one, without an attack
+static void t_legato_down() {
+	legato_on();
+	const int a = K(30), b = K(23);
+	key(a, 0.5f, 0.4f);
+	key(a, 0.5f, 0.0f);
+	key(b, 0.7f, 0.4f);
+	key(b, 0.7f, 0.0f);
+	EXPECT(near(vc[0].note, pitch_of(b)) && about(vc[0].pres, 0.7f), "b sounds: note %g pres %g", vc[0].note, vc[0].pres);
+	key(b, 0.3f, -0.2f);
+	EXPECT(about(vc[0].pres, 0.5f), "b lifting below a: a's dynamic, pres %g", vc[0].pres);
+	key(b, 0.0f, -0.2f); // b released, a still held
+	EXPECT(near(vc[0].note, pitch_of(a)), "back to a: note %g, a %g", vc[0].note, pitch_of(a));
+	EXPECT(about(vc[0].pres, 0.5f), "no gap: pres %g", vc[0].pres);
+	EXPECT(others_quiet(), "one voice");
+	key(a, 0.0f, -0.2f);
+	EXPECT(vc[0].pres == 0.0f, "a released: pres %g", vc[0].pres);
+}
+
+// with nothing held a new key is a new attack (the gate closed in between); a key's own repeat too
+static void t_legato_retrigger() {
+	legato_on();
+	const int a = K(30), b = K(32);
+	key(a, 0.5f, 0.5f);
+	key(a, 0.0f, -0.3f);
+	EXPECT(vc[0].pres == 0.0f, "released: pres %g", vc[0].pres);
+	key(b, 0.4f, 0.6f);
+	EXPECT(near(vc[0].note, pitch_of(b)) && about(vc[0].pres, 0.4f) && vc[0].vpres > 0.5f, "a new attack: note %g pres %g vpres %g",
+	    vc[0].note, vc[0].pres, vc[0].vpres);
+	EXPECT(others_quiet(), "one voice");
+	key(b, 0.0f, -0.3f);
+}
+
+// a chord in mono: one voice, the newest key's pitch; the releases walk back down the stack
+static void t_legato_chord() {
+	legato_on();
+	const int keys[3] = {K(20), K(24), K(27)};
+	for (int k : keys) key(k, 0.5f, 0.3f);
+	EXPECT(near(vc[0].note, pitch_of(keys[2])), "the newest key: note %g", vc[0].note);
+	EXPECT(others_quiet(), "a chord is one voice in mono");
+	key(keys[1], 0.0f, -0.2f); // a middle key: nothing changes
+	EXPECT(near(vc[0].note, pitch_of(keys[2])) && vc[0].pres > 0.0f, "still the newest: note %g", vc[0].note);
+	key(keys[2], 0.0f, -0.2f);
+	EXPECT(near(vc[0].note, pitch_of(keys[0])) && vc[0].pres > 0.0f, "back to the one still held: note %g", vc[0].note);
+	key(keys[0], 0.0f, -0.2f);
+	EXPECT(vc[0].pres == 0.0f, "all released");
+	// off again: chords are chords
+	config_but(9, 0, 0);
+	EXPECT(!dis.legato, "settings key 9 turns it off");
+	for (int k : keys) key(k, 0.5f, 0.3f);
+	int sounding = 0;
+	for (int v = 0; v < VOICECOUNT; v++) sounding += vc[v].pres > 0.0f;
+	EXPECT(sounding == 3, "poly again: %d voices", sounding);
+	for (int k : keys) key(k, 0.0f, -0.2f);
+}
+
+// the preset setting: "mono on" in a preset turns it on, "off" (preset 1's default) off
+static void t_legato_preset() {
+	set_cfg("sP2mono", "on");
+	load_preset(2);
+	EXPECT(dis.legato, "preset 2 (mono on)");
+	load_preset(3); // blank: unchanged
+	EXPECT(dis.legato, "preset 3 (blank) leaves it");
+	load_preset(1);
+	EXPECT(!dis.legato, "preset 1 (mono off)");
+}
+
 // StcK's whitelist: the settings_key_table rows flagged kConsole (settings_key_allowed) are the
 // documented keys, the keys that reboot, send configuration or need an amount (dials) are not
 // among them, and pressing an allowed key doesn't reboot (it was tests/test_settings_keys.py, a
 // source check of config_but's cases)
 static void t_settings_whitelist() {
-	const std::set<int> expected = {0, 2, 4, 34, 36, 38, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 30, 32,
+	const std::set<int> expected = {0, 2, 4, 9, 34, 36, 38, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 30, 32,
 	    18, 20, 22, 24, 26, 28, 13, 15, 16, 63};
 	const std::set<int> refused = {67, 65, 11, 17, 19, 21, 6, 8, 51, 53, 56, 58};
 	std::set<int> flagged;
@@ -1706,6 +1817,11 @@ static const Scenario scenarios[] = {
     {"sc37_blink", t_sc37_blink},
     {"sc38_no_synth", t_sc38_no_synth},
     {"settings_whitelist", t_settings_whitelist},
+    {"legato_up", t_legato_up},
+    {"legato_down", t_legato_down},
+    {"legato_retrigger", t_legato_retrigger},
+    {"legato_chord", t_legato_chord},
+    {"legato_preset", t_legato_preset},
     {"mi_mpe_note", t_mi_mpe_note},
     {"mi_mpe_initial", t_mi_mpe_initial},
     {"mi_one_channel", t_mi_one_channel},

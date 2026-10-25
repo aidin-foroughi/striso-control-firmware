@@ -30,6 +30,7 @@ enum class Action : uint8_t {
 	mpe,         // MPE MIDI mode; knob: the MPE voices
 	normal,      // Normal MIDI mode; knob: the channel
 	mono,        // Mono MIDI mode; knob: the channel
+	legato,      // mono legato on/off (the internal synth: one voice, held notes slur)
 	flip,        // flip the layout (with glissando held: debug mode)
 	threshold,   // knob: the note-on threshold
 	pressure,    // knob: pressure sensitivity
@@ -90,6 +91,7 @@ float press(const Key& k, Actions& a, int type, float adjust) {
 	case Action::mpe: return a.mpe(k, type, adjust);
 	case Action::normal: return a.normal(k, type, adjust);
 	case Action::mono: return a.mono(k, type, adjust);
+	case Action::legato: return a.legato(k, type, adjust);
 	case Action::flip: return a.flip(k, type, adjust);
 	case Action::threshold: return a.threshold(k, type, adjust);
 	case Action::pressure: return a.pressure(k, type, adjust);

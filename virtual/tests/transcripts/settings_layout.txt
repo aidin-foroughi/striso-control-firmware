@@ -5,6 +5,7 @@ X 2 switch midi - - k Poly|Normal MIDI mode (all notes on one channel)|MIDI chan
 X 4 switch midi - - k Mono|Mono (glissando) MIDI mode|MIDI channel, 1 to 16
 X 6 dial sens - - - Bend|Pitch bend sensitivity (sideways tilt)|0 to 4, steps of 1/4
 X 8 dial sens - - - Tilt|Tilt (forward/back) sensitivity|0 to 3, steps of 1/8
+X 9 switch layout - - k Legato|Mono legato: one internal voice, a key pressed while one is held slurs to it, its release returns to the held one (on/off)|
 X 11 action layout - - - Flip|Flip the layout 180 degrees (with the glissando button also held: debug mode on/off)|
 X 13 switch voice brass 402800 k brass|Voice: brass|step through its presets (the up/down leds show which)
 X 15 switch voice trumpet 003030 k tpt|Voice: trumpet|step through its presets (the up/down leds show which)

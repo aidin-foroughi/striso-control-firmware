@@ -113,5 +113,7 @@ inline constexpr uint32_t kPanic = 0x342000;      // all notes off
 inline constexpr uint32_t kSendConfig = 0x300064; // the MPE configuration sent
 inline constexpr uint32_t kReset = 0xff0000;      // the board restarts on release
 inline constexpr uint32_t kNoEngine = 0x400000;   // a voice key whose engine isn't in this firmware
+inline constexpr uint32_t kLegatoOn = 0x004020;   // mono legato on (settings key 9)
+inline constexpr uint32_t kLegatoOff = 0x100808;  // ... off
 
 } // namespace led_view

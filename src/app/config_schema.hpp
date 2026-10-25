@@ -72,6 +72,7 @@ inline constexpr Field kPreset[] = {
 	{.type = 'i', .name = "tunin", .value = "0", .text = "Load tuning", .help = "[0-8]", .lo = 0, .hi = 8},
 	{.type = 'f', .name = "Toff", .text = "Additional tuning offset", .help = "in cents", .lo = -4800, .hi = 4800},
 	{.type = 's', .name = "flip", .value = "no", .text = "Flip layout 180 degrees", .help = "[no/yes]", .options = "|no|yes"},
+	{.type = 's', .name = "mono", .value = "off", .text = "Mono legato (internal synth)", .help = "[off/on: one voice; a key pressed while one is held slurs to it, its release returns to the held one]", .options = "|off|on"},
 	{.type = 'i', .name = "Mpres", .value = "121", .text = "MIDI CC for key pressure", .help = "Special values 127 = Disable, 120 = Polyphonic Pressure, 121 = Channel Pressure", .lo = 0, .hi = 127},
 	{.type = 'i', .name = "Mx", .value = "122", .text = "MIDI CC for key X movement", .help = "Special values 127 = Disable, 122 = Pitch Bend", .lo = 0, .hi = 127},
 	{.type = 'i', .name = "My", .value = "74", .text = "MIDI CC for key Y movement", .help = "Special values 127 = Disable", .lo = 0, .hi = 127},

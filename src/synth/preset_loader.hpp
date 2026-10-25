@@ -16,6 +16,7 @@
 //   midi_mode(), set_midi_mode(m)                  the MIDI mode (set_midi_mode sends its messages)
 //   set_midi2()                                    MIDI mode midi2: MIDI 2.0 out, MPE on MIDI 1.0
 //   midinote_mode(m), jack2(m)                     config.midinote_mode, the jack's setting
+//   legato(on)                                     mono legato (the internal synth: one voice, slurs)
 //   flipdir(), flip()                              the layout (1, or -1 when turned 180 degrees)
 //   load_tuning(n)                                 PresetLoader::load_tuning on this board
 //   preset_offset(semitones)                       note_offset = the tuning's offset + this + MIDI in's bend
@@ -92,6 +93,12 @@ public:
 			b_.jack2(JACK2_MODE_LINEIN);
 		} else if (cfg_.is(P("jack2"), "auto")) {
 			b_.jack2(JACK2_MODE_AUTODETECT);
+		}
+
+		if (cfg_.is(P("mono"), "on")) {
+			b_.legato(true);
+		} else if (cfg_.is(P("mono"), "off")) {
+			b_.legato(false);
 		}
 
 		if ((cfg_.is(P("flip"), "yes") && b_.flipdir() == 1) || (cfg_.is(P("flip"), "no") && b_.flipdir() == -1)) b_.flip();
