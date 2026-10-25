@@ -660,8 +660,6 @@ void update_slider(void) {
   int n;
   int np = 0;
   int peaks[N_PEAKS];
-  int msg[8];
-  msg[0] = ID_CONTROL;
 
   // make slider less sensitive when buttons are pressed, because of crosstalk
   int min_pres = 0;
@@ -709,9 +707,7 @@ void update_slider(void) {
 
    */
   if (np != sld.n_press) {
-    msg[1] = IDC_SLD_NPRESS;
-    msg[2] = np;
-    msgSend(3, msg);
+    event_send1(ID_CONTROL, IDC_SLD_NPRESS, np);
   }
 
   // single slide (volume)
@@ -719,9 +715,7 @@ void update_slider(void) {
     int pos = slider_interp(peaks[0]);
     if (sld.n_press == 1) {
       if (sld.timer <= 0) {
-        msg[1] = IDC_SLD_SLIDE;
-        msg[2] = -(pos - sld.pos[0]);
-        msgSend(3, msg);
+        event_send1(ID_CONTROL, IDC_SLD_SLIDE, -(pos - sld.pos[0]));
         sld.timer = 16 * SENDFACT;
         sld.pos[0] = pos;
       } else {
@@ -739,10 +733,8 @@ void update_slider(void) {
     int pos1 = slider_interp(peaks[1]);
     if (sld.n_press == 2) {
       if (sld.timer <= 0) {
-        msg[1] = IDC_SLD_SLIDEZOOM;
-        msg[2] = ((pos0 + pos1) - (sld.pos[0] + sld.pos[1]))/2;
-        msg[3] = (pos1 - pos0) - (sld.pos[1] - sld.pos[0]);
-        msgSend(4, msg);
+        event_send2(ID_CONTROL, IDC_SLD_SLIDEZOOM, ((pos0 + pos1) - (sld.pos[0] + sld.pos[1]))/2,
+                    (pos1 - pos0) - (sld.pos[1] - sld.pos[0]));
         sld.timer = 16 * SENDFACT;
         sld.pos[0] = pos0;
         sld.pos[1] = pos1;
@@ -862,21 +854,19 @@ static void ThreadReadButtons(void *arg) {
     if (note_id == 16) {
       scan_stats.frames++;
 #ifdef USE_AUX_BUTTONS
-      int msg[8];
       for (int n = 0; n < 4; n++) {
         if (aux_buttons_state[n] & 0xff) {
           aux_buttons_state[n]--;
         } else if (palReadLine(aux_buttons_line[n]) == !aux_buttons_state[n]) {
-          msg[0] = ID_CONTROL;
-          msg[1] = aux_buttons_msg[n];
+          int on;
           if (aux_buttons_state[n]) {
-            msg[2] = !aux_buttons_on[n];
+            on = !aux_buttons_on[n];
             aux_buttons_state[n] = AUX_BUTTON_DEBOUNCE_TIME;
           } else {
-            msg[2] = aux_buttons_on[n];
+            on = aux_buttons_on[n];
             aux_buttons_state[n] = AUX_BUTTON_DEBOUNCE_TIME | 0x100;
           }
-          msgSend(3, msg);
+          event_send1(ID_CONTROL, aux_buttons_msg[n], on);
         }
       }
 #endif // USE_AUX_BUTTONS
@@ -939,7 +929,7 @@ int buttonSetKeyFactor(int n, float f) {
   return 1;
 }
 
-void buttonSetCalibration(void) {
+void buttonSetCalibration(BaseSequentialStream *out) {
   uint16_t base_calib_force = devspec_id->base_calib_force;
   // use default when not device flash not yet initialized
   if (base_calib_force == 0xffff) base_calib_force = CALIB_FORCE;
@@ -950,15 +940,15 @@ void buttonSetCalibration(void) {
     int status;
     int32_t c_force, zero_offset, pres;
     ks_key_state(n, &status, &c_force, &zero_offset, &pres);
-    chprintf((BaseSequentialStream *)&BDU1, "but[%d] c_force: %d zero_offset: %d\r\n", n, c_force, zero_offset);
+    chprintf(out, "but[%d] c_force: %d zero_offset: %d\r\n", n, c_force, zero_offset);
   }
   ks_reset_calibration(ks_cal, base_calib_force);
   ks_calibration_changed();
-  chprintf((BaseSequentialStream *)&BDU1, "c_force: %d\r\n", base_calib_force);
+  chprintf(out, "c_force: %d\r\n", base_calib_force);
 }
 
 /*
- * StcE: the scanner's counters since boot (key_scanner.h), and the message queue's (messaging.c).
+ * StcE: the scanner's counters since boot (key_scanner.h), and the message queue's (messaging.cpp).
  * Read only. Lines: "scan <name> <value>..."; histograms list their non-empty bins as <bin>:<count>.
  */
 static scan_stats_t stats_copy;  // static: the console runs on main's 1 KB stack
@@ -966,12 +956,12 @@ static scan_stats_t stats_copy;  // static: the console runs on main's 1 KB stac
 void buttonPrintStats(BaseSequentialStream *out) {
   chSysLock();
   stats_copy = *(scan_stats_t *)&scan_stats;
-  const int msg_underruns = underruns;
   chSysUnlock();
+  const uint32_t msg_underruns = messaging_drops();
   const scan_stats_t *st = &stats_copy;
   chprintf(out, "scan scans %lu frames %lu seq_gaps %lu overruns %lu lost_wakeups %lu\r\n",
            st->scans, st->frames, st->seq_gaps, st->overruns, st->lost_wakeups);
-  chprintf(out, "scan queue_full %lu off_retries %lu msg_underruns %d\r\n",
+  chprintf(out, "scan queue_full %lu off_retries %lu msg_underruns %lu\r\n",
            st->queue_full, st->off_retries, msg_underruns);
   chprintf(out, "scan cycles n %lu min %lu max %lu mean %lu (%lu cycles/us)\r\n", st->cycles_n,
            st->cycles_min, st->cycles_max,

@@ -1,9 +1,10 @@
 /* The virtual board's keys, in place of src/drivers/button_read.c (ADC scanning: hardware only).
  *
- * The "read_buttons" thread sends the injected key and control messages with msgSend, where the
- * real scanner does (update_button, the aux buttons), so the firmware's own path runs from there:
- * the message queue, the send thread (synth_message, the binary stream), synth_control's key
- * handling. A release (pres 0) is retried while the queue is full, as update_button does.
+ * The "read_buttons" thread sends the injected key and control messages with event_send, where
+ * the real scanner does (update_button, the aux buttons), so the firmware's own path runs from
+ * there: the message queue (its lane), the control thread (synth_message, the binary stream),
+ * synth_control's key handling. A release (pres 0) is retried while the lane is full, as the
+ * scanner retries a refused note-off.
  *
  * The calibration is button_read.c's: the boot calibration and StcC's reset are key_calibration.c's
  * (ks_boot_calibration, ks_reset_calibration) into the scanner's ks_cal, the per-key sensitivity
@@ -81,11 +82,11 @@ static void ThreadReadButtons(void* arg) {
 			inmsg_t m = inbox[in_tail % INBOX];
 			in_tail++;
 			if (m.size == 6 && m.msg[2] == 0) {
-				while (msgSend(6, m.msg)) { // note off messages are more important so keep trying
+				while (!event_send(m.msg[0], m.msg[1], 4, &m.msg[2])) { // note off messages are more important so keep trying
 					chThdSleep(1);
 				}
 			} else {
-				msgSend(m.size, m.msg);
+				event_send(m.msg[0], m.msg[1], m.size - 2, &m.msg[2]);
 			}
 		}
 		chSysLock();
@@ -112,21 +113,21 @@ int buttonSetKeyFactor(int n, float f) {
 }
 
 /* console 'C': button_read.c's, the calibration print and reset */
-void buttonSetCalibration(void) {
+void buttonSetCalibration(BaseSequentialStream* out) {
 	uint16_t base_calib_force = devspec_id->base_calib_force;
 	if (base_calib_force == 0xffff) base_calib_force = CALIB_FORCE;
 	if (base_calib_force == 0x0000) base_calib_force = ((1 << 18) / 64);
 	for (int n = 0; n < N_BUTTONS; n++) {
-		chprintf((BaseSequentialStream*)&BDU1, "but[%d] c_force: %d zero_offset: %d\r\n", n, ks_cal[n].c_force, zero_offset[n]);
+		chprintf(out, "but[%d] c_force: %d zero_offset: %d\r\n", n, ks_cal[n].c_force, zero_offset[n]);
 	}
 	ks_reset_calibration(ks_cal, base_calib_force);
-	chprintf((BaseSequentialStream*)&BDU1, "c_force: %d\r\n", base_calib_force);
+	chprintf(out, "c_force: %d\r\n", base_calib_force);
 }
 
 /* console 'E': button_read.c's lines, for a scanner that never scanned (and its idle recorder) */
 void buttonPrintStats(BaseSequentialStream* out) {
 	chprintf(out, "scan scans %lu frames %lu seq_gaps %lu overruns %lu lost_wakeups %lu\r\n", 0u, 0u, 0u, 0u, 0u);
-	chprintf(out, "scan queue_full %lu off_retries %lu msg_underruns %d\r\n", 0u, 0u, underruns);
+	chprintf(out, "scan queue_full %lu off_retries %lu msg_underruns %d\r\n", 0u, 0u, (int)messaging_drops());
 	chprintf(out, "scan cycles n %lu min %lu max %lu mean %lu (%lu cycles/us)\r\n", 0u, 0u, 0u, 0u, STM32_SYS_CK / 1000000U);
 	chprintf(out, "scan cycles_hist base %d step %d:", SCAN_HIST_BASE, SCAN_HIST_STEP);
 	chprintf(out, "\r\nscan callbacks_hist base %d:", SCAN_CB_BASE);
@@ -153,9 +154,9 @@ void buttonPrintKeys(BaseSequentialStream* out) {
 }
 
 /* console 'R': no scans to record */
-void ks_capture(int seconds) {
+void ks_capture(void* stream, int seconds) {
 	(void)seconds;
-	chprintf((BaseSequentialStream*)&BDU1, "R err no key scanner (virtual board)\r\n");
+	chprintf((BaseSequentialStream*)stream, "R err no key scanner (virtual board)\r\n");
 }
 
 /* ButtonReadStart without the ADC: the boot calibration as button_read.c's (key_calibration.c) */

@@ -62,7 +62,7 @@ endif()
 set(_threads
   "synth|_ZL11synthThreadPv|${SYNTH_SRC}|waSynthThread|256"
   "read_buttons|ThreadReadButtons|${SRC_DIR}/drivers/button_read.c|waThreadReadButtons|0"
-  "send messages|ThreadSend|${SRC_DIR}/app/main.c|waThreadSend|0"
+  "send messages|_ZN12_GLOBAL__N_113ControlThreadEPv|${SRC_DIR}/app/control_thread.cpp|waControlThread|0"
   "blinker|Thread1|${SRC_DIR}/app/main.c|waThread1|0"
   "auxjack|AuxJack|${SRC_DIR}/drivers/aux_jack.c|waAuxJack|0"
   "motion|ThreadAccel|${SRC_DIR}/drivers/motionsensor.c|waThreadAccel|0"
@@ -73,9 +73,14 @@ if(EXISTS "${SRC_DIR}/drivers/key_scanner.cpp")
 endif()
 # indirect calls (stream vmt methods, buffer queue callbacks) and the functions they can reach
 set(_indirect
-  --indirect chprintf=_put,_write          # chprintf(stream): the stream's put/write
-  --indirect chvprintf=_put,_write         # (when not inlined: chsnprintf, a memory stream)
-  --indirect main=_readt,_write            # PExReceive (inlined): chnReadTimeout, streamWrite
+  # chprintf(stream): the stream's put/write, a driver's or the console's reply stream (OutStream)
+  "--indirect=chprintf=_put,_write,_ZN9OutStream.*E(9vmt_write|7vmt_put)E.*"
+  "--indirect=chvprintf=_put,_write,_ZN9OutStream.*E(9vmt_write|7vmt_put)E.*" # (not inlined: chsnprintf)
+  --indirect main=_readt                   # PExReceive (inlined): chnReadTimeout
+  # the console (console.cpp): the command table's handlers, the reply stream's timed writes
+  "--indirect=_ZN7console7ConsoleIN12_GLOBAL__N_113BoardCommandsEE3runERKNS_7CommandI9OutStreamI13BulkUSBDriverEEE=_ZN12_GLOBAL__N_113BoardCommands.*"
+  --indirect _ZN9OutStreamI13BulkUSBDriverE3putEh=_putt
+  --indirect _ZN9OutStreamI13BulkUSBDriverE5writeEPKhj=_writet
   --indirect obqPostFullBufferS=obnotify   # USB bulk/MIDI output queues
   --indirect ibqReleaseEmptyBufferS=ibnotify
   "--indirect=oqWriteTimeout=notify[0-9]*" # serial (DIN MIDI) queues

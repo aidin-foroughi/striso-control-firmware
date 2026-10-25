@@ -33,7 +33,9 @@
 
 #include <stdint.h>
 #include <math.h>
-#include "strisy.h"
+#include "controls.h"
+#include "dspmath.h"
+#include "params.h"
 
 namespace modal {
 

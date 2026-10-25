@@ -90,13 +90,20 @@ void serial_midi_disable(void) {}
 // the settings: sGjack2 (deprecated) is "auto"
 bool config_text_is(const char* key, const char* text) { return memcmp(key, "sGjack2 ", 8) == 0 && strcmp(text, "auto") == 0; }
 static int pedal_msgs, last_pedal1_msg = -1;
-int msgSend(int size, int* msg) {
-	(void)size;
-	if (msg[1] == IDC_PEDAL_1) {
+bool event_send1(int src, int id, int a) {
+	(void)src;
+	if (id == IDC_PEDAL_1) {
 		pedal_msgs++;
-		last_pedal1_msg = msg[2];
+		last_pedal1_msg = a;
 	}
-	return 0;
+	return true;
+}
+bool event_send2(int src, int id, int a, int b) {
+	(void)src;
+	(void)id;
+	(void)a;
+	(void)b;
+	return true;
 }
 void led_rgb3_blink(int r, int g, int b, sysinterval_t t) {
 	(void)r;

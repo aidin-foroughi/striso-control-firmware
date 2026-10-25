@@ -93,7 +93,7 @@ typedef uint32_t time_msecs_t;
 	"READY", "CURRENT", "WTSTART", "SUSPENDED", "QUEUED", "WTSEM", "WTMTX", "WTCOND", "SLEEPING", "WTEXIT", \
 	    "WTOREVT", "WTANDEVT", "SNDMSGQ", "SNDMSG", "WTMSG", "FINAL"
 
-/* A thread: the fields the firmware reads (pconnection.c cmd_threads, usb_audio.c) under their
+/* A thread: the fields the firmware reads (console.cpp StcI, usb_audio.c) under their
  * ChibiOS names; the scheduler keeps the rest. */
 typedef struct ch_thread thread_t;
 struct ch_thread {
@@ -181,6 +181,7 @@ void chSchRescheduleS(void);
 msg_t chThdSuspendS(thread_reference_t* trp);
 msg_t chThdSuspendTimeoutS(thread_reference_t* trp, sysinterval_t timeout);
 void chThdResumeI(thread_reference_t* trp, msg_t msg);
+void chThdResumeS(thread_reference_t* trp, msg_t msg);
 void chThdResume(thread_reference_t* trp, msg_t msg);
 void chThdQueueObjectInit(threads_queue_t* tqp);
 msg_t chThdEnqueueTimeoutS(threads_queue_t* tqp, sysinterval_t timeout);

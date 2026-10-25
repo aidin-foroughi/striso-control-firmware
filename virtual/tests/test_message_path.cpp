@@ -1,8 +1,9 @@
 // The firmware's message path: recorded key streams (tools/harness/rec) injected where the key
-// scanner sends them (sv_inject_key: msgSend, the send thread, synth_message, synth_control's
+// scanner sends them (sv_inject_key: event_send, the control thread, synth_message, synth_control's
 // voice allocation, pitch, sensitivities), rendered by the board's synth thread. The controls the
 // engine got each block (the board's controls tap) are then replayed on the same engine compiled
-// here, straight, as the host renderers drive it: its output must be the board's, bit for bit.
+// here, straight through its contract (striso::dsp::VoiceEngine), as the host renderers drive it:
+// its output must be the board's, bit for bit.
 // So the DSP on the board's path is exactly the DSP the goldens check; what differs from the
 // goldens' recorded renders is only how controls come from keys (the harness's stand-in for
 // synth_control, harness::load_recording, against the firmware's own code), shown as a message.
@@ -16,13 +17,13 @@
 #include "board.h"
 #include "doctest/doctest.h"
 #include "harness_util.h"
-#include "striso_dsp/strisy.h"
-#include "striso_dsp/voice_bowed.h"
-#include "striso_dsp/voice_brass.h"
-#include "striso_dsp/voice_ep.h"
-#include "striso_dsp/voice_modal.h"
-#include "striso_dsp/voice_va.h"
-#include "striso_dsp/voice_wind.h"
+#include "striso_dsp/engines/bowed.h"
+#include "striso_dsp/engines/brass.h"
+#include "striso_dsp/engines/ep.h"
+#include "striso_dsp/engines/modal.h"
+#include "striso_dsp/engines/strisy.h"
+#include "striso_dsp/engines/va.h"
+#include "striso_dsp/engines/wind.h"
 
 namespace {
 
@@ -92,19 +93,31 @@ BoardRender render_keys(const std::string& engine, const std::vector<Row>& rows,
 	return out;
 }
 
-// the same engine, straight, on the board's controls
-template <class E, class Init, class Process>
-std::vector<float> replay(E& e, Init init, Process process, const BoardRender& br) {
-	init(e);
+// the same engine, straight, on the board's controls (its first preset, as the board's entry)
+template <class E> std::vector<float> replay(const BoardRender& br) {
+	static E e;
+	static striso::dsp::Memory<E> mem;
+	e.init(mem.fast, mem.large, SR, NV);
+	if (E::num_presets() > 0) e.set_preset(0);
 	const size_t nblocks = br.engine.size() / BLOCK;
 	std::vector<float> out(br.engine.size());
+	striso::dsp::VoiceControls vc[NV];
+	for (striso::dsp::VoiceControls& c : vc) c = striso::dsp::voice_at_rest;
 	for (size_t b = 0; b < nblocks; b++) {
 		const float* c = &br.controls[b * NV * 5];
-		for (int v = 0; v < NV; v++) e.vc[v] = {c[5 * v], c[5 * v + 1], c[5 * v + 2], c[5 * v + 3], c[5 * v + 4]};
+		for (int v = 0; v < NV; v++) {
+			vc[v].note = c[5 * v];
+			vc[v].pres = c[5 * v + 1];
+			vc[v].vpres = c[5 * v + 2];
+			vc[v].but_x = c[5 * v + 3];
+			vc[v].but_y = c[5 * v + 4];
+			striso::dsp::track_key(vc[v]);
+		}
 		const float* g = &br.globals[b * 8];
-		e.g = {g[0], g[1], g[2], g[3], g[4], g[5], g[6], g[7]};
+		const striso::dsp::GlobalControls gc = {g[0], g[1], g[2], g[3], g[4], g[5], g[6], g[7]};
 		float buf[BLOCK];
-		process(e, buf);
+		float* const o[1] = {buf};
+		e.process(vc, gc, o);
 		std::memcpy(out.data() + b * BLOCK, buf, sizeof buf);
 	}
 	return out;
@@ -153,14 +166,12 @@ std::string compare_harness(const std::string& rec, const BoardRender& br) {
 	return s;
 }
 
-template <class E, class Init, class Process>
-void check_engine(const std::string& engine, const std::string& rec, Init init, Process process) {
+template <class E> void check_engine(const std::string& engine, const std::string& rec) {
 	const std::vector<Row> rows = load_csv(rec);
 	REQUIRE(!rows.empty());
 	const double seconds = std::fmin(rows.back().t - rows.front().t + 2.0, 20.0);
 	const BoardRender br = render_keys(engine, rows, seconds);
-	static E e;
-	const std::vector<float> ref = replay(e, init, process, br);
+	const std::vector<float> ref = replay<E>(br);
 	size_t diff = 0;
 	float peak = 0;
 	for (size_t i = 0; i < ref.size(); i++) {
@@ -180,22 +191,15 @@ const std::string legato = std::string(STRISO_REC_DIR) + "/play_2026-10-22_legat
 
 } // namespace
 
-#define ENGINE_CASE(ns, entry_name, preset_call)                                                                       \
-	TEST_CASE("message path: recorded keys through the firmware, " #ns " is the straight engine bit for bit") {         \
-		for (const std::string& rec : {staccato, legato})                                                               \
-			check_engine<ns::Engine>(                                                                                    \
-			    entry_name, rec,                                                                                         \
-			    [](ns::Engine& e) {                                                                                      \
-				    ns::init(e, SR, NV);                                                                                 \
-				    preset_call;                                                                                         \
-			    },                                                                                                       \
-			    [](ns::Engine& e, float* out) { ns::process(e, out); });                                                 \
+#define ENGINE_CASE(ns) \
+	TEST_CASE("message path: recorded keys through the firmware, " #ns " is the straight engine bit for bit") { \
+		for (const std::string& rec : {staccato, legato}) check_engine<striso::dsp::engines::ns>(#ns, rec); \
 	}
 
-ENGINE_CASE(strisy, "strisy", (void)e)
-ENGINE_CASE(va, "va", va::set_preset(e, 0))
-ENGINE_CASE(modal, "modal", modal::set_preset(e, 0))
-ENGINE_CASE(bowed, "bowed", bowed::set_preset(e, 0))
-ENGINE_CASE(wind, "wind", wind::set_preset(e, 0))
-ENGINE_CASE(ep, "ep", ep::set_preset(e, 0))
-ENGINE_CASE(brass, "brass", brass::set_preset(e, 0))
+ENGINE_CASE(strisy)
+ENGINE_CASE(va)
+ENGINE_CASE(modal)
+ENGINE_CASE(bowed)
+ENGINE_CASE(wind)
+ENGINE_CASE(ep)
+ENGINE_CASE(brass)

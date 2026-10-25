@@ -1,4 +1,4 @@
-/* D1: the console's 'V' discards the bulk console's pending output (src/app/pconnection.c ->
+/* D1: the console's 'V' discards the bulk console's pending output (src/app/console.cpp ->
  * bduDiscardOutputI -> obq_discard_pendingI, src/usb/obq_discard.h) while an IN transfer may be
  * reading the head buffer of that queue. Runs ChibiOS' own hal_buffers.c (third_party/ChibiOS) with
  * a model of bulk_usb.c's endpoint handling: one IN transfer at a time from the head of the queue,

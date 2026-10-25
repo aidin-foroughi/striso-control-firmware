@@ -84,8 +84,6 @@ static THD_FUNCTION(AuxJack, arg) {
   (void)arg;
   chRegSetThreadName("auxjack");
 
-  int msg[6];
-  msg[0] = ID_CONTROL;
   bool tip_was_closed = FALSE;
 
   while (true) {
@@ -275,15 +273,11 @@ static THD_FUNCTION(AuxJack, arg) {
 
         if (last_pedal1 != (pedal1 < 1<<13)) {
           last_pedal1 = !last_pedal1;
-          msg[1] = IDC_PEDAL_1;
-          msg[2] = last_pedal1;
-          msgSend(3, msg);
+          event_send1(ID_CONTROL, IDC_PEDAL_1, last_pedal1);
         }
         if (last_pedal2 != (pedal2 < 1<<13)) {
           last_pedal2 = !last_pedal2;
-          msg[1] = IDC_PEDAL_2;
-          msg[2] = last_pedal2;
-          msgSend(3, msg);
+          event_send1(ID_CONTROL, IDC_PEDAL_2, last_pedal2);
         }
         // TODO: detect third button which closes both switches through a diode
       } break;
@@ -325,10 +319,7 @@ static THD_FUNCTION(AuxJack, arg) {
           short_circuit_count = 0;
         }
 
-        msg[1] = IDC_PEDAL_EXP;
-        msg[2] = aux_adc_samples[0] >> 1;
-        msg[3] = aux_adc_samples[1] >> 1;
-        msgSend(4, msg);
+        event_send2(ID_CONTROL, IDC_PEDAL_EXP, aux_adc_samples[0] >> 1, aux_adc_samples[1] >> 1);
       } break;
       case JACK2_MODE_ERROR: {
         if (short_circuit_count++ > 80) {

@@ -22,6 +22,11 @@
 #include <stdint.h>
 #include <math.h>
 
+#include "controls.h"
+#include "dspmath.h"
+#include "params.h"
+#include "svf.h"
+
 // optional profiling hooks (the firmware maps them to the cycle counter)
 #ifndef STRISY_PROF_START
 #define STRISY_PROF_START()
@@ -29,14 +34,6 @@
 #endif
 
 namespace strisy {
-
-// sample type: float on the board; the host harness can build with STRISY_REAL=double to check the
-// algorithm against Faust's -double output independent of float rounding
-#ifdef STRISY_REAL
-using real = STRISY_REAL;
-#else
-using real = float;
-#endif
 
 // silent voices are skipped (host experiments: -DSTRISY_GATING=0 runs every voice all the time)
 #ifdef STRISY_GATING
@@ -53,7 +50,6 @@ static constexpr bool OSC_FAUST = STRISY_OSC_FAUST;
 static constexpr bool OSC_FAUST = false;
 #endif
 
-static constexpr int BLOCK = 32;
 static constexpr int TABLESIZE = 4096;
 static constexpr int MAX_VOICES = 16;
 
@@ -72,69 +68,6 @@ static constexpr int NCV = 9;         // interpolated control values per voice
 static constexpr int PHASE_FRAC = 19; // fixed-point oscillator phase: 13 integer bits (period <= 4096 plus jumps)
 
 // ---------------------------------------------------------------------------------------------
-// Approximations from fast.lib / fastpow.h, kept identical so the sound matches synth.dsp
-
-[[nodiscard]] static inline float fastpow2(float p) {
-	int w = p;
-	float z = p - w;
-	union {
-		uint32_t i;
-		float f;
-	} v = {static_cast<uint32_t>((1 << 23) * (p + 121.2740575f + 27.7280233f / (4.84252568f - z) - 1.49012907f * z))};
-	return v.f;
-}
-
-// Taylor approximation of tan used by fast.lib's K_f0
-[[nodiscard]] static inline real tan0(real a) {
-	real a2 = a * a;
-	return ((0.2033f * a2 + 0.31755f) * a2 + 1.0f) * a;
-}
-
-// ---------------------------------------------------------------------------------------------
-// Trapezoidal state-variable filter (Simper): with g = tan(pi*F/SR), k = 1/Q,
-//   v1 = (ic1 + g*(v0-ic2)) / (1+g(g+k)),  v2 = ic2 + g*v1,  ic1 = 2*v1-ic1,  ic2 = 2*v2-ic2
-// written as v1 = a*ic1 + ga*(v0-ic2), v2 = ic2 + ga*ic1 + g2a*(v0-ic2).
-// Outputs: lowpass v2, bandpass v1 (peak gain Q), fast.lib BPF k*v1, highpass v0 - k*v1 - v2.
-
-struct SvfCoef {
-	real a, ga, g2a, k;
-};
-struct SvfState {
-	real ic1, ic2;
-};
-
-[[nodiscard]] static inline SvfCoef svf_from_g(real g, real Q) {
-	real k = 1.0f / Q;
-	real a = 1.0f / (1.0f + g * (g + k));
-	return {a, g * a, g * g * a, k};
-}
-
-// per-sample version for modulated cutoffs: g = x*N(x^2)/D(x^2) ([7/6] Pade of tan(x), x = pi*F/SR)
-// folded into one division; k is not needed for the lowpass and raw bandpass outputs
-[[nodiscard]] static inline SvfCoef svf_pade(real x, real Q) {
-	real x2 = x * x;
-	real gN = x * (135135.0f + x2 * (-17325.0f + x2 * (378.0f - x2)));
-	real D = 135135.0f + x2 * (-62370.0f + x2 * (3150.0f - 28.0f * x2));
-	real QD = Q * D;
-	real r = 1.0f / (QD * D + gN * (gN * Q + D));
-	return {QD * D * r, gN * QD * r, gN * gN * Q * r, 0.0f};
-}
-
-// max/min as single vmaxnm/vminnm instructions (a ternary select needs vcmp + vmrs, which waits
-// for the FPU pipeline to drain); identical results for the non-NaN values used here
-[[nodiscard]] static inline real rmax(real a, real b) { return sizeof(real) == sizeof(float) ? (real)fmaxf((float)a, (float)b) : (real)fmax(a, b); }
-[[nodiscard]] static inline real rmin(real a, real b) { return sizeof(real) == sizeof(float) ? (real)fminf((float)a, (float)b) : (real)fmin(a, b); }
-
-#define SVF_TICK(v0, st_ic1, st_ic2, c, v1, v2) \
-	do { \
-		real e_ = (v0) - (st_ic2); \
-		(v1) = (c).a * (st_ic1) + (c).ga * e_; \
-		(v2) = (st_ic2) + (c).ga * (st_ic1) + (c).g2a * e_; \
-		(st_ic1) = 2.0f * (v1) - (st_ic1); \
-		(st_ic2) = 2.0f * (v2) - (st_ic2); \
-	} while (0)
-
-// ---------------------------------------------------------------------------------------------
 // Parameters of synth.dsp (its hsliders are compiled as constants)
 
 static constexpr real minFreq = 200.0f;
@@ -149,41 +82,6 @@ static constexpr real accDecay = 0.10f;
 
 // Gating threshold on the voice level envelope (output is level * filters, so about -120 dB)
 static constexpr real GATE_LEVEL = 1e-6f;
-
-// Live-editable parameters (tools/app). An engine with parameters specializes
-// strisy::EngineParams<its Engine>; the default here means "no parameters".
-// ptr() returns the live value, changed() is called (in the synth thread) after it was written,
-// so the engine can recompute derived values. Values are clamped to [min, max] before writing.
-// What a parameter's values mean; the number is what the USB console reports (tools/striso.py).
-enum class ParamKind : uint8_t {
-	continuous = 0, // any value in [min, max]
-	steps = 1,      // integers (writes are rounded)
-	toggle = 2,     // on/off: min or max
-};
-
-struct ParamDesc {
-	const char* name;  // short id, e.g. "cutoff"
-	const char* group; // UI group, e.g. "filter"
-	float min, max;
-	ParamKind kind;
-};
-
-template <class E> struct EngineParams {
-	static constexpr int count = 0;
-	[[nodiscard]] static const ParamDesc* desc(int) { return nullptr; }
-	[[nodiscard]] static float* ptr(E&, int) { return nullptr; }
-	static void changed(E&, int) {}
-};
-
-// Per voice controls, written asynchronously by synth_control (same meaning as the Faust sliders)
-struct VoiceControls {
-	real note, pres, vpres, but_x, but_y;
-};
-
-// Global controls (accelerometer, gyroscope, pedal)
-struct GlobalControls {
-	real acc_abs, acc_x, acc_y, acc_z, rot_x, rot_y, rot_z, pedal;
-};
 
 struct VoiceState {
 	real phase;        // oscillator phase (OSC_FAUST)

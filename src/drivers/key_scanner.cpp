@@ -4,6 +4,7 @@
  * over the bulk console.
  */
 #include <cstring>
+#include <span>
 
 #include "ch.h"
 #include "hal.h"
@@ -12,9 +13,7 @@
 #include "config.h"
 #include "usbcfg.h"
 
-extern "C" {
-#include "messaging.h"
-}
+#include "messaging.hpp"
 
 #include "key_scanner.h"
 #include "key_scanner_capture.hpp"
@@ -74,8 +73,7 @@ bool commit(const uint8_t* p, int n) {
 
 struct MsgSink {
 	int send(const int (&msg)[6]) {
-		int m[6] = {msg[0], msg[1], msg[2], msg[3], msg[4], msg[5]};
-		const int rc = msgSend(6, m);
+		const int rc = messaging::send(static_cast<Source>(msg[0]), msg[1], std::span<const int>(msg).subspan(2)) ? 0 : 1;
 		if (rc) scan_stats.queue_full = scan_stats.queue_full + 1;
 		if (cap_state == Cap::running) rec.send(msg, rc);
 		return rc;
@@ -247,8 +245,8 @@ void ks_key_state(int b, int* status, int32_t* c_force, int32_t* zero_offset, in
 	*pres = k.pres;
 }
 
-void ks_capture(int seconds) {
-	auto* out = reinterpret_cast<BaseSequentialStream*>(&BDU1);
+void ks_capture(void* stream, int seconds) {
+	auto* out = static_cast<BaseSequentialStream*>(stream);
 	const Cap s = cap_state;
 	if (seconds > 0) {
 		if (s == Cap::armed || s == Cap::running || s == Cap::dumping) {

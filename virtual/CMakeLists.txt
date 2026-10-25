@@ -46,13 +46,14 @@ add_library(striso_virtual SHARED
   board/stubs_host.c
   # the firmware's own files (fw_*: the file itself, compiled with the virtual board's flash)
   board/config_page_host.cpp
-  board/fw_pconnection.c
+  board/fw_console.cpp
   board/fw_usbcfg.c
   board/fw_synth_strisy.cpp
   "${_fw}/usb/bulk_usb.c"
   "${_fw}/usb/midi_usb.c"
   "${_fw}/synth/synth_control.cpp"
-  "${_fw}/app/messaging.c"
+  "${_fw}/app/messaging.cpp"
+  "${_fw}/app/control_thread.cpp"
   "${_fw}/app/config_store.cpp"
   "${_fw}/drivers/key_calibration.c"
   "${_fw}/drivers/led.c")
@@ -82,9 +83,7 @@ target_link_libraries(striso_virtual PRIVATE striso::dsp striso_host_options)
 # the DSP as the host renderers build it (-O2, no FMA contraction): the goldens' arithmetic
 target_compile_options(striso_virtual PRIVATE -O2 -ffp-contract=off -fno-strict-aliasing
   -Wno-unused-parameter -Wno-missing-field-initializers -Wno-sign-compare -Wno-unused-function
-  -Wno-unused-variable -Wno-unused-but-set-variable -Wno-implicit-fallthrough
-  # pconnection.c cmd_threads prints addresses as 32 bits (on the PC: the low half)
-  -Wno-pointer-to-int-cast $<$<COMPILE_LANG_AND_ID:C,Clang,AppleClang>:-Wno-void-pointer-to-int-cast>)
+  -Wno-unused-variable -Wno-unused-but-set-variable -Wno-implicit-fallthrough)
 # led.c: 'inline' functions in C, which GCC on the board emits (led.c inlines them); clang for
 # Windows treats C inline as MSVC does
 set_source_files_properties("${_fw}/drivers/led.c" PROPERTIES COMPILE_OPTIONS "-fgnu89-inline")

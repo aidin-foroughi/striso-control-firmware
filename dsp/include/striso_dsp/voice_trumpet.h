@@ -834,8 +834,8 @@ static float* dbg_y = nullptr;  // inward lip mode
 
 struct WarmSeed {
 	real trim, um;
-	real dc[seed::NSIG];
-	real re[seed::NSIG][seed::NH], im[seed::NSIG][seed::NH];
+	real dc[seed::NSIGNAL];
+	real re[seed::NSIGNAL][seed::NH], im[seed::NSIGNAL][seed::NH];
 };
 
 #ifdef TRUMPET_DEBUG
@@ -884,7 +884,7 @@ static inline bool warm_lookup(const Engine& e, real note, real dyn, const Finge
 	if (c->combo != a->combo || c->k != a->k || c->ext != a->ext) c = a;
 	w.trim = a->trim + u * (c->trim - a->trim);
 	w.um = a->um + u * (c->um - a->um);
-	for (int q = 0; q < seed::NSIG; q++) {
+	for (int q = 0; q < seed::NSIGNAL; q++) {
 		w.dc[q] = a->dc[q] + u * (c->dc[q] - a->dc[q]);
 		for (int k = 0; k < seed::NH; k++) {
 			w.re[q][k] = a->re[q][k] + u * (c->re[q][k] - a->re[q][k]);

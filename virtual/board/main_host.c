@@ -17,11 +17,12 @@
  */
 /*
  * The virtual board's main: src/app/main.c without the hardware. main.c itself can't be built for
- * the PC (its fwinfo block casts pointers to 32 bits, vsqrtf is Cortex-M7 assembly), so its three
- * loops are here, copied verbatim: the blinker (Thread1), the message send thread (ThreadSend:
- * synth_message and the binary stream) and the main loop (synth_tick, led_tick, PExReceive), with
- * the boot sequence in the same order. tests/test_main_mirror.py checks the copies against
- * main.c, so a change there fails the virtual board's tests until it is made here too.
+ * the PC (its fwinfo block casts pointers to 32 bits, vsqrtf is Cortex-M7 assembly), so its two
+ * loops are here, copied verbatim: the blinker (Thread1) and the main loop (synth_tick, led_tick,
+ * PExReceive), with the boot sequence in the same order. The control thread (synth_message and the
+ * binary stream) is the firmware's own src/app/control_thread.cpp. tests/test_mirror.py checks the
+ * copies against main.c, so a change there fails the virtual board's tests until it is made here
+ * too.
  * Not here: ws2812 (USE_WS2812 is off), the UART (USE_UART is off), midi_config (it sends the MPE
  * configuration to USB MIDI: kept, it is MIDI out).
  */
@@ -46,7 +47,7 @@
 
 #include "sv_host.h"
 
-/* main.c: --- copied from here (Thread1, pack, ThreadSend) --- */
+/* main.c: --- copied from here (Thread1) --- */
 /*
  * LED flash thread.
  */
@@ -68,62 +69,6 @@ static void Thread1(void *arg) {
   }
 }
 
-static void pack(int *in, uint8_t *out, int n) {
-  int c;
-  for (c=0; c<n; c++) {
-    out[c*2] = 0x7f & (uint8_t)(in[c]>>7);
-    out[c*2+1] = 0x7f & (uint8_t)(in[c]);
-  }
-}
-
-/*
- * Message send thread
- */
-// the key thread: synth_message, the settings keys (load_preset), MIDI in, MIDI out over USB.
-// Its deepest direct path (tools/stackcheck.py, the USB driver's indirect calls left out) is
-// 564 bytes (500 at 3d6f498: 12 bytes to spare), so 1024 leaves a margin.
-static THD_WORKING_AREA(waThreadSend, 1024);
-static void ThreadSend(void *arg) {
-
-  (void)arg;
-  chRegSetThreadName("send messages");
-  int msg[9];
-  uint8_t cmsg[16];
-  int size;
-  cmsg[0] = 0;
-  while (TRUE) {
-    size = msgGet(9, msg);
-    if (size >= 2 && size <= 9) {
-      synth_message(size, msg);
-      // requests to the control code (ID_INTERNAL, e.g. a settings key from the USB console) stay here
-      if (msg[0] == ID_INTERNAL) continue;
-
-      // key values are signed 14 bit on the wire: saturate instead of wrapping, so a hard press
-      // (pres >= 1.0) doesn't read as a release. The synth above got the full value.
-      if (msg[0] == ID_DIS || msg[0] == ID_BAS) {
-        for (int c = 2; c < size; c++) {
-          msg[c] = msg[c] > 8191 ? 8191 : msg[c] < -8192 ? -8192 : msg[c];
-        }
-      }
-
-      cmsg[0] = 0x80 | ((uint8_t)msg[0])<<3 | ((uint8_t)(size-2));
-      cmsg[1] = 0x7f & (uint8_t)msg[1];
-      pack(&msg[2], &cmsg[2], size - 2);
-#ifdef USE_UART
-      chSequentialStreamWrite((BaseSequentialStream *)&SD1, cmsg, 2+(size-2)*2);
-#endif
-#ifdef USE_USB
-      if (config.send_usb_bulk) {
-        // whole frames only, never mixed into a console write (bulk_usb.c bduWriteFrame)
-        (void)bduWriteFrame(&BDU1, cmsg, 2+(size-2)*2);
-      }
-#endif
-    }
-    // sleep to limit the output stream to 2 messages per millisecond (with CH_FREQUENCY = 2000)
-    // for compatibility with MIDI usb on Axoloti
-    chThdSleep(1);
-  }
-}
 /* main.c: --- copied up to here --- */
 
 /* main.c's main(), without the hardware (halInit, chSysInit, the UART, ws2812) */
@@ -139,12 +84,10 @@ void svh_firmware_main(void* arg) {
   InitPConnection();
 #endif
 
-  MessagingInit();
-
   /*
-   * Creates the message send thread.
+   * Creates the control thread (control_thread.cpp: the keys to the synth and the binary stream).
    */
-  chThdCreateStatic(waThreadSend, sizeof(waThreadSend), NORMALPRIO, ThreadSend, NULL);
+  control_thread_start();
 
   /*
    * Creates the LED flash thread.

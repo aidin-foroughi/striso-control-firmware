@@ -141,20 +141,22 @@ The host tests render every engine and preset on the PC: the default, stale-inpu
 
 `ctest --preset firmware` (after building the firmware and `--target target_renders`) checks the USB descriptors and the UF2. It also runs every engine compiled for the board's CPU under QEMU, as a Cortex-M7 with the board's FPU settings, and compares the output with `tests/golden/target_renders.txt`. That shows what a compiler change does to the board's arithmetic. After an intended change to the sound, `tools/update_goldens.sh` rewrites both golden files.
 
-`tools/format.sh` (clang-format) and `tools/tidy.sh` (clang-tidy) cover our C++. CI (`.github/workflows/firmware.yml`) runs all of it on every push and attaches the UF2s to a release for every `v*` tag.
+`tools/format.sh` (clang-format) and `tools/tidy.sh` (clang-tidy) cover our C++. CI (`.github/workflows/firmware.yml`) runs all of it on every push, with the virtual board's tests on Windows and macOS, and publishes a release for every `v*` tag (see Releases).
 
 ### Testing without the hardware: the virtual board
 
-`virtual/` builds the firmware's logic as a library for the PC, **striso_virtual** (`.dll`, `.dylib`, `.so`), from the board's own source files: `synth_control.cpp`, `synth_strisy.cpp` with every engine (as `VOICE=all`), the USB console and its protocol (`pconnection.c`), `messaging.c`, `config_store.cpp`, `led.c`. They run on a small ChibiOS/HAL stand-in (`virtual/hal`): the firmware's threads run one at a time by priority, in virtual time (the 2 kHz tick, the codec's 32-frame block interrupt, the 1 ms USB frame), so a run is deterministic. What only the hardware has is replaced (`virtual/board`): key and control messages are injected where the key scanner sends them, so the firmware's own `synth_message` path runs; motion where the sensor thread reads it; the USB bulk console is a pair of byte queues with exactly the board's protocol (`Stc` commands, Q writes, the S/s binary stream). StcB opens the bootloader's drive as a directory, and a UF2 written there is flashed into the virtual board's config. No firmware file is changed for it; the board build is the same.
+`virtual/` builds the firmware's logic as a library for the PC, **striso_virtual** (`.dll`, `.dylib`, `.so`), from the board's own source files: `synth_control.cpp`, `synth_strisy.cpp` with every engine (as `VOICE=all`), the USB console and its protocol (`console.cpp`), the message path (`messaging.cpp`, `control_thread.cpp`), `config_store.cpp`, `led.c`. They run on a small ChibiOS/HAL stand-in (`virtual/hal`): the firmware's threads run one at a time by priority, in virtual time (the 2 kHz tick, the codec's 32-frame block interrupt, the 1 ms USB frame), so a run is deterministic. What only the hardware has is replaced (`virtual/board`): key and control messages are injected where the key scanner sends them, so the firmware's own `synth_message` path runs; motion where the sensor thread reads it; the USB bulk console is a pair of byte queues with exactly the board's protocol (`Stc` commands, Q writes, the S/s binary stream). StcB opens the bootloader's drive as a directory, and a UF2 written there is flashed into the virtual board's config. No firmware file is changed for it; the board build is the same.
 
 ```sh
 tools/virtual.sh            # build and test natively (Windows: clang with Visual Studio's libraries; macOS: Xcode's clang)
+UNIVERSAL=1 tools/virtual.sh                                       # macOS: arm64 + x86_64 in one library (build/host-virtual-universal)
+python3 tools/ctest_arch.py build/host-virtual-universal arch -x86_64   # its x86_64 slice's tests, under Rosetta
 cmake --preset host-virtual && cmake --build --preset host-virtual && ctest --preset host-virtual
 ```
 
 The library is `build/host-virtual/virtual/striso_virtual.*`; its API is `virtual/include/striso_virtual.h` (boards, render and taps, real time, the console and USB MIDI, key/control/motion injection, LEDs and state, the flash). Its tests (`ctest -L virtual`, also part of `tools/test.sh`):
 
-- every golden render of the firmware's 56 voices (default, stale and recorded performances, the effects) through the board's synth thread, bit for bit with `tests/golden/renders.txt` (Windows x64, macOS arm64 and Linux);
+- every golden render of the firmware's 56 voices (default, stale and recorded performances, the effects) through the board's synth thread, bit for bit with `tests/golden/renders.txt` (Windows x64, macOS arm64 and x86_64, Linux);
 - recorded key streams through the firmware's message path, replayed on the straight engine: bit for bit;
 - voice switches leave nothing behind (an engine renders its golden after another ran);
 - console transcripts (`virtual/tests/transcripts`) and the real board's replies to the read-only commands, field for field (`transcripts/board`, recorded from a Striso);
@@ -162,15 +164,32 @@ The library is `build/host-virtual/virtual/striso_virtual.*`; its API is `virtua
 
 Striso Live uses it as its **Virtual** Striso, and to audition a build with a real Striso as the controller (`--virtual-lib=<build>/virtual/striso_virtual.dll`): see its README. `test_mirror.py` keeps the virtual board's copies of `main.c`'s and `motionsensor.c`'s loops equal to the firmware's.
 
+### Releases
+
+A `v*` tag publishes a GitHub release (CI's `release` job, after every test has passed):
+
+| File | What |
+|---|---|
+| `striso_control_<version>.uf2` | the default firmware (strisy); `<version>` is what the board reports, e.g. `2026-10-24_v2.3.0-0-gabc1234` |
+| `striso_control_<version>_all.uf2` | the firmware with every voice engine (`VOICE=all`) |
+| `striso_virtual-<tag>-windows-x64.zip` | the virtual board for Windows x64 (`striso_virtual.dll`); needs the Microsoft Visual C++ 2015-2022 runtime, 14.28 or later |
+| `striso_virtual-<tag>-macos-universal.zip` | the virtual board for macOS 11 and later, Apple silicon and Intel (`libstriso_virtual.dylib`, arm64 + x86_64) |
+| `SHA256SUMS` | `sha256sum -c SHA256SUMS` |
+
+Each zip holds the library, `striso_virtual.h`, `COPYING` and `manifest.json`: the release version, the firmware version and the C API version the library itself reports (`sv_firmware_version`, `sv_api_version`), its sha256, the commit, what it links and the minimum OS. Striso Live loads the virtual board at run time and does not ship it. The macOS library is built with `UNIVERSAL=1 tools/virtual.sh` and its tests run on both slices; `tools/package.sh` loads each slice and refuses a library that links anything outside the system.
+
+`tools/release_dryrun.sh` makes the Windows parts on a PC into `dist/`, with the same scripts and tests (`--no-tests` to skip them): both UF2s, the Windows zip and `SHA256SUMS`, then checks them (`tools/package.sh check`: the sums, every UF2 block, each zip against its manifest). Nothing is pushed or tagged.
+
 ### Layout
 
 | Path | What |
 |---|---|
-| `src/app` | main, the USB console and protocol (pconnection), messaging, configuration, the config editor page |
+| `src/app` | main, the USB console and protocol (console), the message path (the typed event queue, the control thread, the wire frame), configuration, the config editor page |
 | `src/drivers` | codec, key scanning (ADC), motion sensor, LEDs, aux jack, serial MIDI |
 | `src/usb` | USB descriptors, bulk console, USB MIDI, USB audio |
 | `src/synth` | the synth thread and controls (`synth_strisy.cpp`, `synth_control.cpp`), the tuning math; `faust/` the Faust synth |
-| `dsp/include/striso_dsp` | the DSP library: strisy, the voice engines (`voice_<name>.h`), the master effects. Header only, C++20, no HAL |
+| `dsp/include/striso_dsp` | the DSP library: strisy, the voice engines (`voice_<name>.h`), the master effects, and the engine contract every one of them keeps (`engine.h`, `engines/<name>.h`; [doc/engines.md](doc/engines.md)). Header only, C++20, no HAL |
+| `sdk` | the engines on the PC without the firmware: a library per engine, the contract test suite, `striso_render` (any engine and preset from a scripted performance, a key recording or a MIDI file to WAV), the MIDI/MPE host shell a plugin would wrap. Builds on its own: `cmake -S sdk -B build/sdk` |
 | `board`, `cfg`, `ld` | board definition, ChibiOS configuration, linker script |
 | `cmake` | toolchain file, ChibiOS integration (from its own make fragments), version, post-build checks |
 | `tests` | host tests and golden checksums |
@@ -189,9 +208,10 @@ In a checkout from before this layout, `git submodule update --init` puts the su
   - list and set live parameters (`params`, `set`) and select voices (`voice`);
   - save touch settings (`save-touch`);
   - flash safely (`flash`). It backs up first, refuses blocks outside the app region and health-checks the board after the reboot.
-- `tools/harness/`: renders the voice engines on the PC from scripted or recorded performances (`VOICE=<name> tools/harness/render_strisy.sh <name> "" --preset 2 --rec /src/tools/harness/rec/<take>.csv`). It has stress and stale-input tests and a test of the master effects (`fx_test.sh`, `fx_suite.sh`). `cmake --build --preset host --target render_wavs` writes a WAV of every engine. `tools/harness/rec/` has real key-stream recordings for replay.
+- `tools/harness/`: the scripted performances (`performance.h`, `perf_<name>.h`) and real key-stream recordings (`rec/`) the engines are rendered with. `build/host/sdk/striso_render --engine <name> --preset 2 --rec tools/harness/rec/<take>.csv --wav x.wav` renders one (its log names the engine, preset and input file), `VOICE=<name> tools/harness/render_strisy.sh <name> "<flags>"` with extra compiler flags. A test of the master effects (`fx_test.sh`, `fx_suite.sh`). `cmake --build --preset host --target render_wavs` writes a WAV of every engine.
 - `tools/target_render/`: the engines compiled for the board's CPU and run under QEMU (see Tests).
 - `tools/virtual.sh`: builds and tests the virtual board natively (see Testing without the hardware).
+- `tools/package.sh`, `tools/release_dryrun.sh`: the release files and a dry run of a release (see Releases). `tools/ctest_arch.py` runs a build's tests under a launcher (`arch -x86_64`). `tools/ci_ccache.sh`, `tools/ci_docker.sh`: CI's ccache and its runs in the build image.
 - `tools/build.sh`, `tools/test.sh`, `tools/update_goldens.sh`, `tools/format.sh`, `tools/tidy.sh`: run in Docker (see Building).
 - `tools/record_keys.py`: records the key stream from the board to CSV.
 - `tools/review_voice.sh`: builds and checks a voice engine before it may be flashed.

@@ -12,7 +12,8 @@
 #define VOICE_SINE_H_
 
 #include <math.h>
-#include "strisy.h"
+#include "controls.h"
+#include "dspmath.h"
 
 namespace sine {
 

@@ -72,12 +72,6 @@ void led_updown(uint32_t state) { last_updown = state; }
 uint32_t led_updown_get(void) { return last_updown; }
 void led_updown_dial(int angle) { last_dial = angle; }
 void aux_jack_switch_mode_setting(jack2_mode_t /*mode*/) {}
-// the message queue to the key thread: what the firmware queues for it (MIDI in, its tick, StcK)
-// runs at once, as the thread would run it next
-int msgSend(int size, int* msg) {
-	if (size >= 2 && msg[0] == ID_INTERNAL) synth_message(size, msg);
-	return 0;
-}
 float volume = 0;
 synth_interface_t synth_interface;
 int synth_num_voices(void) { return 2; }
@@ -91,6 +85,30 @@ uint32_t synth_params_signature(void) { return 0; }
 int buttonKeyCount(void) { return 61; }
 float buttonGetKeyFactor(int /*n*/) { return 1.0f; }
 int synth_select_voice(int /*n*/) { return 1; }
+}
+// the message queue to the control thread: what the firmware queues for it (MIDI in, its tick,
+// StcK) runs at once, as the thread would run it next
+bool messaging::send(Source src, int id, std::span<const int> values) {
+	if (src == Source::internal) {
+		const KeyEvent e = KeyEvent::make(src, id, values);
+		int msg[2 + KeyEvent::kMaxValues] = {static_cast<int>(e.src), e.id};
+		for (int c = 0; c < e.n; c++) msg[2 + c] = e.v[c];
+		synth_message(2 + e.n, msg);
+	}
+	return true;
+}
+bool messaging::send(Source src, int id) { return messaging::send(src, id, std::span<const int>()); }
+bool messaging::send(Source src, int id, int a) {
+	const int v[] = {a};
+	return messaging::send(src, id, v);
+}
+bool messaging::send(Source src, int id, int a, int b) {
+	const int v[] = {a, b};
+	return messaging::send(src, id, v);
+}
+bool messaging::send(Source src, int id, int a, int b, int c) {
+	const int v[] = {a, b, c};
+	return messaging::send(src, id, v);
 }
 
 static std::vector<std::vector<uint8_t>> midi_log;
