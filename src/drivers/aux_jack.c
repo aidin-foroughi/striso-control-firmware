@@ -368,14 +368,13 @@ void aux_jack_init(void) {
   adcStart(&ADCD3, &adccfg3);
 
   // deprecated, keep loading if setting still exists
-  const char* s = getConfigSetting("sGjack2 ");
-  if (cmp8(s, "pedal_ex")) {
+  if (config_text_is("sGjack2 ", "pedal_ex")) {
     aux_jack_switch_mode_setting(JACK2_MODE_PEDAL_EXPRESSION);
-  } else if (cmp8(s, "pedal_sw")) {
+  } else if (config_text_is("sGjack2 ", "pedal_sw")) {
     aux_jack_switch_mode_setting(JACK2_MODE_PEDAL_SWITCH);
-  } else if (cmp8(s, "midi    ")) {
+  } else if (config_text_is("sGjack2 ", "midi")) {
     aux_jack_switch_mode_setting(JACK2_MODE_MIDI);
-  } else if (cmp8(s, "linein  ")) {
+  } else if (config_text_is("sGjack2 ", "linein")) {
     aux_jack_switch_mode_setting(JACK2_MODE_LINEIN);
   } else { // assume "auto"
     aux_jack_switch_mode_setting(JACK2_MODE_AUTODETECT);

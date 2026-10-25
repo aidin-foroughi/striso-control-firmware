@@ -1,3 +1,3 @@
 #pragma once
-const char *getConfigSetting(const char *k);
-int cmp8(const char *a, const char *b);
+#include <stdbool.h>
+bool config_text_is(const char *key, const char *text);

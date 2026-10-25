@@ -34,6 +34,7 @@ extern "C" {
 
 #include "config.h"
 #include "config_store.h"
+#include "config_table.hpp"
 #include "striso.h"
 #include "midi_usb.h"
 #include "midi_serial.h"
@@ -797,32 +798,18 @@ class Instrument {
                 cur_tuning = n;
                 return;
             }
-            float f;
-            CC_ALIGN(8) char key[] = "fT0fifth";
-            key[2] = '0' + n;
-            f = getConfigFloat(key);
-            if (f == CONFIG_UNDEFINED) f = 700.0f;
-            notegen1 = f / 100;
-            strset(key, 3, "oct  ");
-            f = getConfigFloat(key);
-            if (f == CONFIG_UNDEFINED) f = 1200.0f;
-            notegen0 = f / 100;
-            strset(key, 3, "off  ");
-            f = getConfigFloat(key);
-            if (f == CONFIG_UNDEFINED) f = 0.0f;
-            tuning_note_offset = f / 100;
+            using settings::KeyName;
+            const settings::ConfigTable cfg = settings::board();
+            notegen1 = cfg.get_float(KeyName::tuning(n, "fifth")).value_or(700.0f) / 100;
+            notegen0 = cfg.get_float(KeyName::tuning(n, "oct")).value_or(1200.0f) / 100;
+            tuning_note_offset = cfg.get_float(KeyName::tuning(n, "off")).value_or(0.0f) / 100;
             note_offset = tuning_note_offset + midi_in_bend;
-            for (int n = 0; n < 61; n++) {
-                put_button_name(n, &key[3]);
-                // the key that plays note n: on a flipped layout, the mirrored one (SC-12)
-                int but = button_number_map[flipdir == 1 ? n : 60 - n];
-                f = getConfigFloat(key);
-                if (f == CONFIG_UNDEFINED) f = 0.0f;
-                buttons[but].tuning_note_offset = f / 100;
+            for (int k = 0; k < 61; k++) {
+                // the key that plays note k: on a flipped layout, the mirrored one (SC-12)
+                int but = button_number_map[flipdir == 1 ? k : 60 - k];
+                buttons[but].tuning_note_offset = cfg.get_float(KeyName::tuning_key(n, k)).value_or(0.0f) / 100;
             }
-            key[0] = 'h';
-            strset(key, 3, "color");
-            tuning_color = getConfigHex(key);
+            tuning_color = cfg.get_hex(KeyName::tuning(n, "color")).value_or(0);
             led_rgb(tuning_color);
             cur_tuning = n;
         }
@@ -1729,227 +1716,181 @@ int synth_message(int size, int* msg) {
 }
 
 void load_preset(int n) {
-    int i;
-    float f;
-    const char* s;
     bool sendcfg = false;
-    CC_ALIGN(8) char key[] = "hP0color";
-    key[2] = '0' + n;
-    uint32_t led = getConfigHex(key);
+    using settings::KeyName;
+    const settings::ConfigTable cfg = settings::board();
+    // preset n's setting; the integer or decimal if it is in [lo, hi]
+    auto P = [n](settings::PresetField f) { return KeyName::preset(n, f); };
+    auto int_in = [&cfg](KeyName k, int lo, int hi) {
+        const std::optional<int> i = cfg.get_int(k);
+        return i && *i >= lo && *i <= hi ? i : std::nullopt;
+    };
+    auto float_in = [&cfg](KeyName k, float lo, float hi) {
+        const std::optional<float> f = cfg.get_float(k);
+        return f && *f >= lo && *f <= hi ? f : std::nullopt;
+    };
+    // below 255 (volume, decays)
+    auto float_below = [&cfg](KeyName k, float lo, float hi) {
+        const std::optional<float> f = cfg.get_float(k);
+        return f && *f >= lo && *f < hi ? f : std::nullopt;
+    };
+    const uint32_t led = cfg.get_hex(P("color")).value_or(0);
     led_rgb(led);
 
-    key[0] = 'i';
-    strset(key, 3, "Mint ");
-    i = getConfigInt(key);
-    if (i >= 1 && i <= 127) {
-        config.message_interval = i;
+    if (auto i = int_in(P("Mint"), 1, 127)) {
+        config.message_interval = *i;
     }
 
-    strset(key, 3, "Mmint");
-    i = getConfigInt(key);
-    if (i >= 0 && i <= 127) {
-        config.send_motion_interval = i;
+    if (auto i = int_in(P("Mmint"), 0, 127)) {
+        config.send_motion_interval = *i;
     }
 
-    key[0] = 's';
-    strset(key, 3, "Mmode");
-    s = getConfigSetting(key);
-    if (cmp8(s, "mpe     ")) {
+    // (cfg.is: no values kept, the frame is on the 1 kB stacks of main and the key thread)
+    if (cfg.is(P("Mmode"), "mpe")) {
         set_midi_mode(MIDI_MODE_MPE);
         sendcfg = true;
-    } else if (cmp8(s, "normal  ")) {
+    } else if (cfg.is(P("Mmode"), "normal")) {
         set_midi_mode(MIDI_MODE_POLY);
         sendcfg = true;
-    } else if (cmp8(s, "mono    ")) {
+    } else if (cfg.is(P("Mmode"), "mono")) {
         set_midi_mode(MIDI_MODE_MONO);
         sendcfg = true;
     }
 
-    strset(key, 3, "Mnote");
-    s = getConfigSetting(key);
-    if (cmp8(s, "default ")) {
+    if (cfg.is(P("Mnote"), "default")) {
         config.midinote_mode = MIDINOTE_MODE_DEFAULT;
-    } else if (cmp8(s, "tuning  ")) {
+    } else if (cfg.is(P("Mnote"), "tuning")) {
         config.midinote_mode = MIDINOTE_MODE_TUNING;
-    } else if (cmp8(s, "button  ")) {
+    } else if (cfg.is(P("Mnote"), "button")) {
         config.midinote_mode = MIDINOTE_MODE_BUTTON;
     }
 
-    strset(key, 3, "jack2");
-    s = getConfigSetting(key);
-    if (cmp8(s, "pedal_ex")) {
+    if (cfg.is(P("jack2"), "pedal_ex")) {
         aux_jack_switch_mode_setting(JACK2_MODE_PEDAL_EXPRESSION);
-    } else if (cmp8(s, "pedal_sw")) {
+    } else if (cfg.is(P("jack2"), "pedal_sw")) {
         aux_jack_switch_mode_setting(JACK2_MODE_PEDAL_SWITCH);
-    } else if (cmp8(s, "midi    ")) {
+    } else if (cfg.is(P("jack2"), "midi")) {
         aux_jack_switch_mode_setting(JACK2_MODE_MIDI);
-    } else if (cmp8(s, "linein  ")) {
+    } else if (cfg.is(P("jack2"), "linein")) {
         aux_jack_switch_mode_setting(JACK2_MODE_LINEIN);
-    } else if (cmp8(s, "auto    ")) {
+    } else if (cfg.is(P("jack2"), "auto")) {
         aux_jack_switch_mode_setting(JACK2_MODE_AUTODETECT);
     }
 
-    strset(key, 3, "flip ");
-    s = getConfigSetting(key);
-    if ((cmp8(s, "yes     ") && dis.flipdir == 1)
-        || (cmp8(s, "no      ") && dis.flipdir == -1)) {
+    if ((cfg.is(P("flip"), "yes") && dis.flipdir == 1) || (cfg.is(P("flip"), "no") && dis.flipdir == -1)) {
         dis.flip();
     }
 
-    key[0] = 'i';
-    strset(key, 3, "tunin");
-    i = getConfigInt(key);
-    bool has_tuning = i >= 0 && i <= 8;
-    if (has_tuning) {
-        dis.load_tuning(i);
+    const std::optional<int> tuning = int_in(P("tunin"), 0, 8);
+    if (tuning) {
+        dis.load_tuning(*tuning);
     }
 
-    key[0] = 'f';
-    strset(key, 3, "Toff ");
-    f = getConfigFloat(key);
-    bool has_toff = f >= -4800.0f && f <= 4800.0f;
-    if (has_tuning || has_toff) {
+    const std::optional<float> toff = float_in(P("Toff"), -4800.0f, 4800.0f);
+    if (tuning || toff) {
         // the tuning's offset plus the preset's: a preset with a tuning and no Toff also clears an
         // earlier preset's Toff and the fine tune (load_tuning keeps them for the same tuning, SC-04)
-        dis.note_offset = dis.tuning_note_offset + (has_toff ? f / 100.0f : 0.0f) + dis.midi_in_bend;
+        dis.note_offset = dis.tuning_note_offset + (toff ? *toff / 100.0f : 0.0f) + dis.midi_in_bend;
     }
 
-    key[0] = 'i';
-    strset(key, 3, "Mpres");
-    i = getConfigInt(key);
-    if (i >= 0 && i <= 127) {
+    if (auto i = int_in(P("Mpres"), 0, 127)) {
         if (config.midi_mode == MIDI_MODE_POLY) {
-            config.midi_pres = i;
+            config.midi_pres = *i;
         } else {
-            config.mpe_pres = i;
+            config.mpe_pres = *i;
         }
     }
 
-    strset(key, 3, "Mx   ");
-    i = getConfigInt(key);
-    if (i >= 0 && i <= 127) {
+    if (auto i = int_in(P("Mx"), 0, 127)) {
         if (config.midi_mode == MIDI_MODE_POLY) {
-            config.midi_x = i;
+            config.midi_x = *i;
         } else {
-            config.mpe_x = i;
+            config.mpe_x = *i;
         }
     }
 
-    strset(key, 3, "My   ");
-    i = getConfigInt(key);
-    if (i >= 0 && i <= 127) {
+    if (auto i = int_in(P("My"), 0, 127)) {
         if (config.midi_mode == MIDI_MODE_POLY) {
-            config.midi_y = i;
+            config.midi_y = *i;
         } else {
-            config.mpe_y = i;
+            config.mpe_y = *i;
         }
     }
 
-    strset(key, 3, "Mvelo");
-    i = getConfigInt(key);
-    if (i >= 0 && i <= 127) {
-        config.mpe_contvelo = i;
+    if (auto i = int_in(P("Mvelo"), 0, 127)) {
+        config.mpe_contvelo = *i;
     }
 
-    strset(key, 3, "MChan");
-    i = getConfigInt(key);
-    if (i >= 1 && i <= 16) {
-        dis.midi_channel_offset = i - 1;
+    if (auto i = int_in(P("MChan"), 1, 16)) {
+        dis.midi_channel_offset = *i - 1;
         sendcfg = true;
     }
 
-    strset(key, 3, "MPEpb");
-    i = getConfigInt(key);
-    if (i >= 1 && i <= 127) {
-        dis.midi_bend_range = i;
+    if (auto i = int_in(P("MPEpb"), 1, 127)) {
+        dis.midi_bend_range = *i;
         sendcfg = true;
     }
 
-    strset(key, 3, "voice");
-    i = getConfigInt(key);
-    if (i >= 1 && i <= MAX_VOICECOUNT && config.midi_mode == MIDI_MODE_MPE) {
-        dis.voicecount = i;
+    if (auto i = int_in(P("voice"), 1, MAX_VOICECOUNT); i && config.midi_mode == MIDI_MODE_MPE) {
+        dis.voicecount = *i;
         sendcfg = true;
     }
     dis.channels_changed();
 
-    key[0] = 'f';
-    strset(key, 3, "thres");
-    f = getConfigFloat(key);
-    if (f >= 0.0f && f <= 1.0f) {
-        config.zero_offset = clamp(f, 0.0f, 0.5f) * (1 << 24);
+    if (auto f = float_in(P("thres"), 0.0f, 1.0f)) {
+        config.zero_offset = clamp(*f, 0.0f, 0.5f) * (1 << 24);
     }
 
-    strset(key, 3, "bendS");
-    f = getConfigFloat(key);
-    if (f >= -10.0f && f <= 10.0f) {
-        dis.bend_sensitivity = f * 2;
+    if (auto f = float_in(P("bendS"), -10.0f, 10.0f)) {
+        dis.bend_sensitivity = *f * 2;
     }
 
-    strset(key, 3, "presS");
-    f = getConfigFloat(key);
-    if (f >= 0.0f && f <= 10.0f) {
-        dis.pres_sensitivity = f;
+    if (auto f = float_in(P("presS"), 0.0f, 10.0f)) {
+        dis.pres_sensitivity = *f;
     }
 
-    strset(key, 3, "veloS");
-    f = getConfigFloat(key);
-    if (f >= 0.0f && f <= 10.0f) {
-        dis.velo_sensitivity = f;
+    if (auto f = float_in(P("veloS"), 0.0f, 10.0f)) {
+        dis.velo_sensitivity = *f;
     }
 
-    strset(key, 3, "tiltS");
-    f = getConfigFloat(key);
-    if (f >= -10.0f && f <= 10.0f) {
-        dis.y_sensitivity = f;
+    if (auto f = float_in(P("tiltS"), -10.0f, 10.0f)) {
+        dis.y_sensitivity = *f;
     }
 
     // volume and decays are 0..127 (config.h); up to 254 gave 4x the knob's maximum gain (+12 dB)
     // and a pedal value of 2 (SC-13)
-    strset(key, 3, "volum");
-    f = getConfigFloat(key);
-    if (f >= 0.0f && f < 255.0f) {
-        set_volume(min(f, 127.0f));
+    if (auto f = float_below(P("volum"), 0.0f, 255.0f)) {
+        set_volume(min(*f, 127.0f));
     }
 
-    strset(key, 3, "decay");
-    f = getConfigFloat(key);
-    if (f >= 0.0f && f < 255.0f) {
-        f = min(f, 127.0f);
-        config.pedal_sw1_values[0] = f;
-        *dis.synth_pedal() = f * (1.0f/127.0f);
+    if (auto f = float_below(P("decay"), 0.0f, 255.0f)) {
+        f = min(*f, 127.0f);
+        config.pedal_sw1_values[0] = *f;
+        *dis.synth_pedal() = *f * (1.0f/127.0f);
     }
 
-    strset(key, 3, "decaP");
-    f = getConfigFloat(key);
-    if (f >= 0.0f && f < 255.0f) {
-        config.pedal_sw1_values[1] = min(f, 127.0f);
+    if (auto f = float_below(P("decaP"), 0.0f, 255.0f)) {
+        config.pedal_sw1_values[1] = min(*f, 127.0f);
     }
 
-    key[0] = 'i';
-
-    strset(key, 3, "veloO");
-    i = getConfigInt(key);
-    if (i >= 0 && i <= 127) {
-        dis.midi_velo_offset = i;
+    if (auto i = int_in(P("veloO"), 0, 127)) {
+        dis.midi_velo_offset = *i;
     }
 
     if (sendcfg) {
         midi_config();
     }
 
-    strset(key, 3, "Mpgm ");
-    i = getConfigInt(key);
-    if (i >= 0 && i <= 127) {
+    if (auto i = int_in(P("Mpgm"), 0, 127)) {
         if (config.midi_mode == MIDI_MODE_POLY) {
             // Normal mode has one channel (it went to voicecount channels, SC-19)
-            MidiSend2(MIDI_PROGRAM_CHANGE | dis.voice_channel(0), i);
+            MidiSend2(MIDI_PROGRAM_CHANGE | dis.voice_channel(0), *i);
         } else {
             if (dis.midi_channel_offset == 1) {
-                MidiSend2(MIDI_PROGRAM_CHANGE, i);
+                MidiSend2(MIDI_PROGRAM_CHANGE, *i);
             }
-            for (int n = 0; n < dis.voicecount; n++) {
-                MidiSend2(MIDI_PROGRAM_CHANGE | dis.voice_channel(n), i);
+            for (int c = 0; c < dis.voicecount; c++) {
+                MidiSend2(MIDI_PROGRAM_CHANGE | dis.voice_channel(c), *i);
             }
         }
     }
@@ -2069,18 +2010,6 @@ static bool settings_key_allowed(int id) {
     return k && (k->flags & SKF_CONSOLE) && settings_key_present(k);
 }
 
-// the factory value of a config key (config.h), NULL if it has none
-static const char* default_setting(const char* key) {
-    for (const ConfigParam* c = default_config; !cmp8(c->key, "MCfgEnd ") && c->key[0] >= 32 && c->key[0] < 127; c++)
-        if (cmp8(c->key, key)) return c->value;
-    return NULL;
-}
-
-static bool setting_is_factory(const char* key) {
-    const char* d = default_setting(key);
-    return d && cmp8(getConfigSetting(key), d);
-}
-
 // a config value (8 characters) as text: trailing spaces off, '|' and control characters as '?';
 // as a label (no_spaces) without spaces and at most 6 characters
 static void setting_text(const char* v, char* out, bool no_spaces) {
@@ -2093,6 +2022,17 @@ static void setting_text(const char* v, char* out, bool no_spaces) {
         if (c != ' ') end = n;
     }
     out[end] = 0;
+}
+
+// the board's setting key as text (setting_text); out of line, as the next: StcX runs on main's
+// 1 kB stack, and these keep the table and its values out of its frame
+__attribute__((noinline)) static void config_setting_text(settings::KeyName key, char* out, bool no_spaces) {
+    setting_text(settings::board().raw(key).value_or("        ").data(), out, no_spaces);
+}
+
+// key's value is its default
+__attribute__((noinline)) static bool config_is_default(settings::KeyName key) {
+    return settings::board().is_default(key);
 }
 
 // StcX: the layout, "X keys <n>", one line per key present (ascending id), "X end"; line format:
@@ -2115,27 +2055,20 @@ void synth_settings_keys_print(void* chp) {
         if (f) flags[f] = 0;
         const char* lab = k->label;
         const char* tit = k->title;
+        using settings::KeyName;
         if (k->group == SG_TUNING) {
             const int n = k->arg;
-            CC_ALIGN(8) char key[] = "sT0name ";
-            key[2] = '0' + n;
             bool factory = n == 0;  // tuning 0 is built in
             if (!factory) {
-                factory = setting_is_factory(key);
-                key[0] = 'f';
-                strset(key, 3, "fifth");
-                factory = factory && setting_is_factory(key);
-                strset(key, 3, "oct  ");
-                factory = factory && setting_is_factory(key);
+                factory = config_is_default(KeyName::tuning(n, "name")) &&
+                          config_is_default(KeyName::tuning(n, "fifth")) && config_is_default(KeyName::tuning(n, "oct"));
             }
             if (factory) {
                 lab = tuning_names[n][1];
                 chsnprintf(title, sizeof title, "Tuning %d: %s", n, tuning_names[n][0]);
             } else {
-                key[0] = 's';
-                strset(key, 3, "name ");
-                setting_text(getConfigSetting(key), label, true);
-                setting_text(getConfigSetting(key), name, false);
+                config_setting_text(KeyName::tuning(n, "name"), label, true);
+                config_setting_text(KeyName::tuning(n, "name"), name, false);
                 if (!label[0]) strcpy(label, "T?");
                 lab = label;
                 chsnprintf(title, sizeof title, "Tuning %d: %s (from the config)", n, name);
@@ -2143,10 +2076,8 @@ void synth_settings_keys_print(void* chp) {
             tit = title;
         } else if (k->group == SG_PRESET) {
             // a preset named in the config (sP<n>name) other than its factory name
-            CC_ALIGN(8) char key[] = "sP0name ";
-            key[2] = '0' + k->arg;
-            if (!setting_is_factory(key)) {
-                setting_text(getConfigSetting(key), name, false);
+            if (!config_is_default(KeyName::preset(k->arg, "name"))) {
+                config_setting_text(KeyName::preset(k->arg, "name"), name, false);
                 chsnprintf(title, sizeof title, "%s: %s", k->title, name);
                 tit = title;
             }
@@ -3029,32 +2960,40 @@ void synth_state_print(void* chp) {
              o.flipdir < 0 ? 1 : 0, rgb[0], rgb[1], rgb[2], updown);
 }
 
+// the general settings at boot, out of line: main calls synth_control_init, and main's stack is
+// 1 kB (load_preset's deepest path runs on it)
+__attribute__((noinline)) static int boot_preset(void) {
+    const std::optional<int> i = settings::board().get_int(settings::KeyName::general("preset"));
+    return i && *i >= 1 && *i <= 8 ? *i : 0;
+}
+
+__attribute__((noinline)) static void boot_settings(void) {
+    using settings::KeyName;
+    const settings::ConfigTable cfg = settings::board();
+    if (auto i = cfg.get_int(KeyName::general("oct")); i && *i >= -2 && *i <= 2) {
+        dis.change_note_offset(*i * dis.notegen0);
+    }
+
+    // deprecated, keep loading if setting still exists
+    if (auto i = cfg.get_int(KeyName::general("motion")); i && *i >= 0 && *i <= 127) {
+        config.send_motion_interval = *i;
+    }
+
+    if (cfg.is(KeyName::general("altkey"), "pedal")) {
+        config.altkey_pedal = true;
+    }
+    if (cfg.is(KeyName::general("keyord"), "swap")) {
+        config.key_swap = true;
+    }
+}
+
 void synth_control_init(void) {
     // Load general settings. Use default settings when portamento key is pressed on boot
     if (palReadLine(LINE_BUTTON_PORT)) {
-        int i = getConfigInt("iGpreset");
-        if (i >= 1 && i <= 8) {
-            load_preset(i);
+        if (const int preset = boot_preset()) {
+            load_preset(preset);
         }
-        i = getConfigInt("iGoct   ");
-        if (i >= -2 && i <= 2) {
-            dis.change_note_offset(i * dis.notegen0);
-        }
-
-        // deprecated, keep loading if setting still exists
-        i = getConfigInt("iGmotion");
-        if (i >= 0 && i <= 127) {
-            config.send_motion_interval = i;
-        }
-
-        const char* s = getConfigSetting("sGaltkey");
-        if (cmp8(s, "pedal   ")) {
-            config.altkey_pedal = true;
-        }
-        s = getConfigSetting("sGkeyord");
-        if (cmp8(s, "swap    ")) {
-            config.key_swap = true;
-        }
+        boot_settings();
     }
 }
 

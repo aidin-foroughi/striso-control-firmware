@@ -2,15 +2,13 @@
 // user's per-key factors and zero offsets from the config (fCfac<key>, fCoff<key>), and StcC's
 // reset. S11: the factors must apply at boot whether or not the board has its calibration
 // record, with the range the live setter (buttonSetKeyFactor) accepts, and no c_force may go to
-// the positions without a key. The flash settings table is mapped at its board address.
-#include <sys/mman.h>
-
+// the positions without a key. The user's settings page is a test page (config_page.hpp).
 #include <array>
-#include <cerrno>
 #include <cstring>
 #include <string>
 #include <vector>
 
+#include "config_page.hpp"
 #include "doctest/doctest.h"
 
 extern "C" {
@@ -23,36 +21,13 @@ namespace {
 constexpr int32_t kCalibForce = (1 << 18) / 64 + 1; // config.h CALIB_FORCE
 constexpr std::array<int, 7> kNoKey = {52, 54, 57, 59, 61, 64, 66};
 
-// the board's config flash page (0x08020000), shared with test_config_store.cpp's
-char* flash() {
-	static char* page = [] {
-		void* want = reinterpret_cast<void*>(flash_config);
-		void* p = mmap(want, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
-		if (p == MAP_FAILED && errno == EEXIST) return static_cast<char*>(want);
-		if (p == MAP_FAILED || p != want) return static_cast<char*>(nullptr);
-		return static_cast<char*>(p);
-	}();
-	return page;
-}
-
-// user settings: the given records between the start and end tags
+// user settings: the given records between the start and end tags (the user's settings page)
+std::vector<ConfigParam> page;
 void settings(const std::vector<std::pair<std::string, std::string>>& recs) {
-	char* f = flash();
-	REQUIRE_MESSAGE(f != nullptr, "0x08020000 is not mappable on this host");
-	std::memset(f, 0xff, 4096);
-	std::vector<ConfigParam> t;
-	auto add = [&](const std::string& k, const std::string& v) {
-		ConfigParam p{};
-		std::memset(&p, ' ', sizeof p);
-		std::memcpy(p.key, k.data(), std::min<size_t>(8, k.size()));
-		std::memcpy(p.value, v.data(), std::min<size_t>(8, v.size()));
-		t.push_back(p);
-	};
-	add("MConfig ", "v1.0");
-	for (const auto& [k, v] : recs) add(k, v);
-	add("MCfgEnd ", "");
-	std::memcpy(f, t.data(), t.size() * sizeof(ConfigParam));
+	page = config_page(recs);
+	config_test_page = page;
 }
+void no_settings() { config_test_page = {}; }
 
 std::string key_name(int n) {
 	char k[4] = {};
@@ -97,7 +72,7 @@ TEST_CASE("key calibration: a calibrated board, the user's key factors and zero 
 	const int other = button_number_map[k + 1];
 	CHECK(b.cal[other].c_force == b.factory[other]);
 	CHECK(b.factor[k + 1] == 1.0f);
-	std::memset(flash(), 0xff, 4096);
+	no_settings();
 }
 
 TEST_CASE("key calibration S11: the key factors apply on a board without its calibration record") {
@@ -109,7 +84,7 @@ TEST_CASE("key calibration S11: the key factors apply on a board without its cal
 	CHECK(b.factor[k] == 3.0f); // what Striso Live reads back (StcK)
 	CHECK(b.cal[but].c_force == static_cast<int32_t>(kCalibForce * 3.0f + 0.5f));
 	CHECK(b.zero[but] == (1 << 24) / 2);
-	std::memset(flash(), 0xff, 4096);
+	no_settings();
 }
 
 TEST_CASE("key calibration S11: a factor the live setter refuses doesn't apply at boot either") {
@@ -122,11 +97,11 @@ TEST_CASE("key calibration S11: a factor the live setter refuses doesn't apply a
 	CHECK(b.factor[k] == 1.0f);
 	CHECK(b.cal[button_number_map[k + 1]].c_force == b.factory[button_number_map[k + 1]]);
 	CHECK(b.cal[button_number_map[k + 2]].c_force == b.factory[button_number_map[k + 2]]);
-	std::memset(flash(), 0xff, 4096);
+	no_settings();
 }
 
 TEST_CASE("key calibration S11: no c_force for the positions without a key") {
-	std::memset(flash(), 0xff, 4096);
+	no_settings();
 	std::array<uint16_t, SCAN_BUTTONS> calib = factory_calib();
 	for (int n : kNoKey) calib[n] = 1234; // a calibration record with values there
 	const Boot b = boot(true, 0x02, calib);

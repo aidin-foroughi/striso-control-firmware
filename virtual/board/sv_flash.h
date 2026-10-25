@@ -1,6 +1,7 @@
-/* The board's fixed flash addresses (config.h, config_store.h) moved to the virtual board's flash:
+/* The board's fixed flash addresses (config.h) moved to the virtual board's flash:
  * the front's sv_shared (fw_api.h), which a reset leaves alone. Included after config.h by the
- * files that compile a firmware file with its flash reads (fw_*.c) and by the board glue. */
+ * files that compile a firmware file with its flash reads (fw_*.c) and by the board glue. The
+ * user's settings page is config_page_host.cpp. */
 #ifndef SV_FLASH_H
 #define SV_FLASH_H
 
@@ -9,8 +10,6 @@
 #include "fw_api.h"
 #include "sv_host.h"
 
-#undef flash_config
-#define flash_config ((ConfigParam*)(svh_shared->flash))
 #undef devspec_id
 #define devspec_id ((devspec_id_t*)(svh_shared->devspec))
 #undef calib_dis_force

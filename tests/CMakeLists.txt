@@ -3,7 +3,8 @@
 #   unit.*      doctest cases (striso_tests): live-parameter fuzz of every engine and the effects,
 #               the tuning math of the StcN command (every key's pitch matches its name),
 #               the bowed engine's seed bounds, the parameter tables, the config record format
-#               (config_store.c), the DSP headers compiling on their own
+#               and its schema (config_store.cpp, config_schema.hpp), the DSP headers compiling
+#               on their own
 #   usb_audio_core   tools/usbaudio/test_core.c: the USB audio ring and clock servo simulation
 #   striso_py   tools/striso.py's UF2 and config record handling (no board needed)
 #   render.<voice>[.p<preset>].<performance>   every engine and preset renders the default
@@ -40,17 +41,18 @@ add_executable(striso_tests
   test_tuning.cpp
   test_key_calibration.cpp
   config_defaults.c
-  "${PROJECT_SOURCE_DIR}/src/app/config_store.c"
+  config_page.cpp
+  "${PROJECT_SOURCE_DIR}/src/app/config_store.cpp"
   "${PROJECT_SOURCE_DIR}/src/drivers/key_calibration.c")
 target_include_directories(striso_tests PRIVATE
   "${CMAKE_CURRENT_BINARY_DIR}/generated"
   "${PROJECT_SOURCE_DIR}/third_party/doctest"
   "${PROJECT_SOURCE_DIR}/tools/harness"
-  "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
   "${PROJECT_SOURCE_DIR}/src/app"
   "${PROJECT_SOURCE_DIR}/src/drivers"
   "${PROJECT_SOURCE_DIR}/src/synth")
-target_compile_definitions(striso_tests PRIVATE "STRISO_REC_DIR=\"${PROJECT_SOURCE_DIR}/tools/harness/rec\"")
+target_compile_definitions(striso_tests PRIVATE "STRISO_REC_DIR=\"${PROJECT_SOURCE_DIR}/tools/harness/rec\""
+  "STRISO_GOLDEN_DIR=\"${PROJECT_SOURCE_DIR}/tests/golden\"")
 target_link_libraries(striso_tests PRIVATE striso::dsp striso_host_options)
 # the DSP as the renderers build it (reproducible float results)
 target_compile_options(striso_tests PRIVATE -O2 -ffp-contract=off)
@@ -131,7 +133,7 @@ if(EXISTS "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c")
   add_test(NAME usb_obq_discard COMMAND test_obq_discard)
   set_tests_properties(usb_obq_discard PROPERTIES LABELS unit)
   # console_sim: the USB console and USB MIDI in end to end (R1, R3-R10): the real pconnection.c,
-  # bulk_usb.c, midi_usb.c, config_store.c and ChibiOS hal_buffers.c/chprintf.c against a fake USB
+  # bulk_usb.c, midi_usb.c, config_store.cpp and ChibiOS hal_buffers.c/chprintf.c against a fake USB
   # controller and a host that parses like Striso Live. chprintf.c gets a larger digit buffer:
   # on the 64-bit host "%lx" of a uint32_t reads 64 bits (on the board long is 32 bits).
   set(_streams "${STRISO_CHIBIOS_DIR}/os/hal/lib/streams")
@@ -139,11 +141,11 @@ if(EXISTS "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c")
   string(REPLACE "#define MAX_FILLER 11" "#define MAX_FILLER 23" _chprintf "${_chprintf}")
   file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/chprintf_lp64.c" CONTENT "${_chprintf}" @ONLY)
   add_executable(test_console_sim
-    console_sim/test_console_sim.c console_sim/sim.c config_defaults.c
+    console_sim/test_console_sim.c console_sim/sim.c config_defaults.c config_page.cpp
     "${PROJECT_SOURCE_DIR}/src/app/pconnection.c"
     "${PROJECT_SOURCE_DIR}/src/usb/bulk_usb.c"
     "${PROJECT_SOURCE_DIR}/src/usb/midi_usb.c"
-    "${PROJECT_SOURCE_DIR}/src/app/config_store.c"
+    "${PROJECT_SOURCE_DIR}/src/app/config_store.cpp"
     "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/chprintf_lp64.c"
     "${_streams}/memstreams.c")

@@ -45,7 +45,7 @@ add_library(striso_virtual SHARED
   board/usb_audio_host.c
   board/stubs_host.c
   # the firmware's own files (fw_*: the file itself, compiled with the virtual board's flash)
-  board/fw_config_store.c
+  board/config_page_host.cpp
   board/fw_pconnection.c
   board/fw_usbcfg.c
   board/fw_synth_strisy.cpp
@@ -53,6 +53,7 @@ add_library(striso_virtual SHARED
   "${_fw}/usb/midi_usb.c"
   "${_fw}/synth/synth_control.cpp"
   "${_fw}/app/messaging.c"
+  "${_fw}/app/config_store.cpp"
   "${_fw}/drivers/key_calibration.c"
   "${_fw}/drivers/led.c")
 add_dependencies(striso_virtual striso_virtual_fwversion)
@@ -72,9 +73,7 @@ target_include_directories(striso_virtual
     "${_gen}")
 # as the firmware build (cmake/StrisoFirmware.cmake) for VOICE=all with the C++ engines
 target_compile_definitions(striso_virtual PRIVATE STRISO_VIRTUAL_BUILD SYNTH_ENGINE_STRISY SYNTH_VOICE_ALL
-  CORTEX_USE_FPU=TRUE _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS
-  # Windows UCRT: no POSIX-style names (its strset(char*, int) clashes with config_store.c strset)
-  _CRT_DECLARE_NONSTDC_NAMES=0)
+  CORTEX_USE_FPU=TRUE _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS)
 set_target_properties(striso_virtual PROPERTIES
   C_EXTENSIONS ON CXX_EXTENSIONS ON
   C_VISIBILITY_PRESET hidden CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON

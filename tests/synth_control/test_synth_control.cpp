@@ -1,8 +1,8 @@
 // synth_control.cpp on the PC: the firmware's key, MIDI and settings logic, compiled unchanged with
 // stubs for ChibiOS, the HAL, the leds and MIDI out (tests/synth_control/stubs), driven through its
 // real entry points (synth_message, MidiInMsgHandler, config_but, synth_touch_set, synth_tick).
-// The config is the real config_store.c with the firmware defaults (tests/config_defaults.c) and a
-// user settings table mapped at the board's flash address.
+// The config is the real config_store.cpp with the firmware defaults and a user settings page
+// (tests/config_page.cpp).
 //
 //   test_synth_control <scenario>       one scenario per process (the firmware's state is global);
 //                                       exit 1 if one of its checks fails (ctest synth_control.*)
@@ -20,8 +20,6 @@
 // the MAX_VOICECOUNT slots write to a dummy.
 //
 // Standard headers first: synth_control.cpp defines function-like macros min/max/clamp.
-#include <sys/mman.h>
-
 #include <cmath>
 #include <cstdarg>
 #include <cstdint>
@@ -36,6 +34,8 @@
 #include "striso_dsp/strisy.h" // (the end-to-end render; before the macros of synth_control.cpp)
 
 #include "synth_control.cpp"
+
+#include "config_page.hpp"
 
 // ------------------------------------------------------------------------------------------ stubs
 extern "C" {
@@ -101,51 +101,16 @@ extern "C" void serial_MidiSend1(uint8_t /*b0*/) {}
 extern "C" void serial_MidiSend2(uint8_t /*b0*/, uint8_t /*b1*/) {}
 extern "C" void serial_MidiSend3(uint8_t /*b0*/, uint8_t /*b1*/, uint8_t /*b2*/) {}
 
-// config lookups of keys that exist neither in the user table nor in default_config (linker --wrap)
-static std::vector<std::string> misses;
-extern "C" {
-const char* __real_getConfigSetting(const char* name);
-float __real_getConfigFloat(const char* name);
-int __real_getConfigInt(const char* name);
-unsigned int __real_getConfigHex(const char* name);
-static void check_key(const char* name) {
-	if (strcmp(__real_getConfigSetting(name), "(ERROR!)") == 0) misses.emplace_back(name, 8);
-}
-const char* __wrap_getConfigSetting(const char* name) {
-	check_key(name);
-	return __real_getConfigSetting(name);
-}
-float __wrap_getConfigFloat(const char* name) {
-	check_key(name);
-	return __real_getConfigFloat(name);
-}
-int __wrap_getConfigInt(const char* name) {
-	check_key(name);
-	return __real_getConfigInt(name);
-}
-unsigned int __wrap_getConfigHex(const char* name) {
-	check_key(name);
-	return __real_getConfigHex(name);
-}
-}
-
-// the user settings (config flash page at its board address, 0x08020000), as test_config_store.cpp
+// the user settings page (settings::user_page: tests/config_page.cpp), as the config editor writes
+// it: without the header the settings aren't used (R13)
 static ConfigParam* user_config() {
-	static ConfigParam* page = [] {
-		void* want = reinterpret_cast<void*>(flash_config);
-		void* p = mmap(want, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
-		if (p == MAP_FAILED || p != want) {
-			std::fprintf(stderr, "can't map the config flash page at %p\n", want);
-			std::exit(2);
-		}
-		auto* c = static_cast<ConfigParam*>(p);
-		// the header the config editor writes: without it the flash settings aren't used (R13)
-		memcpy(c[0].key, "MConfig ", 8);
-		memcpy(c[0].value, "v1.0    ", 8);
-		memcpy(c[1].key, "MCfgEnd ", 8);
-		return c;
+	static std::vector<ConfigParam> page = [] {
+		std::vector<ConfigParam> p = config_page({});
+		p.resize(512, p.back()); // room for the settings, every record after the last an end record
+		return p;
 	}();
-	return page;
+	config_test_page = page;
+	return page.data();
 }
 // set a user setting: key and value are padded to 8 characters
 static void set_cfg(const char* k, const char* v) {
@@ -1018,7 +983,7 @@ static void t_sc31_steal_dup() {
 
 // SC-35: a tuning with an absurd octave must not overflow the pitch bend's float -> int
 static void t_sc35_tuning_overflow() {
-	set_cfg("fT3oct", "9999999"); // (99999999 reads as 1e8: CONFIG_UNDEFINED)
+	set_cfg("fT3oct", "99999999");
 	config_but(23, 0, 0);
 	dis.midi_bend_range = 1;
 	const size_t m0 = midi_log.size();
@@ -1064,18 +1029,6 @@ static void t_b15_time_wrap() {
 	}
 	EXPECT(volume_linear == v1, "200 ms after the nudge (time wrapped): volume %g (expected %g)", volume_linear, v1);
 }
-
-// every config key the presets and tunings look up exists in default_config
-static void t_preset_keys() {
-	for (int p = 1; p <= 8; p++) load_preset(p);
-	for (int t = 1; t <= 8; t++) {
-		dis.cur_tuning = -1;
-		dis.load_tuning(t);
-	}
-	EXPECT(misses.empty(), "%zu config keys looked up that aren't in default_config", misses.size());
-	for (auto& m : misses) std::printf("    '%s'\n", m.c_str());
-}
-
 
 // ------------------------------------------------------------------------- MIDI note input
 static void note_on(int ch, int n, int v) { midi_in(0x90 | ch, n, v); }
@@ -1435,7 +1388,6 @@ static const Scenario scenarios[] = {
     {"sc35_tuning_overflow", t_sc35_tuning_overflow},
     {"sc37_blink", t_sc37_blink},
     {"sc38_no_synth", t_sc38_no_synth},
-    {"preset_keys", t_preset_keys},
     {"mi_mpe_note", t_mi_mpe_note},
     {"mi_mpe_initial", t_mi_mpe_initial},
     {"mi_one_channel", t_mi_one_channel},

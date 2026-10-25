@@ -87,11 +87,8 @@ void codec_linein_enable(void) {}
 void codec_linein_disable(void) {}
 void serial_midi_enable(void) {}
 void serial_midi_disable(void) {}
-const char* getConfigSetting(const char* k) {
-	(void)k;
-	return "auto    ";
-}
-int cmp8(const char* a, const char* b) { return memcmp(a, b, 8) == 0; }
+// the settings: sGjack2 (deprecated) is "auto"
+bool config_text_is(const char* key, const char* text) { return memcmp(key, "sGjack2 ", 8) == 0 && strcmp(text, "auto") == 0; }
 static int pedal_msgs, last_pedal1_msg = -1;
 int msgSend(int size, int* msg) {
 	(void)size;
