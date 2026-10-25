@@ -40,6 +40,7 @@ extern "C" {
 #include "tuning.h"
 #include "chprintf.h"
 #include "messaging.hpp"
+#include "striso_dsp/midi_in.h"
 
 #include <bit>
 #include <cstdint>
@@ -52,6 +53,7 @@ extern "C" {
 #define BUTTONCOUNT 68
 // notes from MIDI in: Button slots BUTTONCOUNT.. (they share the internal synth voices with the keys)
 #define MIDI_IN_NOTES 16
+static_assert(MIDI_IN_NOTES == striso::midi::NOTES, "a Button slot per MIDI in note");
 #define MAX_PORTAMENTO_BUTTONS 8
 static constexpr uint8_t MIDI_C_ALL_SOUND_OFF = 0x78;  // (midi.h has All Notes Off, 0x7b)
 
@@ -394,7 +396,6 @@ class Instrument {
         int cur_tuning = 0;
         float tuning_note_offset = 0;
         float note_offset = 0;
-        float midi_in_bend = 0;  // the part of note_offset from MIDI in pitch bend (SC-15)
         float start_note_offset = 62;
         float min_note_offset = 32;
         float max_note_offset = 92;
@@ -447,156 +448,52 @@ class Instrument {
         }
 
         /*
-         * MIDI note input: notes from MIDI in (USB MIDI, and the virtual board's sv_midi_write,
-         * which comes the same way) play the internal synth with the controls the keys give it:
-         * the note (fractional), pres, vpres, x (0) and y. Each note is a Button slot after the
-         * keys and takes an internal voice from the same pool (get_synth_voice), so keys and MIDI
-         * notes share the voices and steal from each other by the same rule. Nothing of it goes
-         * out as MIDI.
-         * - MPE: the lower zone, member channels 2 .. 1 + midi_in_members (an MCM on channel 1 sets
-         *   it; 15 at power on). Per member channel: its notes; pitch bend x the zone's bend range
-         *   (RPN 0, midi_bend_range, 48 at power on) on top of the note number; channel pressure
-         *   (or poly pressure) -> pres; CC74 -> y (64 = 0).
-         * - Every other channel (the master channel 1, or all of them with no zone: MCM 0): its
-         *   notes; poly pressure (that note) or channel pressure (all its notes) -> pres; the mod
-         *   wheel (CC1) -> y (0..1), CC74 -> y. Its pitch bend is the instrument's (+-2 semitones,
-         *   the keys too: midi_in_bend), which the MIDI notes also follow.
-         * - Note-on velocity -> vpres, a strike that fades in about 10 ms; until pressure comes,
-         *   pres is the velocity (a keyboard without aftertouch still sounds). Note-off velocity ->
-         *   the release (negative vpres). Sustain (CC64) is the pedal, as before.
-         * With all MIDI_IN_NOTES slots in use, a new note takes the oldest one.
+         * MIDI note input (striso_dsp/midi_in.h: the mapping, shared with the SDK's hosts): notes
+         * from MIDI in (USB MIDI, and the virtual board's sv_midi_write, which comes the same way)
+         * play the internal synth with the controls the keys give it. Each note is a Button slot
+         * after the keys and takes an internal voice from the same pool (get_synth_voice), so keys
+         * and MIDI notes share the voices and steal from each other by the same rule. Nothing of
+         * it goes out as MIDI. The Instrument is midi_in's host (the note_* calls below); the
+         * instrument's bend, the bend range (RPN 0), the zone (MCM) and the other CCs are
+         * midi_in_message's. Sustain (CC64) is the pedal, as before.
          */
-        struct MidiInNote {
-            int8_t channel = -1;  // -1: free
-            uint8_t key = 0;
-            bool pressure = false;  // pressure received: pres follows it, not the velocity
-            uint32_t age = 0;
-        };
-        MidiInNote midi_in[MIDI_IN_NOTES];
-        uint32_t midi_in_age = 0;
-        int midi_in_members = 15;
-        float midi_in_chan_bend[16] = {};  // semitones, member channels
-        float midi_in_chan_y[16] = {};
-        float midi_in_chan_pres[16] = {};
-        bool midi_in_chan_pres_set[16] = {};
-        volatile bool midi_in_strikes = false;  // a note's vpres is fading (synth_tick)
+        striso::midi::NoteInput midi_in;
 
-        bool midi_in_member(int channel) const {
-            return channel >= 1 && channel <= midi_in_members;
-        }
-
-        int midi_in_find(int channel, int key) const {
-            for (int s = 0; s < MIDI_IN_NOTES; s++) {
-                if (midi_in[s].channel == channel && midi_in[s].key == key) return s;
-            }
-            return -1;
-        }
-
-        // a held MIDI note's pres stays above 0 (pres 0 is a release for the engines)
-        static float midi_in_held_pres(float p) { return max(p, 1.0f / 127.0f); }
-
-        void midi_in_write(int s) {
+        // midi_in's host: a MIDI note's slot is the Button BUTTONCOUNT + s
+        void note_started(int s, const striso::midi::NoteSignals& n) {
             Button& b = buttons[BUTTONCOUNT + s];
-            int ch = midi_in[s].channel;
-            if (ch >= 0) {
-                b.note = midi_in[s].key + midi_in_bend + (midi_in_member(ch) ? midi_in_chan_bend[ch] : 0.0f);
-                b.but_y = midi_in_chan_y[ch];
-            }
+            b.state = STATE_ON;
+            b.vpres = n.vpres;
+            b.pres = n.pres;
+            b.but_x = n.but_x;
+            b.synth_vol = b.pres + b.vpres;  // a new note: no old estimate
+            get_synth_voice(BUTTONCOUNT + s);  // (-1: every voice plays a louder held note)
+        }
+
+        void note_changed(int s, const striso::midi::NoteSignals& n) {
+            Button& b = buttons[BUTTONCOUNT + s];
+            b.state = n.on ? STATE_ON : STATE_OFF;
+            b.note = n.note;
+            b.pres = n.pres;
+            b.vpres = n.vpres;
+            b.but_x = n.but_x;
+            b.but_y = n.but_y;
             b.vol0 = b.state == STATE_ON ? b.pres + b.vpres : -1.0f;
             if (b.synth_vol < b.vol0) b.synth_vol = b.vol0;
             update_synth_voice(BUTTONCOUNT + s);
         }
 
-        void midi_in_note_on(int channel, int key, int velo) {
-            int s = midi_in_find(channel, key);
-            for (int n = 0; s < 0 && n < MIDI_IN_NOTES; n++) {
-                if (midi_in[n].channel < 0) s = n;
-            }
-            if (s < 0) {  // all in use: the oldest
-                s = 0;
-                for (int n = 1; n < MIDI_IN_NOTES; n++) {
-                    if (midi_in[n].age < midi_in[s].age) s = n;
-                }
-                silence_synth_voice(BUTTONCOUNT + s);
-            }
-            MidiInNote& m = midi_in[s];
-            Button& b = buttons[BUTTONCOUNT + s];
-            m.channel = channel;
-            m.key = key;
-            m.age = ++midi_in_age;
-            m.pressure = midi_in_chan_pres_set[channel];  // MPE: the pressure sent before the note-on
-            b.state = STATE_ON;
-            b.vpres = velo * (1.0f / 127.0f);
-            b.pres = midi_in_held_pres(m.pressure ? midi_in_chan_pres[channel] : b.vpres);
-            b.but_x = 0.0f;
-            b.synth_vol = b.pres + b.vpres;  // a new note: no old estimate
-            midi_in_strikes = true;
-            get_synth_voice(BUTTONCOUNT + s);  // (-1: every voice plays a louder held note)
-            midi_in_write(s);
+        void note_silenced(int s) { silence_synth_voice(BUTTONCOUNT + s); }
+
+        void note_dropped(int s) {
+            silence_synth_voice(BUTTONCOUNT + s);
+            buttons[BUTTONCOUNT + s].state = STATE_OFF;
+            buttons[BUTTONCOUNT + s].vol0 = -1.0f;
         }
 
-        void midi_in_note_off(int channel, int key, int velo) {
-            int s = midi_in_find(channel, key);
-            if (s < 0) return;
-            Button& b = buttons[BUTTONCOUNT + s];
-            b.state = STATE_OFF;
-            b.pres = 0.0f;
-            b.vpres = -velo * (1.0f / 127.0f);
-            midi_in_write(s);
-            midi_in[s].channel = -1;
-            bool any = false;
-            for (int n = 0; n < MIDI_IN_NOTES; n++) any |= midi_in[n].channel == channel;
-            if (!any) midi_in_chan_pres_set[channel] = false;  // pressure is per note (MPE)
-        }
+        bool echoed(int channel) const { return note_out_recently(channel); }  // (SC-16)
 
-        // pressure 0..127 of the notes of a channel (key -1: channel pressure)
-        void midi_in_pressure(int channel, int key, int value) {
-            float p = value * (1.0f / 127.0f);
-            if (key < 0) {
-                midi_in_chan_pres[channel] = p;
-                midi_in_chan_pres_set[channel] = true;
-            }
-            for (int s = 0; s < MIDI_IN_NOTES; s++) {
-                if (midi_in[s].channel == channel && (key < 0 || midi_in[s].key == key)) {
-                    midi_in[s].pressure = true;
-                    buttons[BUTTONCOUNT + s].pres = midi_in_held_pres(p);
-                    midi_in_write(s);
-                }
-            }
-        }
-
-        // rewrite the notes of a channel (-1: all) after a change of its bend or y
-        void midi_in_update(int channel) {
-            for (int s = 0; s < MIDI_IN_NOTES; s++) {
-                if (midi_in[s].channel >= 0 && (channel < 0 || midi_in[s].channel == channel)) midi_in_write(s);
-            }
-        }
-
-        // the strikes fade (synth_tick, every 2 ms, through the message queue)
-        void midi_in_tick(void) {
-            bool fading = false;
-            for (int s = 0; s < MIDI_IN_NOTES; s++) {
-                Button& b = buttons[BUTTONCOUNT + s];
-                if (midi_in[s].channel >= 0 && b.vpres > 0.0f) {
-                    b.vpres = b.vpres > 0.01f ? b.vpres * 0.6f : 0.0f;
-                    fading |= b.vpres > 0.0f;
-                    midi_in_write(s);
-                }
-            }
-            midi_in_strikes = fading;
-        }
-
-        void midi_in_all_off(void) {
-            for (int s = 0; s < MIDI_IN_NOTES; s++) {
-                if (midi_in[s].channel >= 0) {
-                    silence_synth_voice(BUTTONCOUNT + s);
-                    buttons[BUTTONCOUNT + s].state = STATE_OFF;
-                    buttons[BUTTONCOUNT + s].vol0 = -1.0f;
-                    midi_in[s].channel = -1;
-                }
-            }
-            for (int ch = 0; ch < 16; ch++) midi_in_chan_pres_set[ch] = false;
-        }
+        float bend_range() const { return midi_bend_range; }
 
         // the internal synth's pedal control; without an internal synth (synth_interface NULL) a
         // stand-in, so the pedal, decay and CC64 code doesn't dereference NULL (SC-38)
@@ -661,7 +558,7 @@ class Instrument {
         // the panic key: every note and sound off, MIDI and internal
         void panic(void) {
             end_all_notes();
-            midi_in_all_off();
+            midi_in.all_off(*this);
 #ifdef USE_MIDI_OUT
             // the MPE master channel, and every channel of the mode
             int first = config.midi_mode == MIDI_MODE_MPE && midi_channel_offset >= 1 ? -1 : 0;
@@ -792,7 +689,7 @@ class Instrument {
                 set_notegen1(7.0f);
                 reset_note_offsets();
                 tuning_note_offset = 0.0f;
-                note_offset = tuning_note_offset + midi_in_bend;
+                note_offset = tuning_note_offset + midi_in.bend();
                 led_rgb(tuning_color);
                 cur_tuning = n;
                 return;
@@ -811,7 +708,7 @@ class Instrument {
             f = getConfigFloat(key);
             if (f == CONFIG_UNDEFINED) f = 0.0f;
             tuning_note_offset = f / 100;
-            note_offset = tuning_note_offset + midi_in_bend;
+            note_offset = tuning_note_offset + midi_in.bend();
             for (int n = 0; n < 61; n++) {
                 put_button_name(n, &key[3]);
                 // the key that plays note n: on a flipped layout, the mirrored one (SC-12)
@@ -1630,7 +1527,7 @@ int synth_message(int size, int* msg) {
     if (src == ID_INTERNAL) {  // requests queued for this thread: StcK, MIDI in, its tick
         if (id == IDI_SETTINGS_KEY && size >= 1) settings_key_press(msg[0]);
         if (id == IDI_MIDI_IN && size >= 3) midi_in_message(msg[0], msg[1], msg[2]);
-        if (id == IDI_MIDI_IN_TICK) dis.midi_in_tick();
+        if (id == IDI_MIDI_IN_TICK) dis.midi_in.tick(dis);
         return 0;
     }
 
@@ -1810,7 +1707,7 @@ void load_preset(int n) {
     if (has_tuning || has_toff) {
         // the tuning's offset plus the preset's: a preset with a tuning and no Toff also clears an
         // earlier preset's Toff and the fine tune (load_tuning keeps them for the same tuning, SC-04)
-        dis.note_offset = dis.tuning_note_offset + (has_toff ? f / 100.0f : 0.0f) + dis.midi_in_bend;
+        dis.note_offset = dis.tuning_note_offset + (has_toff ? f / 100.0f : 0.0f) + dis.midi_in.bend();
     }
 
     key[0] = 'i';
@@ -2582,41 +2479,9 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
     }
 }
 
-// MIDI note input (Instrument::midi_in_*): true if the message was one
-static bool midi_in_note_message(uint8_t channel, uint8_t status, uint8_t data1, uint8_t data2) {
-    if (status == MIDI_NOTE_OFF || (status == MIDI_NOTE_ON && data2 == 0)) {
-        // (always: a note-off of a MIDI note that sounds is never an echo)
-        dis.midi_in_note_off(channel, data1, status == MIDI_NOTE_OFF ? data2 : 0);
-        return true;
-    }
-    bool note_data = status == MIDI_NOTE_ON || status == MIDI_POLY_PRESSURE || status == MIDI_CHANNEL_PRESSURE
-                     || (status == MIDI_PITCH_BEND && dis.midi_in_member(channel))
-                     || (status == MIDI_CONTROL_CHANGE && (data1 == 1 || data1 == 74));
-    if (!note_data) return false;
-    if (note_out_recently(channel)) return true;  // the keys' own notes, echoed (SC-16)
-    switch (status) {
-    case MIDI_NOTE_ON: dis.midi_in_note_on(channel, data1, data2); break;
-    case MIDI_POLY_PRESSURE: dis.midi_in_pressure(channel, data1, data2); break;
-    case MIDI_CHANNEL_PRESSURE: dis.midi_in_pressure(channel, -1, data1); break;
-    case MIDI_PITCH_BEND:
-        dis.midi_in_chan_bend[channel] = (float)((int)((data2<<7)+data1)-0x2000) * (1.0f/8192) * dis.midi_bend_range;
-        dis.midi_in_update(channel);
-        break;
-    default:  // CC1 (mod wheel, 0..1) or CC74 (64 = 0)
-        dis.midi_in_chan_y[channel] = data1 == 1 ? data2 * (1.0f/127.0f) : clamp((data2 - 64) * (1.0f/64.0f), -1.0f, 1.0f);
-        dis.midi_in_update(channel);
-        break;
-    }
-    return true;
-}
-
 static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2) {
-    // the selected RPN per channel, 0x7f/0x7f: none (as at power on, so a bare Data Entry does
-    // nothing; RPN 0/0 is the pitch bend range). An NRPN select deselects the RPN.
-    static uint8_t lastRPN_LSB[16] = {0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f,
-                                      0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f};
-    static uint8_t lastRPN_MSB[16] = {0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f,
-                                      0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f, 0x7f};
+    // the selected RPN per channel (RPN 0/0 is the pitch bend range)
+    static striso::midi::RpnSelect rpn;
 
     uint8_t channel = status & 0x0f;
     status &= 0xf0;
@@ -2632,7 +2497,7 @@ static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2) {
         (void)messaging::send(Source::midi, channel, status >> 4, data1, data2);
     }
 
-    if (status != 0xf0 && midi_in_note_message(channel, status, data1, data2)) {
+    if (status != 0xf0 && dis.midi_in.message(dis, channel, status, data1, data2)) {
         return;
     }
     if (status == MIDI_CONTROL_CHANGE && data1 < 120 && note_channel(channel) && note_cc(data1)) {
@@ -2644,27 +2509,23 @@ static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2) {
     }
 
     if (status == MIDI_CONTROL_CHANGE) {
+        if (rpn.control(channel, data1, data2)) return;
         switch (data1) {
-            case MIDI_C_RPN_LSB: lastRPN_LSB[channel] = data2; break;
-            case MIDI_C_RPN_MSB: lastRPN_MSB[channel] = data2; break;
-            case MIDI_C_NONRPN_LSB:
-            case MIDI_C_NONRPN_MSB: lastRPN_LSB[channel] = lastRPN_MSB[channel] = 0x7f; break;
             case MIDI_C_DATA_ENTRY: {
-                const uint8_t lastRPN_LSB_ch = lastRPN_LSB[channel], lastRPN_MSB_ch = lastRPN_MSB[channel];
-                if (lastRPN_LSB_ch == 0 && lastRPN_MSB_ch == 0) {
+                if (rpn.is(channel, 0, 0)) {
                     // pitch bend range of the notes: at least 1 (0 divides by zero). An MPE host
                     // sends one per channel; the master channel's (2) is not the notes' range.
                     bool mpe_master = config.midi_mode == MIDI_MODE_MPE && dis.midi_channel_offset == 1 && channel == 0;
                     if (data2 >= 1 && !mpe_master) {
                         dis.midi_bend_range = data2;
                     }
-                } else if (lastRPN_LSB_ch == 6 && lastRPN_MSB_ch == 0) {
+                } else if (rpn.is(channel, 0, 6)) {
                     // MPE Configuration Message: the lower zone (master channel 1) with data2 member
                     // channels. 0 (zone off) is ignored rather than leaving no channel; the upper
                     // zone (master channel 16) isn't supported. The same configuration again (an
                     // echo of midi_config's) changes nothing.
                     if (channel == 0 && data2 <= 15) {
-                        dis.midi_in_members = data2;  // the zone of MIDI note input (0: none)
+                        dis.midi_in.set_members(data2);  // the zone of MIDI note input (0: none)
                     }
                     if (channel == 0 && data2 >= 1 && data2 <= MAX_VOICECOUNT
                         && !(config.midi_mode == MIDI_MODE_MPE && dis.midi_channel_offset == 1 && dis.voicecount == data2)) {
@@ -2673,7 +2534,7 @@ static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2) {
                         dis.voicecount = data2;
                         dis.channels_changed();
                     }
-                } else if (lastRPN_LSB_ch == 1 && lastRPN_MSB_ch == 0) {
+                } else if (rpn.is(channel, 0, 1)) {
                     // TODO: Tuning, done with pitch bend
                 }
             } break;
@@ -2742,10 +2603,9 @@ static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2) {
         // preset's and the fine tune (it replaced them all, SC-15); not on the channels the
         // Striso sends its notes' bends on (an echo, SC-16)
         if (!note_channel(channel)) {
-            float bend = (float)((int)((data2<<7)+data1)-0x2000) * (2.0f/8192);
-            dis.note_offset += bend - dis.midi_in_bend;
-            dis.midi_in_bend = bend;
-            dis.midi_in_update(-1);
+            float bend = striso::midi::instrument_bend(data1, data2);
+            dis.note_offset += bend - dis.midi_in.bend();
+            dis.midi_in.set_bend(dis, bend);
         }
     }
 }
@@ -3052,7 +2912,7 @@ void synth_control_init(void) {
 
 void synth_tick(void) {
     dis.tick();
-    if (dis.midi_in_strikes) {
+    if (dis.midi_in.fading()) {
         (void)messaging::send(Source::internal, IDI_MIDI_IN_TICK);  // (a full queue: the next tick)
     }
     // system reset (settings + key 67) waits for the settings button to be released: reset while it's

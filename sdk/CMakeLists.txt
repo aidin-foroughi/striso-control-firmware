@@ -160,7 +160,7 @@ target_compile_definitions(striso_performances PRIVATE _USE_MATH_DEFINES)
 target_compile_options(striso_performances PRIVATE -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter)
 
 # --- the SDK: MIDI in, MIDI files, the players, the shell ---------------------------------------------
-add_library(striso_sdk STATIC src/midi_in.cpp src/smf.cpp src/shell.cpp src/performance.cpp)
+add_library(striso_sdk STATIC src/midi_voices.cpp src/smf.cpp src/shell.cpp src/performance.cpp)
 target_include_directories(striso_sdk PRIVATE "${STRISO_HARNESS_DIR}")
 target_link_libraries(striso_sdk PUBLIC striso_sdk_options striso_effect_fx)
 

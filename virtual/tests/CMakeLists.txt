@@ -6,7 +6,7 @@
 #   virtual.midi in: *   MIDI note input through sv_midi_write (sounds, falls silent, no echo)
 include("${PROJECT_SOURCE_DIR}/third_party/doctest/cmake/doctest.cmake")
 
-add_executable(striso_virtual_tests main.cpp test_api.cpp test_message_path.cpp test_protocol.cpp test_midi_in.cpp test_state.cpp)
+add_executable(striso_virtual_tests main.cpp test_api.cpp test_message_path.cpp test_protocol.cpp test_midi_in.cpp test_midi_shell.cpp test_state.cpp)
 target_include_directories(striso_virtual_tests PRIVATE
   "${PROJECT_SOURCE_DIR}/third_party/doctest"
   "${PROJECT_SOURCE_DIR}/tools/harness")
@@ -14,7 +14,7 @@ target_compile_definitions(striso_virtual_tests PRIVATE
   "STRISO_GOLDEN_FILE=\"${PROJECT_SOURCE_DIR}/tests/golden/renders.txt\""
   "STRISO_REC_DIR=\"${PROJECT_SOURCE_DIR}/tools/harness/rec\""
   "STRISO_TRANSCRIPTS=\"${CMAKE_CURRENT_SOURCE_DIR}/transcripts\"")
-target_link_libraries(striso_virtual_tests PRIVATE striso_virtual striso::dsp striso_host_options)
+target_link_libraries(striso_virtual_tests PRIVATE striso_virtual striso::dsp striso_sdk striso_engine_strisy striso_host_options)
 target_compile_options(striso_virtual_tests PRIVATE -O2 -ffp-contract=off)
 target_compile_definitions(striso_virtual_tests PRIVATE _USE_MATH_DEFINES _CRT_SECURE_NO_WARNINGS)
 if(APPLE)

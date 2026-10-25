@@ -3,7 +3,7 @@
 //              perf_stale.h: "stale", perf_<name>.h: "<name>"), deterministic
 //   keys       a recorded key stream (tools/record_keys.py CSV), replayed as the board's
 //              synth_control would play it (tools/harness/harness_util.h: load_recording)
-//   midi       a Standard MIDI File through the MIDI/MPE mapping (midi_in.h)
+//   midi       a Standard MIDI File through the board's MIDI/MPE mapping (midi_voices.h)
 // Each says what it is and where it came from (describe()), for the renderer's log.
 #ifndef STRISO_SDK_PERFORMANCE_H_
 #define STRISO_SDK_PERFORMANCE_H_
@@ -34,15 +34,13 @@ struct ScriptedPerformance {
 class Player {
 public:
 	virtual ~Player() = default;
-	// the controls of block b (blocks in order from 0): writes what changes, the rest stays
+	// the key signals of block b (blocks in order from 0): writes what changes, the rest stays;
+	// gate, strike and release follow from them (dsp::track_key, as on the board)
 	virtual void block(int b, dsp::VoiceControls* vc, dsp::GlobalControls& g) = 0;
 	// its natural length in seconds (a render's default)
 	[[nodiscard]] virtual double seconds() const = 0;
 	// what it is, for a log: kind, name, file (absolute), its size and checksum, its length
 	[[nodiscard]] virtual std::string describe() const = 0;
-	// true: it sets gate, strike and release itself (MIDI); false: they follow from the key
-	// signals (dsp::track_key, as on the board)
-	[[nodiscard]] virtual bool note_events() const { return false; }
 };
 
 // nullptr and a reason in *error if it can't play (unknown name, unreadable file, no events)

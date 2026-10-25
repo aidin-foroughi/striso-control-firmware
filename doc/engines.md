@@ -139,7 +139,7 @@ Then measure:
 | `striso_engines` | Every engine by name: `sdk::engines()`, `find_engine()`, `find_preset()`. |
 | `striso_effect_fx` | The master effects: `sdk::fx_effect()`, `sdk::Effect`. |
 | `striso_performances` | The scripted performances of `tools/harness`: `performance.h` is "default", `perf_stale.h` is "stale" and `perf_<x>.h` is "<x>". |
-| `striso_sdk` | The MIDI/MPE mapping (`midi_in.h`), Standard MIDI Files (`smf.h`), the players (`performance.h`: scripted, key CSV, MIDI file) and the shell (`shell.h`). |
+| `striso_sdk` | MIDI in (`midi_voices.h`, on the board's mapping `striso_dsp/midi_in.h`), Standard MIDI Files (`smf.h`), the players (`performance.h`: scripted, key CSV, MIDI file) and the shell (`shell.h`). |
 | `striso_render` | The renderer (below). |
 
 The SDK builds on its own, without the firmware tree or ChibiOS: `cmake -S sdk -B build/sdk && cmake --build build/sdk && ctest --test-dir build/sdk`. It needs `dsp/`, `tools/harness/` (the performances, the key-stream replay, the recordings) and `third_party/doctest`. On the firmware repository's host presets it is part of the build.
@@ -174,14 +174,21 @@ The engines run 32-sample blocks, and a MIDI event takes effect at the next bloc
 
 #### MIDI in
 
-`sdk::MidiIn` is the board's MIDI note input mapping (`synth_control.cpp`, `Instrument::midi_in_*`):
-- The MPE lower zone: an MCM sets its member channels; per channel there is bend times the RPN 0 range, pressure and CC74.
-- The master channel's notes, with poly and channel pressure, CC1 and CC74, and its bend of Â±2 semitones.
-- Velocity becomes a strike that fades Ã—0.6 every 2 ms.
+`dsp/include/striso_dsp/midi_in.h` (`striso::midi::NoteInput`) is the one MIDI note input mapping. The board's `synth_control.cpp` runs it, and so does the SDK (`sdk::MidiVoices`, used by the shell and the renderer's MIDI files):
+- The MPE lower zone: its member channels (an MCM sets them); per channel, bend times the bend range (RPN 0), pressure and CC74.
+- The other channels' notes, with poly and channel pressure, CC1 and CC74, and their bend: the instrument's ±2 semitones.
+- Velocity becomes a strike that fades ×0.6 every 2 ms.
 - Note-off velocity becomes the release.
-- CC64 is the pedal.
+- With 16 notes held, a new one takes the oldest.
 
-**It is a second copy.** The board's code is part of its key handling and isn't separable yet: MIDI notes share the voices and the voice allocation with the keys, and it filters echoes of the board's own MIDI out. A change of the mapping must go to both until the board's MIDI in uses `MidiIn`. The voice allocation differs: here it is a free voice, then the longest released one, then the quietest held one if it is quieter than the new note; the board's is `get_synth_voice`.
+It is pure: no HAL, no heap. Its host does three things:
+- **Voices.** It gives the notes voices (`note_started`, `note_changed`, `note_silenced`, `note_dropped`). On the board these go to the key-voice allocator (`get_synth_voice`, shared with the keys); `sdk::MidiVoices` has its own allocator: a voice never used, else the one released longest ago, else none.
+- **Echoes.** It says which channels were its own MIDI out lately (`echoed`), so their echo isn't played.
+- **Bend range.** It gives the notes' bend range.
+
+MIDI is taken in 2 ms steps, as on the board: the strike fade first if one is fading, then the step's messages. The instrument-level messages stay with the host: the bend range, the MCM, the instrument's bend and the pedal (CC64); `RpnSelect` is shared. The board's host also does its remote-control CCs.
+
+`virtual.midi in: one MIDI file through the firmware and through the SDK's shell...` checks that the board and the shell give bit-identical engine controls for one MIDI file: ten notes, MPE and the master channel, bends, pressures, the pedal.
 
 ## Tests
 

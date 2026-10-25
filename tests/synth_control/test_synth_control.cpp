@@ -1159,7 +1159,7 @@ static void t_mi_one_channel() {
 	EXPECT(near(vc[a].but_y, 1.0f) && near(vc[b].but_y, 1.0f), "mod wheel 127: y %g %g", vc[a].but_y, vc[b].but_y);
 	bend(0, 0x3000); // channel 1: the instrument's bend, +-2: +1
 	EXPECT(near(vc[a].note, 61.0f) && near(vc[b].note, 65.0f), "pitch bend +1: notes %g %g", vc[a].note, vc[b].note);
-	EXPECT(near(dis.midi_in_bend, 1.0f), "the keys bend too: %g", dis.midi_in_bend);
+	EXPECT(near(dis.midi_in.bend(), 1.0f), "the keys bend too: %g", dis.midi_in.bend());
 	note_off(0, 60);
 	note_off(0, 64);
 	EXPECT(count_sounding() == 0, "after the note-offs: %d voices sound", count_sounding());
@@ -1174,13 +1174,13 @@ static void t_mi_one_channel() {
 // the zone from the MCM: members 2..6; channel 8 is a channel of its own
 static void t_mi_zone() {
 	rpn(0, 0, 6, 5);
-	EXPECT(dis.midi_in_members == 5, "members %d", dis.midi_in_members);
+	EXPECT(dis.midi_in.members() == 5, "members %d", dis.midi_in.members());
 	note_on(2, 60, 90); // channel 3: member
 	note_on(7, 72, 90); // channel 8: one channel
 	bend(2, 0x3000);    // member: its note, +24
 	EXPECT(voice_playing(84.0f) >= 0 && voice_playing(72.0f) >= 0, "member bend: only its note");
 	bend(7, 0x3000); // not a member: the instrument's bend, +1
-	EXPECT(voice_playing(85.0f) >= 0 && voice_playing(73.0f) >= 0, "channel 8's bend moves every note: %g", dis.midi_in_bend);
+	EXPECT(voice_playing(85.0f) >= 0 && voice_playing(73.0f) >= 0, "channel 8's bend moves every note: %g", dis.midi_in.bend());
 }
 
 // keys and MIDI notes share the internal voices and steal by the same rule

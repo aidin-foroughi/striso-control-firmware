@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "harness_util.h" // tools/harness: load_recording, the board's replay of a key stream
-#include "striso_sdk/midi_in.h"
+#include "striso_sdk/midi_voices.h"
 #include "striso_sdk/smf.h"
 
 namespace striso::sdk {
@@ -87,21 +87,22 @@ public:
 	Midi(std::string path, MidiFile f, int voices, int sample_rate) :
 	    path_(std::move(path)), f_(std::move(f)), in_(voices), sr_(sample_rate) {}
 	void block(int b, dsp::VoiceControls* vc, dsp::GlobalControls& g) override {
-		// the messages and the 2 ms strike ticks up to this block, in time order
+		// the 2 ms MIDI steps due by this block (as the board takes MIDI in), each with the
+		// messages that came before it
 		const double t = static_cast<double>(b) * dsp::BLOCK / sr_;
-		while (true) {
-			const bool ev = k_ < f_.events.size() && f_.events[k_].t <= t;
-			const bool tick = next_tick_ <= t;
-			if (!ev && !tick) break;
-			if (ev && (!tick || f_.events[k_].t <= next_tick_)) {
-				in_.message(f_.events[k_].bytes, f_.events[k_].len);
-				k_++;
-			} else {
-				in_.tick();
-				next_tick_ += MidiIn::TICK_SECONDS;
-			}
+		for (; static_cast<double>(steps_) * midi::TICK_SECONDS <= t; steps_++) {
+			const double ts = static_cast<double>(steps_) * midi::TICK_SECONDS;
+			for (; k_ < f_.events.size() && f_.events[k_].t <= ts; k_++) (void)in_.message(f_.events[k_].bytes, f_.events[k_].len);
+			in_.step();
 		}
-		for (int v = 0; v < in_.num_voices(); v++) vc[v] = in_.voices()[v];
+		for (int v = 0; v < in_.num_voices(); v++) {
+			const dsp::VoiceControls& m = in_.voices()[v];
+			vc[v].note = m.note;
+			vc[v].pres = m.pres;
+			vc[v].vpres = m.vpres;
+			vc[v].but_x = m.but_x;
+			vc[v].but_y = m.but_y;
+		}
 		g = in_.globals();
 	}
 	[[nodiscard]] double seconds() const override { return f_.seconds + 2.0; }
@@ -110,15 +111,14 @@ public:
 		std::snprintf(tail, sizeof tail, ": format %d, %d tracks, %zu channel messages, %.1f s", f_.format, f_.tracks, f_.events.size(), f_.seconds);
 		return "MIDI file " + file_identity(path_.c_str()) + tail;
 	}
-	[[nodiscard]] bool note_events() const override { return true; }
 
 private:
 	std::string path_;
 	MidiFile f_;
-	MidiIn in_;
+	MidiVoices in_;
 	int sr_;
 	size_t k_ = 0;
-	double next_tick_ = MidiIn::TICK_SECONDS;
+	uint64_t steps_ = 0;
 };
 
 } // namespace

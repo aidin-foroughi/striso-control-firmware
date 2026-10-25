@@ -7,7 +7,7 @@
 //   input (one of; default --perf default):
 //     --perf NAME       a scripted performance compiled in (--list shows them)
 //     --rec FILE.csv    a recorded key stream (tools/record_keys.py), as the board plays it
-//     --midi FILE.mid   a Standard MIDI File, through the MIDI/MPE mapping (sdk/include/striso_sdk/midi_in.h)
+//     --midi FILE.mid   a Standard MIDI File, through the board's MIDI/MPE mapping (striso_dsp/midi_in.h)
 //   --seconds S       length (default: the input's: 17.5 s, a recording's length + 2 s)
 //   --nv N            voices (default 10, the board's)
 //   --rate HZ         sample rate (default: the performance's, 48000)
@@ -193,8 +193,7 @@ int main(int argc, char** argv) {
 	double compute_s = 0;
 	for (int b = 0; b < nblocks; b++) {
 		player->block(b, vc.data(), g);
-		if (!player->note_events())
-			for (dsp::VoiceControls& c : vc) dsp::track_key(c);
+		for (dsp::VoiceControls& c : vc) dsp::track_key(c);
 		const auto t0 = std::chrono::steady_clock::now();
 		float buf[dsp::BLOCK];
 		float* const eo[1] = {buf};
