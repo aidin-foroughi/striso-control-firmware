@@ -55,6 +55,7 @@ void sim_halt(const char *reason, const char *func) {
 /* ---- threads: blocking waits run the scripted other side ---- */
 int (*sim_block_hook)(threads_queue_t *tqp);
 int sim_deadlocks;
+int sim_timeouts;
 int sim_sleeps;
 msg_t osalThreadEnqueueTimeoutS(threads_queue_t *tqp, sysinterval_t timeout) {
   if (timeout == TIME_IMMEDIATE) return MSG_TIMEOUT;
@@ -65,8 +66,14 @@ msg_t osalThreadEnqueueTimeoutS(threads_queue_t *tqp, sysinterval_t timeout) {
   }
   if (tqp->woken) return tqp->wake_msg;
   tqp->waiters--;
+  if (timeout != TIME_INFINITE) { /* nobody ends the wait: it times out */
+    sim_timeouts++;
+    sim_time += timeout;
+    sim_logf("TIMEOUT(%u ticks)\n", (unsigned)timeout);
+    return MSG_TIMEOUT;
+  }
   sim_deadlocks++;
-  sim_logf("BLOCKED-FOREVER(timeout=%s)\n", timeout == TIME_INFINITE ? "TIME_INFINITE" : "finite");
+  sim_logf("BLOCKED-FOREVER\n");
   return MSG_TIMEOUT;
 }
 void osalThreadDequeueNextI(threads_queue_t *tqp, msg_t msg) {

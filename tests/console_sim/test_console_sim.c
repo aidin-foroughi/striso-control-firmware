@@ -251,6 +251,52 @@ static void payload_as_commands(void) {
 	    !strstr(sim_log, "CALIBRATION RESET") && strstr(sim_log, "param_set(0,5,43637453)"));
 }
 
+/* B14: the host stops reading during a long reply. A wait for room times out (500 ms) and the rest
+ * of the reply is dropped: the main thread is back after one timeout, not blocked forever. */
+static int host_gone(threads_queue_t* tqp) {
+	(void)tqp;
+	return 0;
+}
+static void host_stops_reading(void) {
+	fresh();
+	sim_block_hook = host_gone;
+	sim_timeouts = 0;
+	systime_t t0 = sim_time;
+	host_cmd("Stcp", 4); /* 20 lines of parameters: more than the two 256-byte buffers */
+	PExReceive();
+	const int one_wait = !sim_deadlocks && sim_timeouts == 1 && sim_time - t0 == TIME_MS2I(500);
+	printf("    host gone: %d timed-out waits, %u ms, %d blocked forever\n", sim_timeouts,
+	    (unsigned)(sim_time - t0) / 2, sim_deadlocks);
+	t0 = sim_time;
+	host_cmd("Stcf", 4); /* the next reply, the host still gone: one wait again */
+	PExReceive();
+	const int next_one_wait = !sim_deadlocks && sim_timeouts == 2 && sim_time - t0 == TIME_MS2I(500);
+	check("B14: the host stops reading during a reply: one 500 ms wait per reply, no thread blocked forever",
+	    one_wait && next_one_wait && !sim_halted);
+
+	/* the host reads again: what was queued arrives, then the next reply whole */
+	sim_block_hook = sim_hook_reading_host;
+	sim_host_drain();
+	host_parser_t* p = calloc(1, sizeof *p);
+	hp_push(p, host_in[2], host_in_len[2]);
+	const int lines_before = p->lines;
+	host_in_len[2] = 0;
+	memset(p, 0, sizeof *p);
+	host_cmd("Stcp", 4);
+	PExReceive();
+	sim_host_drain();
+	hp_push(p, host_in[2], host_in_len[2]);
+	int lines_ok = p->lines == 20;
+	for (int i = 0; i < p->lines && i < 20; i++) {
+		char want[16];
+		snprintf(want, sizeof want, "%d param%02d ", i, i);
+		if (strncmp(p->line[i], want, strlen(want)) != 0) lines_ok = 0;
+	}
+	printf("    host back: %d lines of the cut replies, then %d lines\n", lines_before, p->lines);
+	check("B14: the host reads again: the next reply arrives whole", lines_ok && !sim_deadlocks && !p->truncated);
+	free(p);
+}
+
 int main(void) {
 	setvbuf(stdout, NULL, _IONBF, 0);
 	fresh();
@@ -280,6 +326,7 @@ int main(void) {
 	midi_case("R8: CC7 = 100: passed", 0x0b, 0xb0, 0x07, 0x64, 1);
 	midi_case("R8: program change (CIN 0xC): passed", 0x0c, 0xc0, 0x05, 0x00, 1);
 	out_64();
+	host_stops_reading();
 	printf(failures ? "console sim: %d FAILED\n" : "console sim: all passed\n", failures);
 	return failures ? 1 : 0;
 }

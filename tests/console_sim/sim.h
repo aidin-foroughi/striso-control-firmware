@@ -17,7 +17,7 @@ extern char sim_log[1 << 16];
 extern size_t sim_log_len;
 void sim_logf(const char *fmt, ...);
 void sim_log_clear(void);
-extern int sim_halted, sim_deadlocks, sim_sleeps, sim_resets, midi_in_calls;
+extern int sim_halted, sim_deadlocks, sim_timeouts, sim_sleeps, sim_resets, midi_in_calls;
 extern const char *sim_halt_reason;
 extern jmp_buf *sim_halt_jmp, *sim_reset_jmp;
 extern int (*sim_block_hook)(threads_queue_t *tqp);

@@ -1,7 +1,8 @@
 /* Host simulation of the parts of ChibiOS (RT 6.1.4 / HAL 7.1.5) the Striso app core uses.
  * The real hal_buffers.c, hal_streams.h, hal_channels.h, chprintf.c, bulk_usb.c, midi_usb.c and
  * console.cpp are compiled against this. Threads are not real: a blocking wait calls
- * sim_block_hook(), which plays the scripted "other side" (USB ISR, other threads). */
+ * sim_block_hook(), which plays the scripted "other side" (USB ISR, other threads); a timed wait
+ * that nothing ends advances the simulated clock by its timeout. */
 #ifndef SIM_HAL_H
 #define SIM_HAL_H
 #include <stdbool.h>
