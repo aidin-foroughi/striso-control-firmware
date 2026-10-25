@@ -2,7 +2,7 @@
  * striso_virtual: the Striso board's firmware logic on the PC, as a shared library.
  *
  * The same source files as the board (src/synth/synth_control.cpp, src/synth/synth_strisy.cpp
- * with every voice engine, src/app/pconnection.c, messaging.c, config_store.c, src/drivers/led.c)
+ * with every voice engine, src/app/console.cpp, messaging.c, config_store.c, src/drivers/led.c)
  * run on a small ChibiOS/HAL stand-in (virtual/hal), in virtual time: a deterministic scheduler
  * runs the firmware's threads one at a time by priority, the system tick (2 kHz), the codec's
  * block interrupt (48 kHz / 32) and the USB frame (1 kHz) come from the frames rendered. The

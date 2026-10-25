@@ -18,7 +18,7 @@ extern "C" {
 
 #define SV_FW_API_VERSION 1
 #define SV_DEVSPEC_SIZE 1024 /* 0x081e0000: devspec_id, calib_dis_force, _breakpoint, _force2 */
-#define SV_BOOTLOADER_SIGNATURE 0x71a21877u /* pconnection.c BOOTLOADER_RTC_SIGNATURE */
+#define SV_BOOTLOADER_SIGNATURE 0x71a21877u /* console.cpp kBootloaderRtcSignature */
 
 typedef struct sv_shared {
 	uint8_t flash[SV_FLASH_SIZE];      /* 0x08020000: the user config (flash_config) */

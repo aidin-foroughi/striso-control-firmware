@@ -12,7 +12,6 @@
 #include "usb_audio.h"
 #include "pconnection.h"
 
-void PExReceiveByte(unsigned char c);
 extern systime_t sim_time;
 extern char sim_log[1 << 16];
 extern size_t sim_log_len;

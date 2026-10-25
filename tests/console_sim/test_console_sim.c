@@ -1,5 +1,5 @@
 /* The USB console and USB MIDI in, end to end on the host (from the app-core review's scenarios):
- * the real pconnection.c, bulk_usb.c, midi_usb.c and ChibiOS hal_buffers.c/chprintf.c against a
+ * the real console.cpp, bulk_usb.c, midi_usb.c and ChibiOS hal_buffers.c/chprintf.c against a
  * fake USB controller (sim.c) and a host that parses what it receives like Striso Live
  * (host_parser.h, a C port of protocol.dart's StreamParser). Each case checks the fixed behaviour;
  * the review's finding it guards is in its name.

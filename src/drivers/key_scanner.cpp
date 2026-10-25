@@ -247,8 +247,8 @@ void ks_key_state(int b, int* status, int32_t* c_force, int32_t* zero_offset, in
 	*pres = k.pres;
 }
 
-void ks_capture(int seconds) {
-	auto* out = reinterpret_cast<BaseSequentialStream*>(&BDU1);
+void ks_capture(void* stream, int seconds) {
+	auto* out = static_cast<BaseSequentialStream*>(stream);
 	const Cap s = cap_state;
 	if (seconds > 0) {
 		if (s == Cap::armed || s == Cap::running || s == Cap::dumping) {

@@ -1,13 +1,17 @@
 /* Host simulation of the parts of ChibiOS (RT 6.1.4 / HAL 7.1.5) the Striso app core uses.
  * The real hal_buffers.c, hal_streams.h, hal_channels.h, chprintf.c, bulk_usb.c, midi_usb.c and
- * pconnection.c are compiled against this. Threads are not real: a blocking wait (TIME_INFINITE)
- * calls sim_block_hook(), which plays the scripted "other side" (USB ISR, other threads). */
+ * console.cpp are compiled against this. Threads are not real: a blocking wait calls
+ * sim_block_hook(), which plays the scripted "other side" (USB ISR, other threads). */
 #ifndef SIM_HAL_H
 #define SIM_HAL_H
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+
+#ifdef __cplusplus
+extern "C" { /* console.cpp */
+#endif
 
 /* ---- kernel types ---- */
 typedef int32_t msg_t;
@@ -157,4 +161,8 @@ void NVIC_SystemReset(void);
 extern systime_t sim_time;
 #define chVTGetSystemTimeX() (sim_time)
 #define chVTTimeElapsedSinceX(t) ((sysinterval_t)(sim_time - (t)))
+
+#ifdef __cplusplus
+}
+#endif
 #endif

@@ -1,7 +1,7 @@
 /* Host simulation runtime for tests/console_sim (from the app-core review's harness): a fake
  * OSAL, a fake USB device controller (the OTG driver's transfer contract), a scripted host, and
- * stand-ins for the synth, button and USB audio functions pconnection.c calls, with the real
- * ones' range checks and return values. The firmware code under test (pconnection.c,
+ * stand-ins for the synth, button and USB audio functions console.cpp calls, with the real
+ * ones' range checks and return values. The firmware code under test (console.cpp,
  * bulk_usb.c, midi_usb.c, ChibiOS hal_buffers.c and chprintf.c) is compiled as is. */
 #include <setjmp.h>
 #include <stdarg.h>
@@ -247,10 +247,10 @@ int buttonSetKeyFactor(int n, float f) {
   sim_logf("key_factor(%d)\n", n);
   return n >= 0 && n < 61 && f >= 0.1f && f <= 10.0f;
 }
-void buttonSetCalibration(void) { sim_logf("CALIBRATION RESET\n"); }
+void buttonSetCalibration(BaseSequentialStream *out) { (void)out; sim_logf("CALIBRATION RESET\n"); }
 void buttonPrintStats(BaseSequentialStream *out) { chprintf(out, "scanner stats\r\n"); }
 void buttonPrintKeys(BaseSequentialStream *out) { chprintf(out, "keys\r\n"); }
-void ks_capture(int seconds) { sim_logf("ks_capture(%d)\n", seconds); }
+void ks_capture(void *stream, int seconds) { (void)stream; sim_logf("ks_capture(%d)\n", seconds); }
 int synth_param_set(int target, int index, float value) {
   uint32_t b; memcpy(&b, &value, 4);
   sim_logf("param_set(%d,%d,%08x)\n", target, index, (unsigned)b);

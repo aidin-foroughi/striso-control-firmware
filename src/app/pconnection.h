@@ -17,15 +17,24 @@
  * Striso Control. If not, see <http://www.gnu.org/licenses/>.
  */
 
+// The USB console and USB MIDI in (console.cpp), for the main thread
 #ifndef __PCONNECTION_H
 #define __PCONNECTION_H
 
-void USBDMidiPoll(void);
-void PExTransmit(void);
-void PExReceive(void);
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// the USB drivers, then the device on the bus (waits 500 ms first)
 void InitPConnection(void);
-extern void BootLoaderInit(void);
-void LogTextMessage(const char* format, ...);
-int GetFirmwareID(void);
+// the console's bytes and the USB MIDI events that arrived; never blocks for long (a reply's
+// wait for the host times out)
+void PExReceive(void);
+// one console byte (PExReceive's; the tests feed bytes directly)
+void PExReceiveByte(unsigned char c);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

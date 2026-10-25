@@ -10,6 +10,7 @@ MODE="${1:-}"
 FILES='dsp/include/striso_dsp/strisy.h dsp/include/striso_dsp/fx.h dsp/include/striso_dsp/voice_*.h
   src/synth/synth_strisy.cpp src/synth/tuning.h
   src/drivers/key_scanner.h src/drivers/key_scanner.hpp src/drivers/key_scanner_capture.hpp src/drivers/key_scanner.cpp
+  src/app/console.hpp src/app/console.cpp src/app/midi_in_parser.hpp src/app/out_stream.hpp virtual/board/fw_console.cpp
   src/usb/usb_audio.c src/usb/usb_audio.h src/usb/usb_audio_core.h
   tools/harness/render_strisy.cpp tools/harness/harness_util.h tools/harness/fx_test.cpp
   tools/target_render/render_target.cpp tools/target_render/startup.c

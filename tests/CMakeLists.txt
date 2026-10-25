@@ -141,7 +141,7 @@ if(EXISTS "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c")
   target_compile_options(test_obq_discard PRIVATE -O1 -Wno-unused-parameter)
   add_test(NAME usb_obq_discard COMMAND test_obq_discard)
   set_tests_properties(usb_obq_discard PROPERTIES LABELS unit)
-  # console_sim: the USB console and USB MIDI in end to end (R1, R3-R10): the real pconnection.c,
+  # console_sim: the USB console and USB MIDI in end to end (R1, R3-R10): the real console.cpp,
   # bulk_usb.c, midi_usb.c, config_store.c and ChibiOS hal_buffers.c/chprintf.c against a fake USB
   # controller and a host that parses like Striso Live. chprintf.c gets a larger digit buffer:
   # on the 64-bit host "%lx" of a uint32_t reads 64 bits (on the board long is 32 bits).
@@ -151,7 +151,7 @@ if(EXISTS "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c")
   file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/chprintf_lp64.c" CONTENT "${_chprintf}" @ONLY)
   add_executable(test_console_sim
     console_sim/test_console_sim.c console_sim/sim.c config_defaults.c
-    "${PROJECT_SOURCE_DIR}/src/app/pconnection.c"
+    "${PROJECT_SOURCE_DIR}/src/app/console.cpp"
     "${PROJECT_SOURCE_DIR}/src/usb/bulk_usb.c"
     "${PROJECT_SOURCE_DIR}/src/usb/midi_usb.c"
     "${PROJECT_SOURCE_DIR}/src/app/config_store.c"
