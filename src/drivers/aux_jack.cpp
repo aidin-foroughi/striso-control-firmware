@@ -184,15 +184,14 @@ extern "C" void aux_jack_init(void) {
 	detector.mode = static_cast<jack::Mode>(config.jack2_mode);
 	detector.setting = static_cast<jack::Mode>(config.jack2_mode_setting);
 	// deprecated, keep loading if setting still exists (before the thread runs: no request needed)
-	const char* s = getConfigSetting("sGjack2 ");
 	jack::Mode setting = jack::Mode::autodetect; // assume "auto"
-	if (cmp8(s, "pedal_ex")) {
+	if (config_text_is("sGjack2 ", "pedal_ex")) {
 		setting = jack::Mode::pedal_expression;
-	} else if (cmp8(s, "pedal_sw")) {
+	} else if (config_text_is("sGjack2 ", "pedal_sw")) {
 		setting = jack::Mode::pedal_switch;
-	} else if (cmp8(s, "midi    ")) {
+	} else if (config_text_is("sGjack2 ", "midi")) {
 		setting = jack::Mode::midi;
-	} else if (cmp8(s, "linein  ")) {
+	} else if (config_text_is("sGjack2 ", "linein")) {
 		setting = jack::Mode::linein;
 	}
 	config.jack2_mode_setting = static_cast<jack2_mode_t>(setting);

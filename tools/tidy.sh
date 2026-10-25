@@ -4,6 +4,8 @@
 # libraries), the host tools, the tests and the message path (src/app/messaging.cpp,
 # control_thread.cpp: built for the virtual board), using the host preset's compile_commands.json. Exit 1 on any finding.
 # Usage: [FW_DIR=<checkout>] tools/tidy.sh [files...]   (default: all of the above)
+# Not tests/test_config_store.cpp: bugprone-unchecked-optional-access and bugprone-assert-side-effect
+# hang clang-tidy 15 on it (research/STATUS.md backlog).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/docker_env.sh"
@@ -14,7 +16,7 @@ cmake --preset host > /dev/null
 cmake --build --preset host --target striso_dsp_headers > /dev/null
 F=($(q "$@"))
 if [ \${#F[@]} -eq 0 ]; then
-  F=(\$(ls build/host/tests/generated/header_*.cpp) sdk/src/*.cpp sdk/tools/*.cpp sdk/tests/*.cpp build/host/sdk/generated/engine_*.cpp build/host/sdk/generated/effect_fx.cpp build/host/sdk/generated/engines.cpp tools/harness/fx_test.cpp tests/test_bowed_bounds.cpp tests/test_tuning.cpp tests/test_key_scanner.cpp tests/scan_replay.cpp tests/test_event_queue.cpp tests/messaging/test_messaging_model.cpp src/app/messaging.cpp src/app/control_thread.cpp tests/test_console.cpp src/app/console.cpp tests/aux_jack/test_jack_detector.cpp tests/led/test_led.cpp src/drivers/led.cpp tests/motion/test_motion_filter.cpp src/drivers/motion_filter.cpp)
+  F=(\$(ls build/host/tests/generated/header_*.cpp) sdk/src/*.cpp sdk/tools/*.cpp sdk/tests/*.cpp build/host/sdk/generated/engine_*.cpp build/host/sdk/generated/effect_fx.cpp build/host/sdk/generated/engines.cpp tools/harness/fx_test.cpp tests/test_bowed_bounds.cpp tests/test_tuning.cpp tests/test_key_scanner.cpp tests/scan_replay.cpp tests/test_event_queue.cpp tests/messaging/test_messaging_model.cpp src/app/messaging.cpp src/app/control_thread.cpp tests/test_console.cpp src/app/console.cpp tests/aux_jack/test_jack_detector.cpp tests/led/test_led.cpp src/drivers/led.cpp tests/motion/test_motion_filter.cpp src/drivers/motion_filter.cpp src/app/config_store.cpp tests/config_page.cpp)
 fi
 # run-clang-tidy takes each file as a pattern and checks what matches in compile_commands.json:
 # a file that matches nothing would be skipped and the run would pass, so it is an error

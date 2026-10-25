@@ -64,24 +64,14 @@ void ks_boot_calibration(bool calibrated, unsigned type, const uint16_t calib[SC
   // the user's key factors and zero offsets, on every board (S11: they used to need the
   // calibration record), with the range buttonSetKeyFactor accepts (it was 0..10 here: 0 made
   // the key dead)
-  char key[8] = "fCoffC_";
   float f;
   for (int n = 0; n < SCAN_KEYS; n++) {
-    key[2] = 'f';
-    key[3] = 'a';
-    key[4] = 'c';
-    put_button_name(n, &key[5]);
     int but = button_number_map[n];
-    f = getConfigFloat(key);
-    if (f != 1.0f && f >= 0.1f && f <= 10.0f) {
+    if (config_calibration_float("fac", n, &f) && f != 1.0f && f >= 0.1f && f <= 10.0f) {
       cal[but].c_force = (int32_t)(cal[but].c_force * f + 0.5f);
       key_factor[n] = f;
     }
-    key[2] = 'o';
-    key[3] = 'f';
-    key[4] = 'f';
-    f = getConfigFloat(key);
-    if (f > 0.0f && f <= 1.0f) {
+    if (config_calibration_float("off", n, &f) && f > 0.0f && f <= 1.0f) {
       zero_offset[but] = f * (1 << 24);
     }
   }

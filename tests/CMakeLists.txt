@@ -2,10 +2,12 @@
 #
 #   unit.*      doctest cases (striso_tests): the tuning math of the StcN command (every key's
 #               pitch matches its name), the bowed engine's seed bounds, the config record format
-#               (config_store.c), the DSP headers compiling on their own. The engines' and the
+#               and its schema (config_store.cpp, config_schema.hpp), the DSP headers compiling on
+#               their own. The engines' and the
 #               effects' contract suites (parameters, fuzz, ...) are the SDK's: contract.<name>.*
 #   usb_audio_core   tools/usbaudio/test_core.c: the USB audio ring and clock servo simulation
 #   striso_py   tools/striso.py's UF2 and config record handling (no board needed)
+#   config_schema   tools/config_schema.py against the schema and tests/golden/firmware_bytes.txt
 #   render.<voice>[.p<preset>].<performance>   every engine and preset renders the default
 #               performance, the stale-vpres performance and the recorded key streams
 #               (tools/harness/rec) through the SDK's renderer (sdk/: striso_render, the engines'
@@ -25,16 +27,17 @@ add_executable(striso_tests
   test_key_calibration.cpp
   test_event_queue.cpp
   config_defaults.c
-  "${PROJECT_SOURCE_DIR}/src/app/config_store.c"
+  config_page.cpp
+  "${PROJECT_SOURCE_DIR}/src/app/config_store.cpp"
   "${PROJECT_SOURCE_DIR}/src/drivers/key_calibration.c")
 target_include_directories(striso_tests PRIVATE
   "${PROJECT_SOURCE_DIR}/third_party/doctest"
   "${PROJECT_SOURCE_DIR}/tools/harness"
-  "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
   "${PROJECT_SOURCE_DIR}/src/app"
   "${PROJECT_SOURCE_DIR}/src/drivers"
   "${PROJECT_SOURCE_DIR}/src/synth")
-target_compile_definitions(striso_tests PRIVATE "STRISO_REC_DIR=\"${PROJECT_SOURCE_DIR}/tools/harness/rec\"")
+target_compile_definitions(striso_tests PRIVATE "STRISO_REC_DIR=\"${PROJECT_SOURCE_DIR}/tools/harness/rec\""
+  "STRISO_GOLDEN_DIR=\"${PROJECT_SOURCE_DIR}/tests/golden\"")
 target_link_libraries(striso_tests PRIVATE striso::dsp striso_host_options Threads::Threads)
 # the DSP as the renderers build it (reproducible float results)
 target_compile_options(striso_tests PRIVATE -O2 -ffp-contract=off)
@@ -127,7 +130,7 @@ if(EXISTS "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c")
   add_test(NAME usb_obq_discard COMMAND test_obq_discard)
   set_tests_properties(usb_obq_discard PROPERTIES LABELS unit)
   # console_sim: the USB console and USB MIDI in end to end (R1, R3-R10, B14): the real console.cpp,
-  # bulk_usb.c, midi_usb.c, config_store.c and ChibiOS hal_buffers.c/chprintf.c against a fake USB
+  # bulk_usb.c, midi_usb.c, config_store.cpp and ChibiOS hal_buffers.c/chprintf.c against a fake USB
   # controller and a host that parses like Striso Live. chprintf.c gets a larger digit buffer:
   # on the 64-bit host "%lx" of a uint32_t reads 64 bits (on the board long is 32 bits).
   # console_fuzz: the same code under random hosts (console_sim/fuzz_console_sim.c).
@@ -141,11 +144,11 @@ if(EXISTS "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c")
     list(GET _t 1 _main)
     list(GET _t 2 _name)
     add_executable(${_exe}
-      ${_main} console_sim/sim.c config_defaults.c
+      ${_main} console_sim/sim.c config_defaults.c config_page.cpp
       "${PROJECT_SOURCE_DIR}/src/app/console.cpp"
       "${PROJECT_SOURCE_DIR}/src/usb/bulk_usb.c"
       "${PROJECT_SOURCE_DIR}/src/usb/midi_usb.c"
-      "${PROJECT_SOURCE_DIR}/src/app/config_store.c"
+      "${PROJECT_SOURCE_DIR}/src/app/config_store.cpp"
       "${STRISO_CHIBIOS_DIR}/os/hal/src/hal_buffers.c"
       "${CMAKE_CURRENT_BINARY_DIR}/generated/chprintf_lp64.c"
       "${_streams}/memstreams.c")
@@ -230,7 +233,10 @@ set_tests_properties(codec_linein PROPERTIES LABELS unit)
 
 # --- tools/striso.py: UF2 and config records ----------------------------------------------------------
 add_test(NAME striso_py COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_striso_py.py")
-set_tests_properties(striso_py PROPERTIES LABELS unit)
+# tools/config_schema.py (striso.py's checks, the config editor's key list) against the schema:
+# the default records byte for byte as the golden, the editor's tables, the record checks
+add_test(NAME config_schema COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_config_schema.py")
+set_tests_properties(striso_py config_schema PROPERTIES LABELS unit)
 
 # tools/stackcheck.py (the build's thread stack check) on small hand-written disassemblies
 add_test(NAME stackcheck COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_stackcheck.py")

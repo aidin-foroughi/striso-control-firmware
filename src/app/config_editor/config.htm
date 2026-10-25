@@ -41,46 +41,8 @@ const UF2_MAGIC_START1 = 0x9E5D5157 // Randomly selected
 const UF2_MAGIC_END = 0x0AB16F30 // Ditto
 const UF2_FAMILYID = 0xa21e1295 // Striso STM32H7 familyID
 
-const deprecated = {"sGjack2 ":true, "iGmotion":true};
-const doc = {
-  iGpreset: {text:"Preset to load on start", help:"[1-8]", check:function(x) {return clamp(x, 1, 8);}},
-  iGoct:    {text:"Default octave", help:"[-2..2]", check:function(x) {return clamp(x, -2, 2);}},
-  sGaltkey: {text:"Settings key mode", help:"[settings: Use key for settings (default), pedal: Disable settings and use key as pedal (for simplified use)]", options:["settings", "pedal"]},
-  sGkeyord: {text:"Swap settings/glissando keys", help:"[normal: (default), swap: Swap settings and glissando key location]", options:["normal", "swap"]},
-  sGjack2:  {text:"Pedal/MIDI jack mode (DEPRECATED: use preset)", help:"[auto: autodetect MIDI or pedal, midi: TRS MIDI out type A, pedal_ex: expression pedal (TRS/wiper on tip), pedal_sw: sustain or 1/2/3 switch pedal, linein: forward audio to audio out]", options:["auto", "midi", "pedal_ex", "pedal_sw", "linein"]},
-  iGmotion: {text:"Default motion sensor state (DEPRECATED: use preset)", help:"0=disable, 127=internal only, else motion message interval x10ms", check:function(x) {return clamp(x, 0, 127);}},
-  hTxcolor: {text:"LED color", help:"hexadecimal rgb representation"},
-  fTxoff:   {text:"Tuning offset", help:"offset in cents"},
-  fTxoct:   {text:"Octave interval", help:"octave interval in cents"},
-  fTxfifth: {text:"Fifth interval", help:"fifth interval in cents"},
-  sPxname:  {text:"Preset name"},
-  hPxcolor: {text:"LED color", help:"hexadecimal rgb representation"},
-  iPxMpgm:  {text:"Send MIDI program change", help:"[0-127]", check:function(x) {return clamp(x, 0, 127);}},
-  iPxMint:  {text:"MIDI message interval", help:"in ms [1-127]", check:function(x) {return clamp(x, 1, 127);}},
-  iPxMmint: {text:"MIDI motion sensor message interval", help:" 0 = disable, 127 only internal, else x10ms [0-127]", check:function(x) {return clamp(x, 0, 127);}},
-  sPxMmode: {text:"MIDI mode", help:"[mpe/normal/mono]", options:["", "mpe", "normal", "mono"]},
-  sPxMnote: {text:"MIDI note mode", help:"[default/tuning/button]", options:["", "default", "tuning", "button"]},
-  sPxjack2: {text:"Pedal/MIDI jack mode", help:"[auto: autodetect MIDI or pedal, midi: TRS MIDI out type A, pedal_ex: expression pedal (TRS/wiper on tip), pedal_sw: sustain or 1/2/3 switch pedal, linein: forward audio to audio out]", options:["", "auto", "midi", "pedal_ex", "pedal_sw", "linein"]},
-  iPxtunin: {text:"Load tuning", help:"[0-8]", check:function(x) {return clamp(x, 0, 8);}},
-  fPxToff:  {text:"Additional tuning offset", help:"in cents", check:function(x) {return clamp(x, -4800, 4800);}},
-  iPxMpres: {text:"MIDI CC for key pressure", help:"Special values 127 = Disable, 120 = Polyphonic Pressure, 121 = Channel Pressure", check:function(x) {return clamp(x, 0, 127);}},
-  iPxMx:    {text:"MIDI CC for key X movement", help:"Special values 127 = Disable, 122 = Pitch Bend", check:function(x) {return clamp(x, 0, 127);}},
-  iPxMy:    {text:"MIDI CC for key Y movement", help:"Special values 127 = Disable", check:function(x) {return clamp(x, 0, 127);}},
-  iPxMvelo: {text:"MIDI continuous velocity", help:"Special values 127 = Disable, else send continuous velocity on CC73 and continuous release velocity on CC72", check:function(x) {return clamp(x, 0, 127);}},
-  iPxvoice: {text:"Voice count/MPE channel count", help:"[1-15]", check:function(x) {return clamp(x, 1, 15);}},
-  iPxMChan: {text:"MIDI channel", help:"[1-16] (MPE: first voice channel, normally 2)", check:function(x) {return clamp(x, 1, 16);}},
-  iPxMPEpb: {text:"MPE pitch bend range", help:"[12/24/48/96]", check:function(x) {return clamp(x, 1, 127);}},
-  fPxthres: {text:"Key sensitivity threshold", help:"higher value increases note trigger force [0.0-0.5]", check:function(x) {return clamp(x, 0, 0.5);}},
-  fPxbendS: {text:"Pitch bend range", help:"in semitones [-4.0-4.0]", check:function(x) {return clamp(x, -10, 10);}},
-  fPxpresS: {text:"Key pressure factor", help:"[0.0-4.0]", check:function(x) {return clamp(x, 0, 10);}},
-  fPxveloS: {text:"Key velocity factor", help:"[0.0-4.0]", check:function(x) {return clamp(x, 0, 10);}},
-  fPxtiltS: {text:"Key tilt (y) factor", help:"[-4.0-4.0]", check:function(x) {return clamp(x, -10, 10);}},
-  iPxveloO: {text:"MIDI velocity offset", help:"[0-127]", check:function(x) {return clamp(x, 0, 127);}},
-  fPxvolum: {text:"Volume", help:"[0.0-127.0]", check:function(x) {return clamp(x, 0, 255);}},
-  fPxdecay: {text:"Decay", help:"[0.0-127.0]", check:function(x) {return clamp(x, 0, 255);}},
-  fPxdecaP: {text:"Pedal decay", help:"[0.0-127.0]", check:function(x) {return clamp(x, 0, 255);}},
-  sPxflip:  {text:"Flip layout 180 degrees", help:"[no/yes]", options:["", "no", "yes"]},
-}
+// the key list (config_schema.hpp): config_editor.py puts in `deprecated` and `doc` at build time
+{CONFIGSCHEMA}
 
 function getDoc(key) {
   var docKey = key.trim();

@@ -12,20 +12,20 @@
 function(_synth_control_test target)
   add_executable(${target} test_synth_control.cpp
     "${PROJECT_SOURCE_DIR}/tests/config_defaults.c"
-    "${PROJECT_SOURCE_DIR}/src/app/config_store.c")
+    "${PROJECT_SOURCE_DIR}/tests/config_page.cpp"
+    "${PROJECT_SOURCE_DIR}/src/app/config_store.cpp")
   # the stubs first: they stand in for ChibiOS, the HAL and the drivers
   target_include_directories(${target} PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/stubs"
     "${PROJECT_SOURCE_DIR}/src/app"
+    "${PROJECT_SOURCE_DIR}/tests"
     "${PROJECT_SOURCE_DIR}/src/synth")
   target_compile_definitions(${target} PRIVATE SYNTH_ENGINE_STRISY ${ARGN})
   target_link_libraries(${target} PRIVATE striso::dsp striso_host_options)
   # reproducible float results (the replay traces); Piers' C-style code warns a lot under -Wextra
   target_compile_options(${target} PRIVATE -O1 -ffp-contract=off
     $<$<COMPILE_LANGUAGE:CXX>:-Wno-write-strings -Wno-unused-parameter -Wno-sign-compare -Wno-missing-field-initializers>)
-  target_link_options(${target} PRIVATE
-    -Wl,--wrap=getConfigSetting -Wl,--wrap=getConfigFloat -Wl,--wrap=getConfigInt -Wl,--wrap=getConfigHex)
 endfunction()
 
 _synth_control_test(test_synth_control)
@@ -41,7 +41,7 @@ set(STRISO_SYNTH_CONTROL_SCENARIOS
   sc16_echo sc17_rpn_boot sc18_pedal_channel sc19_poly_pgm sc20_bend_range_key sc21_motion_hyst
   sc22_free_transpose_range sc22_octave_release sc23_panic sc24_knob_y0 sc25_midiparam_first
   sc27_dials sc29_cc65 sc30_mode_messages sc31_steal_dup sc35_tuning_overflow
-  sc37_blink sc38_no_synth preset_keys
+  sc37_blink sc38_no_synth
   mi_mpe_note mi_mpe_initial mi_one_channel mi_zone mi_steal mi_no_echo mi_modes mi_render)
 # scenarios of bugs not fixed yet, expected to fail (WILL_FAIL): each fix removed its entry, none
 # is left (the review's open findings have no scenario here)

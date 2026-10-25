@@ -24,7 +24,7 @@
 void ButtonReadStart(void);
 // StcC: every button's calibration back to the default, printing the old values to out
 void buttonSetCalibration(BaseSequentialStream *out);
-// live per-key sensitivity factor, n = key number 0..60 (config_store.c button_number_map order)
+// live per-key sensitivity factor, n = key number 0..60 (config_store.cpp button_number_map order)
 int buttonKeyCount(void);
 float buttonGetKeyFactor(int n);
 int buttonSetKeyFactor(int n, float f);

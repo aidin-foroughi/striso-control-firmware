@@ -159,8 +159,12 @@ void codec_linein_disable(void) { rec('N', 0); }
 void serial_midi_enable(void) { rec('Y', 1); }
 void serial_midi_disable(void) { rec('Y', 0); }
 const char* jack_setting = "auto    ";
-const char* getConfigSetting(const char* /*k*/) { return jack_setting; }
-int cmp8(const char* a, const char* b) { return std::memcmp(a, b, 8) == 0; }
+bool config_text_is(const char* key, const char* text) {
+	if (std::memcmp(key, "sGjack2 ", 8) != 0) return false;
+	size_t n = 8;
+	while (n > 0 && jack_setting[n - 1] == ' ') n--;
+	return std::strlen(text) == n && std::memcmp(jack_setting, text, n) == 0;
+}
 bool event_send1(int src, int id, int a) {
 	rec('1', src, id, a);
 	return true;

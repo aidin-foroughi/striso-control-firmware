@@ -52,7 +52,7 @@ const struct {
                 (uint32_t)devspec_id->id, sizeof(devspec_id->id),
                 (uint32_t)fwinfo.fwversion, sizeof(FWVERSION_PREFIX FWVERSION) - 1,
                 (uint32_t)confightm_p2, sizeof(confightm_p2),
-                (uint32_t)default_config, sizeof(default_config),
+                (uint32_t)default_config.records, sizeof(default_config),
                 (uint32_t)flash_config, sizeof(default_config),
                 (uint32_t)confightm_p3, sizeof(confightm_p3)}
 };

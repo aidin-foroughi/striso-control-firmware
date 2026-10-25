@@ -54,6 +54,18 @@ try:
 except SystemExit:
     pass
 
+# --- the settings striso.py writes: keys and values of the firmware's schema ---------------------
+check(not refused(striso.config_check, {"iGpreset": "1", "fP1presS": "1.25", "fCfacA#4": "0.9"}),
+      "save-touch's settings are accepted")
+check(refused(striso.config_check, {"fP1presX": "1.0"}), "an unknown key is refused")
+check(refused(striso.config_check, {"fP1presS": "1.2.3"}), "a value not of its type is refused")
+check(refused(striso.config_check, {"iGpreset": "one"}), "a text for an integer is refused")
+check(refused(striso.config_check, {"fCfacA#4": "123456789"}), "a value over 8 characters is refused")
+check(striso.SCHEMA.preset_key(1, "presS") == "fP1presS" and striso.SCHEMA.calibration_key("fac", "A#4") == "fCfacA#4",
+      "save-touch's keys")
+check(not refused(striso.config_check, {"sGjack2": "midi"}), "a deprecated setting the firmware still reads")
+check(striso.CONFIG_START == 0x08020000 and striso.CONFIG_END == 0x08040000, "the config sector")
+
 # --- app UF2 checks ----------------------------------------------------------------------------
 app = block(striso.APP_START, b"striso_control_2026-10-23_v2.2.4-69-gd9d7b7c_all\r\n")
 check(not refused(striso.check_uf2, app), "an app block is accepted")

@@ -2,7 +2,7 @@
  * striso_virtual: the Striso board's firmware logic on the PC, as a shared library.
  *
  * The same source files as the board (src/synth/synth_control.cpp, src/synth/synth_strisy.cpp
- * with every voice engine, src/app/console.cpp, messaging.cpp, control_thread.cpp, config_store.c, src/drivers/led.c)
+ * with every voice engine, src/app/console.cpp, messaging.cpp, control_thread.cpp, config_store.cpp, src/drivers/led.c)
  * run on a small ChibiOS/HAL stand-in (virtual/hal), in virtual time: a deterministic scheduler
  * runs the firmware's threads one at a time by priority, the system tick (2 kHz), the codec's
  * block interrupt (48 kHz / 32) and the USB frame (1 kHz) come from the frames rendered. The
@@ -45,7 +45,7 @@ extern "C" {
 
 #define SV_SAMPLE_RATE 48000
 #define SV_BLOCK 32
-/* the user config area in flash, 0x08020000..0x08040000 (16-byte records, see config_store.c) */
+/* the user config area in flash, 0x08020000..0x08040000 (16-byte records, see config_store.h) */
 #define SV_FLASH_ADDR 0x08020000u
 #define SV_FLASH_SIZE 0x20000
 
