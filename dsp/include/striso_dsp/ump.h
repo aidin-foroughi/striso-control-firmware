@@ -109,6 +109,12 @@ struct Packet {
 	uint32_t w0, w1;
 };
 
+// a Universal MIDI Packet's length in words, from its first word's message type (UMP 1.1)
+[[nodiscard]] constexpr int words(uint32_t w0) {
+	constexpr uint8_t n[16] = {1, 1, 1, 2, 2, 4, 1, 1, 2, 2, 2, 3, 3, 4, 4, 4};
+	return n[w0 >> 28];
+}
+
 [[nodiscard]] constexpr uint32_t head(uint8_t status, uint8_t note, uint8_t index) {
 	return 0x40000000u | ((uint32_t)status << 20) | ((uint32_t)(note & 0x7f) << 8) | index;
 }

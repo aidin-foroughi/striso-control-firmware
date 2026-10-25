@@ -78,6 +78,7 @@ int svh_synth_blocks(void);
 /* injection (board/buttons_host.c, board/motion_host.c) */
 int32_t svh_inject_key(int32_t src, int32_t id, int32_t pres, int32_t velo, int32_t x, int32_t y);
 int32_t svh_inject_control(int32_t id, int32_t value);
+int32_t svh_ump_write(const uint32_t* words, int32_t n); /* MIDI 2.0 in: whole UMPs; -1 full */
 void svh_inject_motion(const int16_t raw[6]);
 /* sv_set_engine_controls took the globals over: the motion thread writes to a dummy (fw_synth_strisy.cpp) */
 void svh_motion_off(void);

@@ -50,6 +50,7 @@ Button message:
 #define IDI_SETTINGS_KEY 0    // press a settings key: config_but(id, 0, 0) (console StcK)
 #define IDI_MIDI_IN 1         // a MIDI in message: status, data1, data2 (MidiInMsgHandler)
 #define IDI_MIDI_IN_TICK 2    // the 2 ms tick of the MIDI in notes (synth_tick)
+#define IDI_UMP_IN 3          // a MIDI 2.0 channel voice message: its 2 words as 4 halves (UmpInMsgHandler)
 
 // control numbers [0-127]
 #define IDC_PORTAMENTO 0      // length 1

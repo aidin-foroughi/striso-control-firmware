@@ -164,6 +164,12 @@ int32_t fw_console_read(uint8_t* b, int32_t n) { return svh_console_read(b, n); 
 int32_t fw_midi_write(const uint8_t* b, int32_t n) { return svh_midi_write(b, n); }
 int32_t fw_midi_read(uint8_t* b, int32_t n) { return svh_midi_read(b, n); }
 
+int32_t fw_ump_write(const uint32_t* words, int32_t n) {
+	const int32_t r = svh_ump_write(words, n);
+	svh_run();
+	return r < 0 ? SV_EBUSY : r;
+}
+
 int32_t fw_inject_key(int32_t src, int32_t id, int32_t pres, int32_t velo, int32_t x, int32_t y) {
 	const int32_t r = svh_inject_key(src, id, pres, velo, x, y);
 	svh_run();
@@ -251,6 +257,7 @@ const sv_fw_api api = {
     fw_console_read,
     fw_midi_write,
     fw_midi_read,
+    fw_ump_write,
     fw_inject_key,
     fw_inject_control,
     fw_inject_motion,

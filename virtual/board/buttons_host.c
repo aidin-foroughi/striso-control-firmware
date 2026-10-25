@@ -1,4 +1,5 @@
-/* The virtual board's keys, in place of src/drivers/button_read.c (ADC scanning: hardware only).
+/* The virtual board's keys, in place of src/drivers/button_read.c (ADC scanning: hardware only),
+ * and its MIDI 2.0 in (sv_ump_write).
  *
  * The "read_buttons" thread sends the injected key and control messages with event_send, where
  * the real scanner does (update_button, the aux buttons), so the firmware's own path runs from
@@ -12,7 +13,11 @@
  * buttonSetKeyFactor. There is no key scanner (key_scanner.cpp): injected messages are what it
  * would send. So StcE prints the board's counters of a scanner that never scanned, StcZ the
  * calibration with every key on at zero pressure, and StcR (raw scan recordings) answers an
- * error. */
+ * error.
+ *
+ * MIDI 2.0 in: sv_ump_write's words (whole Universal MIDI Packets) wait in their own queue for the
+ * same thread, which hands them to the firmware's UmpInMsgHandler (synth_control.cpp), as the USB
+ * MIDI 2.0 interface will. */
 #include "button_read.h"
 
 #include "ccportab.h"
@@ -25,6 +30,7 @@
 #include "key_scanner.h"
 #include "led.h"
 #include "messaging.h"
+#include "midi.h"
 #include "striso.h"
 #include "sv_host.h"
 #include "usbcfg.h"
@@ -39,6 +45,9 @@ typedef struct {
 
 static inmsg_t inbox[INBOX];
 static unsigned in_head, in_tail;
+#define UMP_INBOX 1024 /* words */
+static uint32_t ump_inbox[UMP_INBOX];
+static unsigned ump_head, ump_tail;
 static thread_t* tpReadButtons;
 scan_cal_t ks_cal[SCAN_BUTTONS];
 static int32_t c_force_factory[N_BUTTONS];
@@ -73,6 +82,22 @@ int32_t svh_inject_control(int32_t id, int32_t value) {
 	return push(3, msg);
 }
 
+int32_t svh_ump_write(const uint32_t* words, int32_t n) {
+	if ((unsigned)n > UMP_INBOX - (ump_head - ump_tail)) return -1;
+	for (int32_t i = 0; i < n; i++) ump_inbox[(ump_head + (unsigned)i) % UMP_INBOX] = words[i];
+	ump_head += (unsigned)n;
+	wake();
+	return n;
+}
+
+/* the queued UMP words to the firmware, whole packets (a packet cut off waits for its rest) */
+static void ump_drain(void) {
+	static uint32_t w[UMP_INBOX];
+	const int n = (int)(ump_head - ump_tail);
+	for (int i = 0; i < n; i++) w[i] = ump_inbox[(ump_tail + (unsigned)i) % UMP_INBOX];
+	ump_tail += (unsigned)UmpInMsgHandler(MIDI_DEVICE_USB_DEVICE, w, n);
+}
+
 static THD_WORKING_AREA(waThreadReadButtons, 256);
 static void ThreadReadButtons(void* arg) {
 	(void)arg;
@@ -89,6 +114,7 @@ static void ThreadReadButtons(void* arg) {
 				event_send(m.msg[0], m.msg[1], m.size - 2, &m.msg[2]);
 			}
 		}
+		ump_drain();
 		chSysLock();
 		tpReadButtons = chThdGetSelfX();
 		chSchGoSleepS(CH_STATE_SUSPENDED);

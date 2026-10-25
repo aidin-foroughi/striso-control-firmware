@@ -41,7 +41,7 @@ extern "C" {
 #endif
 
 /* Bumped on an incompatible change of a function or struct below. */
-#define SV_API_VERSION 1
+#define SV_API_VERSION 2
 
 #define SV_SAMPLE_RATE 48000
 #define SV_BLOCK 32
@@ -122,6 +122,13 @@ SV_API int32_t sv_console_read(sv_board* b, uint8_t* out, int32_t max);
 /* USB MIDI, 4-byte USB-MIDI event packets both ways (the board's MIDI out: MPE, CCs) */
 SV_API int32_t sv_midi_write(sv_board* b, const uint8_t* packets, int32_t n);
 SV_API int32_t sv_midi_read(sv_board* b, uint8_t* out, int32_t max);
+/* MIDI 2.0 in: Universal MIDI Packets, n 32-bit words of whole packets (a packet cut off at the
+ * end waits for its rest). MIDI 2.0 channel voice messages (type 4) play the internal synth in
+ * their resolution (doc/engines.md, "MIDI 2.0": the standard semantics, full-scale pressure = the
+ * Striso's full press); MIDI 1.0 ones (type 2) and system messages (type 1) are as sv_midi_write's;
+ * the other types are skipped; every group is played. Returns n, SV_EBUSY when the queue (1024
+ * words) is full, SV_ENODEV when not attached. */
+SV_API int32_t sv_ump_write(sv_board* b, const uint32_t* words, int32_t n);
 
 /* --- injection ------------------------------------------------------------------------------------ */
 

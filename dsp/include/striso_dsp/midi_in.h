@@ -330,7 +330,7 @@ public:
 	}
 
 	// the same in standard MIDI 2.0 (UMP type 4): the Registered Controllers 0 (the bend range:
-	// semitones in the top 7 bits) and 6 (the MCM: members in the top 7 bits), CC64, the pitch
+	// semitones in the top 7 bits, cents in the next 7, as MIDI 1.0's MSB and LSB) and 6 (the MCM: members in the top 7 bits), CC64, the pitch
 	// bend outside the zone (32-bit bipolar, x 2 semitones)
 	template <class Host> bool message2(Host& h, NoteInput& notes, uint32_t w0, uint32_t w1) {
 		if ((w0 >> 28) != 4) return false;
@@ -339,7 +339,7 @@ public:
 		if (status == 0x20) { // Registered Controller: bank d1, index d2
 			const int top = (int)(w1 >> 25);
 			if (d1 == 0 && d2 == 0) {
-				if (top >= 1 && !h.zone_master(channel)) h.set_bend_range((float)((double)w1 / 33554432.0));
+				if (top >= 1 && !h.zone_master(channel)) h.set_bend_range((float)top + (float)((w1 >> 18) & 0x7f) * 0.01f);
 			} else if (d1 == 0 && d2 == 6) {
 				if (channel == 0 && top <= 15) notes.set_members(top);
 				h.zone_configured(channel, top);

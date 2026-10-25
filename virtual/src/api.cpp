@@ -605,6 +605,11 @@ SV_API int32_t sv_midi_read(sv_board* b, uint8_t* out, int32_t max) {
 	SV_WITH_FW(b, b->attached ? b->mod.api->midi_read(out, max) : SV_ENODEV);
 }
 
+SV_API int32_t sv_ump_write(sv_board* b, const uint32_t* words, int32_t n) {
+	if (!words || n < 0) return SV_EINVAL;
+	SV_WITH_FW(b, b->attached ? b->mod.api->ump_write(words, n) : SV_ENODEV);
+}
+
 SV_API int32_t sv_inject_key(sv_board* b, int32_t src, int32_t id, int32_t pres, int32_t velo, int32_t x, int32_t y) {
 	SV_WITH_FW(b, b->mod.api->inject_key(src, id, pres, velo, x, y));
 }

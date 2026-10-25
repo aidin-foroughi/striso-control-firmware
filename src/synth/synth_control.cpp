@@ -44,6 +44,7 @@ extern "C" {
 #include "striso_dsp/midi_in.h"
 #include "striso_dsp/voice_allocator.h"
 
+#include <array>
 #include <bit>
 #include <cstdint>
 #include <type_traits>
@@ -164,6 +165,7 @@ static inline bool time_after(systime_t a, systime_t b) {
 
 void update_leds(void);
 static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2);
+static void midi_in_message2(uint32_t w0, uint32_t w1);
 void set_midi_mode(midi_mode_t mode);
 float config_but(int but, int type, float adjust);
 static volatile bool reset_on_release = false;  // settings + key 67, see synth_tick()
@@ -1502,6 +1504,10 @@ int synth_message(int size, int* msg) {
         if (id == IDI_SETTINGS_KEY && size >= 1) settings_key_press(msg[0]);
         if (id == IDI_MIDI_IN && size >= 3) midi_in_message(msg[0], msg[1], msg[2]);
         if (id == IDI_MIDI_IN_TICK) dis.synth_in.tick(dis);
+        if (id == IDI_UMP_IN && size >= 4) {
+            const auto word = [](int hi, int lo) { return (uint32_t)(uint16_t)hi << 16 | (uint16_t)lo; };
+            midi_in_message2(word(msg[0], msg[1]), word(msg[2], msg[3]));
+        }
         return 0;
     }
 
@@ -2401,6 +2407,32 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
 }
 
 /*
+ * MIDI 2.0 in (sv_ump_write; later USB MIDI 2.0), whole packets: a MIDI 1.0 message (types 1, 2)
+ * is MidiInMsgHandler's, a MIDI 2.0 channel voice message (type 4) goes to the same thread as
+ * MIDI in (IDI_UMP_IN: its words as four 16-bit halves, the queue's values), the rest is skipped.
+ */
+int UmpInMsgHandler(midi_device_t dev, const uint32_t* words, int n) {
+    int i = 0;
+    while (i < n && i + striso::ump::words(words[i]) <= n) {
+        const uint32_t w0 = words[i];
+        const uint8_t type = (uint8_t)(w0 >> 28), port = (uint8_t)(((w0 >> 24) & 0x0f) + 1);
+        if (type == 1 || type == 2) {
+            MidiInMsgHandler(dev, port, (uint8_t)(w0 >> 16), (uint8_t)(w0 >> 8) & 0x7f, (uint8_t)w0 & 0x7f);
+        } else if (type == 4) {
+            const uint32_t w1 = words[i + 1];
+            const auto half = [](uint32_t w) { return (int)(int16_t)(uint16_t)w; };
+            for (int k = 0; !messaging::send(Source::internal, IDI_UMP_IN,
+                     std::array<int, 4>{half(w0 >> 16), half(w0), half(w1 >> 16), half(w1)})
+                 && k < 50; k++) {
+                chThdSleepMilliseconds(1);
+            }
+        }
+        i += striso::ump::words(w0);
+    }
+    return i;
+}
+
+/*
  * The host of MIDI in's instrument messages (striso::midi::InstrumentInput: the RPN select, the
  * bend range, the MCM, the instrument's bend, the pedal): what follows from them on the board.
  * (The notes' messages: dis is NoteInput's host.)
@@ -2435,10 +2467,18 @@ struct MidiInInstrument {
     void bend_moved(float delta) { d.note_offset += delta; }
 };
 
-static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2) {
-    // the bend range, the MCM, the instrument's bend, the pedal (and the RPN select per channel)
-    static striso::midi::InstrumentInput instrument_in;
+// the bend range, the MCM, the instrument's bend, the pedal (and the RPN select per channel)
+static striso::midi::InstrumentInput instrument_in;
 
+static void board_cc(uint8_t channel, uint8_t data1, uint8_t data2);
+
+// MIDI in's echo of the Striso's own MIDI out: its note data, its motion CCs
+static bool echoed_cc(uint8_t channel, uint8_t cc, uint8_t value) {
+    return (cc < 120 && note_channel(channel) && note_cc(cc))
+           || (channel == 0 && cc >= 16 && cc <= 18 && motion.sent_recently(cc - 16, value));
+}
+
+static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2) {
     uint8_t channel = status & 0x0f;
     status &= 0xf0;
 
@@ -2457,12 +2497,8 @@ static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2) {
         dis.synth_in.flush(dis);
         return;
     }
-    if (status == MIDI_CONTROL_CHANGE && data1 < 120 && note_channel(channel) && note_cc(data1)) {
-        return;  // the Striso's own note data, echoed
-    }
-    if (status == MIDI_CONTROL_CHANGE && channel == 0 && data1 >= 16 && data1 <= 18
-        && motion.sent_recently(data1 - 16, data2)) {
-        return;  // its own motion CC, echoed
+    if (status == MIDI_CONTROL_CHANGE && echoed_cc(channel, data1, data2)) {
+        return;
     }
 
     MidiInInstrument host{dis};
@@ -2472,64 +2508,106 @@ static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2) {
     }
 
     if (status == MIDI_CONTROL_CHANGE) {
-        switch (data1) {
-            case  7: set_volume(data2); break;
-            case 16: config.send_motion_interval = data2; break;
-            // case 16|MIDI_C_LSB: config.send_motion_14bit = data2; break;
-            case 17: config.message_interval = data2 >= 1 ? data2 : 1; break;
-            // case 17|MIDI_C_LSB: config.send_button_14bit = data2; break;
-            case 18: { // Note offset
-                dis.set_note_offset(data2 - 2);
-                update_leds();
-            } break;
-            case 65: { // portamento (glissando): on at >= 64, as MIDI's switches (SC-29)
-                dis.set_portamento(data2 >= 64);
-                update_leds();
-            } break;
-            case 70: { // pressure
-                if (data2 == 0) data2 = CFG_DISABLE;
-                if (config.midi_mode == MIDI_MODE_MPE) {
-                    config.mpe_pres = data2;
-                } else {
-                    config.midi_pres = data2;
-                }
-            } break;
-            case 71: { // x
-                if (data2 == 0) data2 = CFG_DISABLE;
-                if (config.midi_mode == MIDI_MODE_MPE) {
-                    config.mpe_x = data2;
-                } else {
-                    config.midi_x = data2;
-                }
-            } break;
-            case 72: { // cont release velo
-            } break;
-            case 73: { // cont velo
-            } break;
-            case 75: { // pitch bend sensitivity, TODO: different CC?
-                dis.bend_sensitivity = (float)data2 * 0.05;
-            } break;
-            case MIDI_C_MONO: { // MPE/multitimbral/mono mode.
-                // Set base channel based on channel the message is received
-                if (data2 == 1) { // monophonic on one channel
-                    set_midi_mode(MIDI_MODE_MONO);
-                    dis.midi_channel_offset = channel;
-                } else { // MPE like without master channel
-                    set_midi_mode(MIDI_MODE_MPE);
-                    dis.midi_channel_offset = channel;
-                    if (data2 > 0) {
-                        dis.voicecount = data2;
-                    }
-                }
-                dis.channels_changed();
-            } break;
-            case MIDI_C_POLY: { // Polyphonic mode on the channel the message is received
-                set_midi_mode(MIDI_MODE_POLY);
+        board_cc(channel, data1, data2);
+    }
+}
+
+/*
+ * A MIDI 2.0 channel voice message (UMP type 4, any group), on the thread that handles the keys:
+ * the notes and the instrument as MIDI 1.0's in their resolution (midi_in.h, message2), the
+ * board's own CCs and the echo filter with the value's top 7 bits (MIDI 2.0's down-scaling).
+ */
+static void midi_in_message2(uint32_t w0, uint32_t w1) {
+    const uint8_t channel = (uint8_t)((w0 >> 16) & 0x0f), status = (uint8_t)((w0 >> 16) & 0xf0);
+    const uint8_t index = (uint8_t)((w0 >> 8) & 0x7f), value = (uint8_t)(w1 >> 25);
+
+    led_rgb3_blink(255, 0, 127, TIME_MS2I(100));
+    if (config.send_midi_monitor) {
+        // the monitor's MIDI 1.0 view: velocities and values to 7 bits, the bend to 14
+        const bool bend = status == MIDI_PITCH_BEND, chan_pres = status == MIDI_CHANNEL_PRESSURE;
+        const int d1 = bend ? (int)((w1 >> 18) & 0x7f) : chan_pres ? value : index;
+        const int d2 = chan_pres ? 0 : value;
+        (void)messaging::send(Source::midi, channel, status >> 4, d1, d2);
+    }
+
+    if (dis.midi_in.message2(dis, w0, w1)) {
+        dis.synth_in.flush(dis);
+        return;
+    }
+    if (status == MIDI_CONTROL_CHANGE && echoed_cc(channel, index, value)) {
+        return;
+    }
+
+    MidiInInstrument host{dis};
+    if (instrument_in.message2(host, dis.midi_in, w0, w1)) {
+        dis.synth_in.flush(dis);
+        return;
+    }
+
+    if (status == MIDI_CONTROL_CHANGE) {
+        board_cc(channel, index, value);
+    }
+}
+
+// the board's own CCs (MIDI 1.0's and 2.0's, 7-bit)
+static void board_cc(uint8_t channel, uint8_t data1, uint8_t data2) {
+    switch (data1) {
+        case  7: set_volume(data2); break;
+        case 16: config.send_motion_interval = data2; break;
+        // case 16|MIDI_C_LSB: config.send_motion_14bit = data2; break;
+        case 17: config.message_interval = data2 >= 1 ? data2 : 1; break;
+        // case 17|MIDI_C_LSB: config.send_button_14bit = data2; break;
+        case 18: { // Note offset
+            dis.set_note_offset(data2 - 2);
+            update_leds();
+        } break;
+        case 65: { // portamento (glissando): on at >= 64, as MIDI's switches (SC-29)
+            dis.set_portamento(data2 >= 64);
+            update_leds();
+        } break;
+        case 70: { // pressure
+            if (data2 == 0) data2 = CFG_DISABLE;
+            if (config.midi_mode == MIDI_MODE_MPE) {
+                config.mpe_pres = data2;
+            } else {
+                config.midi_pres = data2;
+            }
+        } break;
+        case 71: { // x
+            if (data2 == 0) data2 = CFG_DISABLE;
+            if (config.midi_mode == MIDI_MODE_MPE) {
+                config.mpe_x = data2;
+            } else {
+                config.midi_x = data2;
+            }
+        } break;
+        case 72: { // cont release velo
+        } break;
+        case 73: { // cont velo
+        } break;
+        case 75: { // pitch bend sensitivity, TODO: different CC?
+            dis.bend_sensitivity = (float)data2 * 0.05;
+        } break;
+        case MIDI_C_MONO: { // MPE/multitimbral/mono mode.
+            // Set base channel based on channel the message is received
+            if (data2 == 1) { // monophonic on one channel
+                set_midi_mode(MIDI_MODE_MONO);
                 dis.midi_channel_offset = channel;
-                dis.channels_changed();
-            } break;
-            default: break;
-        }
+            } else { // MPE like without master channel
+                set_midi_mode(MIDI_MODE_MPE);
+                dis.midi_channel_offset = channel;
+                if (data2 > 0) {
+                    dis.voicecount = data2;
+                }
+            }
+            dis.channels_changed();
+        } break;
+        case MIDI_C_POLY: { // Polyphonic mode on the channel the message is received
+            set_midi_mode(MIDI_MODE_POLY);
+            dis.midi_channel_offset = channel;
+            dis.channels_changed();
+        } break;
+        default: break;
     }
 }
 

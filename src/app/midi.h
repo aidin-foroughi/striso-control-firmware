@@ -110,6 +110,11 @@ typedef enum
 
 void midi_init(void);
 void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t b0, uint8_t b1, uint8_t b2);
+// MIDI 2.0 in: whole Universal MIDI Packets (n words); returns the words taken (a packet cut off
+// at the end is left). MIDI 1.0 channel voice and system messages (types 2, 1) go to
+// MidiInMsgHandler, MIDI 2.0 channel voice messages (type 4) to the internal synth's MIDI 2.0
+// input; the other types are skipped. Every group is played.
+int UmpInMsgHandler(midi_device_t dev, const uint32_t* words, int n);
 
 
 void MidiSend1(midi_device_t dev, uint8_t port, uint8_t b0);
