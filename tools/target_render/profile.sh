@@ -9,6 +9,7 @@
 # Output lines: <voice> <preset> <hash> <engine instr/block> <fxhash> <fx instr/block>
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=../docker_env.sh
 source "$HERE/docker_env.sh"
 RE="${1:-.}"
 FXMODE="${2:-1}"

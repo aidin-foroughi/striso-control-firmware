@@ -7,9 +7,9 @@
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/../docker_env.sh"
-TOOLS="$(cd "$HERE/.." && pwd -W 2>/dev/null || pwd)"
-FW="$(cd "${FW_DIR:-$HERE/../..}" && pwd -W 2>/dev/null || pwd)"
-DSP_DIR="$(cd "$(dirname "$1")" && pwd -W 2>/dev/null || pwd)"
+TOOLS="$(cd "$HERE/.." && { pwd -W 2>/dev/null || pwd; })"
+FW="$(cd "${FW_DIR:-$HERE/../..}" && { pwd -W 2>/dev/null || pwd; })"
+DSP_DIR="$(cd "$(dirname "$1")" && { pwd -W 2>/dev/null || pwd; })"
 DSP="$(basename "$1")"
 
 mkdir -p "$HERE/out"
