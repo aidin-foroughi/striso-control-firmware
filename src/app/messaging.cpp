@@ -25,7 +25,7 @@ namespace {
 // Lanes: the key scanner (keys, slider, aux buttons), the motion sensor, the aux jack, main (the
 // console, MIDI in, the tick), the control thread itself (the MIDI monitor), one to spare. 32
 // events each: the int ring held 34 key messages, for every producer together.
-constinit Inbox<6, 32> inbox;
+constinit Inbox<messaging::kLanes, messaging::kLaneCapacity> inbox;
 
 // an event of the values v, written in place
 template <class... V>
@@ -54,6 +54,17 @@ bool messaging::send(Source src, int id, int a, int b) { return post(src, id, a,
 bool messaging::send(Source src, int id, int a, int b, int c) { return post(src, id, a, b, c); }
 
 KeyEvent messaging::receive() { return inbox.receive(); }
+
+void messaging::lane_stats(std::span<LaneStats, kLanes> out) {
+	chSysLock();
+	for (std::size_t i = 0; i < kLanes; i++) {
+		const auto s = inbox.stats(i);
+		const char* name = s.owner == nullptr ? nullptr : s.owner->name != nullptr ? s.owner->name :
+		                                                                             "?";
+		out[i] = LaneStats{name, s.drops, s.max_depth};
+	}
+	chSysUnlock();
+}
 
 uint32_t messaging::drops() {
 	chSysLock();

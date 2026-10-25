@@ -4,8 +4,8 @@
  * (host_parser.h, a C port of protocol.dart's StreamParser). Each case checks the fixed behaviour;
  * the review's finding it guards is in its name.
  *
- * ThreadSend's part (main.c) is ts_send() below: the same frame encoding, written to the bulk
- * console with the call main.c makes (TS_WRITE). */
+ * The control thread's part (control_thread.cpp) is ts_send() below: the same frame encoding, written to the bulk
+ * console with the call control_thread.cpp makes (TS_WRITE). */
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -13,7 +13,7 @@
 #include "sim.h"
 #include "striso.h"
 
-/* main.c ThreadSend: a frame to the bulk console */
+/* the control thread: a frame to the bulk console */
 #ifndef TS_WRITE
 #define TS_WRITE(b, n) bduWriteFrame(&BDU1, (b), (n))
 #endif
@@ -297,6 +297,24 @@ static void host_stops_reading(void) {
 	free(p);
 }
 
+/* R23: Stcq, the control thread's inbox per lane (read only), from messaging_stub.cpp's numbers */
+static void inbox_stats(void) {
+	fresh();
+	host_cmd("Stcq", 4);
+	PExReceive();
+	sim_host_drain();
+	static const char* const want[] = {"q lanes 6 capacity 32", "q 0 drops 3 max 32 read_buttons",
+	    "q 1 drops 0 max 5 send messages", "q 2 drops 0 max 0 -", "q 3 drops 0 max 0 -", "q 4 drops 0 max 0 -",
+	    "q 5 drops 0 max 0 -"};
+	host_parser_t* p = calloc(1, sizeof *p);
+	hp_push(p, host_in[2], host_in_len[2]);
+	int ok = p->lines == 7 && !p->messages;
+	for (int i = 0; ok && i < 7; i++) ok = strcmp(p->line[i], want[i]) == 0;
+	for (int i = 0; i < p->lines && i < 7; i++) printf("    \"%s\"\n", p->line[i]);
+	check("R23: Stcq lists every lane of the inbox: drops, max depth, the sending thread", ok);
+	free(p);
+}
+
 int main(void) {
 	setvbuf(stdout, NULL, _IONBF, 0);
 	fresh();
@@ -327,6 +345,7 @@ int main(void) {
 	midi_case("R8: program change (CIN 0xC): passed", 0x0c, 0xc0, 0x05, 0x00, 1);
 	out_64();
 	host_stops_reading();
+	inbox_stats();
 	printf(failures ? "console sim: %d FAILED\n" : "console sim: all passed\n", failures);
 	return failures ? 1 : 0;
 }

@@ -83,6 +83,7 @@ inline constexpr Command<typename H::Out> kCommands[] = {
 	{'E',    0, &H::scanner_stats,          kNone},        // the key scanner's counters
 	{'Z',    0, &H::scanner_keys,           kNone},        // every button's calibration state
 	{'R',    2, &H::scanner_record,         kNone},        // 2 digits: record seconds, 00 dump
+	{'q',    0, &H::inbox_stats,            kNone},        // the inbox's lanes: drops, max depth (R23)
 };
 // clang-format on
 

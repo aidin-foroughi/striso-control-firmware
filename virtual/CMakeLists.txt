@@ -38,7 +38,7 @@ add_library(striso_virtual SHARED
   "${_hal}/src/hal_buffers.c"
   "${_hal}/src/hal_usb.c"
   "${_hal}/lib/streams/memstreams.c"
-  # the board without its hardware: main.c's threads, keys, motion, USB audio, stubs
+  # the board without its hardware: main (start.c's), keys, motion, USB audio, stubs
   board/main_host.c
   board/buttons_host.c
   board/motion_host.c
@@ -47,6 +47,7 @@ add_library(striso_virtual SHARED
   # the firmware's own files (fw_*: the file itself, compiled with the virtual board's flash)
   board/config_page_host.cpp
   board/fw_console.cpp
+  board/fw_app.cpp
   board/fw_usbcfg.c
   board/fw_synth_strisy.cpp
   "${_fw}/usb/bulk_usb.c"

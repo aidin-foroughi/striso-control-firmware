@@ -14,6 +14,7 @@ FILES='dsp/include/striso_dsp/strisy.h dsp/include/striso_dsp/fx.h dsp/include/s
   src/synth/synth_strisy.cpp src/synth/tuning.h
   src/drivers/key_scanner.h src/drivers/key_scanner.hpp src/drivers/key_scanner_capture.hpp src/drivers/key_scanner.cpp
   src/app/console.hpp src/app/console.cpp src/app/midi_in_parser.hpp src/app/out_stream.hpp virtual/board/fw_console.cpp
+  src/app/app.cpp virtual/board/fw_app.cpp tests/console_sim/messaging_stub.cpp
   src/app/event_queue.hpp src/app/wire.hpp src/app/inbox.hpp src/app/messaging.hpp src/app/messaging.cpp
   src/app/control_thread.cpp src/drivers/jack_detector.hpp src/drivers/aux_jack.cpp
   src/drivers/led_presenter.hpp src/drivers/led.cpp src/drivers/motion_filter.hpp src/drivers/motion_filter.cpp

@@ -2043,10 +2043,13 @@ void synth_settings_keys_print(void* chp) {
     int count = 0;
     for (int i = 0; i < SETTINGS_KEY_COUNT; i++) count += settings_key_present(&settings_keys[i]);
     chprintf(out, "X keys %d\r\n", count);
+    // static: only the console (the main thread) prints the layout, and main's stack is 1 KB;
+    // each is written before it is read
+    static char label[8], name[12], title[112];
     for (int i = 0; i < SETTINGS_KEY_COUNT; i++) {
         const settings_key_info_t* k = &settings_keys[i];
         if (!settings_key_present(k)) continue;
-        char led[8] = "-", flags[4] = "-", label[8], name[12], title[112];
+        char led[8] = "-", flags[4] = "-";
         if (k->engine) chsnprintf(led, sizeof led, "%06lx", (unsigned long)k->led);
         int f = 0;
         if (settings_key_allowed(k->id)) flags[f++] = 'k';
@@ -2925,7 +2928,8 @@ void synth_state_print(void* chp) {
     const uint32_t counter = synth_state_counter();
     const observed_state_t& o = state_last;
     static const char* const modes[] = {"mpe", "poly", "mono"};
-    char fine[16], transpose[16], pres[16], velo[16], tilt[16], bend[16], thres[16], sustain[16];
+    // static: only the console (the main thread) prints the state, and main's stack is 1 KB
+    static char fine[16], transpose[16], pres[16], velo[16], tilt[16], bend[16], thres[16], sustain[16];
     put_fixed(fine, sizeof fine, (o.note_offset - o.tuning_note_offset) * 100.0f, 2);
     put_fixed(transpose, sizeof transpose, o.start_note_offset - 62.0f, 3);
     put_fixed(pres, sizeof pres, synth_touch_get(0), 3);

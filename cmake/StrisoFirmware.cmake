@@ -174,8 +174,18 @@ add_executable(striso_control
 set_target_properties(striso_control PROPERTIES LINKER_LANGUAGE C SUFFIX ".elf"
   RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}" LINK_DEPENDS "${STRISO_LDSCRIPT}")
 set(_out "${CMAKE_BINARY_DIR}/striso_control")
+# main's stack (the process stack) is the thread table's main row (src/app/app_threads.h)
+include("${CMAKE_CURRENT_LIST_DIR}/app_threads.cmake")
+striso_read_threads("${PROJECT_SOURCE_DIR}/src/app/app_threads.h" _app_threads)
+foreach(_t IN LISTS _app_threads)
+  striso_thread_field("${_t}" id _id)
+  if(_id STREQUAL "main")
+    striso_thread_field("${_t}" stack _main_stack)
+  endif()
+endforeach()
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/src/app/app_threads.h")
 target_link_options(striso_control PRIVATE ${_mcflags} ${_opt} -nostartfiles
-  "-Wl,-Map=${_out}.map,--cref,--no-warn-mismatch,--library-path=${CHIBIOS_STARTUPLD},--script=${STRISO_LDSCRIPT},--gc-sections,--print-memory-usage,--defsym=__process_stack_size__=0x400,--defsym=__main_stack_size__=0x400"
+  "-Wl,-Map=${_out}.map,--cref,--no-warn-mismatch,--library-path=${CHIBIOS_STARTUPLD},--script=${STRISO_LDSCRIPT},--gc-sections,--print-memory-usage,--defsym=__process_stack_size__=${_main_stack},--defsym=__main_stack_size__=0x400"
   # binutils >= 2.39 warns about the RWX segment that ChibiOS' linker script makes (ram code)
   $<$<VERSION_GREATER_EQUAL:${CMAKE_C_COMPILER_VERSION},12>:-Wl,--no-warn-rwx-segments>)
 target_link_libraries(striso_control PRIVATE m)
@@ -200,6 +210,9 @@ add_custom_command(TARGET striso_control POST_BUILD
 add_test(NAME usb_descriptors
   COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/usbaudio/check_descriptors.py"
           --elf "$<TARGET_FILE:striso_control>")
+# the .fwinfo record the bootloader reads (src/app/start.c): its layout and what it points to
+add_test(NAME fwinfo
+  COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tools/fwinfo_check.py" "$<TARGET_FILE:striso_control>")
 # every USB string descriptor is handed out with exactly its bLength (D6)
 add_test(NAME usb_string_sizes
   COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/tests/test_usb_strings.py"

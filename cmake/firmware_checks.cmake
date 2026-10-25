@@ -49,28 +49,48 @@ if(softfp)
 endif()
 
 # 2. thread stacks: every thread's worst call path (tools/stackcheck.py) must fit its stack.
-# Per thread: name, entry function, the source and working area variable its size is read from
-# (or "-" and a fixed size), and a margin on top of the deepest path:
+# The threads are src/app/app_threads.h's rows (app.cpp starts them from the same table): name,
+# stack, priority, the source and working area variable, the entry function, a margin on top of
+# the deepest path. First each row is checked against its source, so the table can't drift from
+# the modules: the working area's size (THD_WORKING_AREA), the priority chThdCreateStatic gets,
+# the name chRegSetThreadName gives.
 # - THD_WORKING_AREA threads: ChibiOS adds the context switch frame (port_intctx), the exception
 #   frame (port_extctx, with FPU state) and 64 bytes to the size the source asks for, so the path
 #   (without _port_switch's frame: --no-frame) must fit the size itself: margin 0. The synth thread
 #   keeps the 256 bytes it always had.
-# - main runs on the process stack (__process_stack_size__ 0x400, StrisoFirmware.cmake), which has
-#   no such reserve: 256 bytes for the switch and exception frames (100 + 104).
+# - main runs on the process stack (__process_stack_size__, StrisoFirmware.cmake: the table's main
+#   row), which has no such reserve: 256 bytes for the switch and exception frames (100 + 104).
 # - the idle thread: PORT_IDLE_THREAD_STACK_SIZE (16, the ChibiOS default; cfg/ doesn't change it).
 # Interrupts run on the main stack (__main_stack_size__) and are not checked here.
-set(_threads
-  "synth|_ZL11synthThreadPv|${SYNTH_SRC}|waSynthThread|256"
-  "read_buttons|ThreadReadButtons|${SRC_DIR}/drivers/button_read.c|waThreadReadButtons|0"
-  "send messages|_ZN12_GLOBAL__N_113ControlThreadEPv|${SRC_DIR}/app/control_thread.cpp|waControlThread|0"
-  "blinker|Thread1|${SRC_DIR}/app/main.c|waThread1|0"
-  "auxjack|_ZN12_GLOBAL__N_17AuxJackEPv|${SRC_DIR}/drivers/aux_jack.cpp|waAuxJack|0"
-  "motion|ThreadAccel|${SRC_DIR}/drivers/motionsensor.c|waThreadAccel|0"
-  "main|main|-|1024|256"
-  "idle|_idle_thread|-|16|0")
-if(EXISTS "${SRC_DIR}/drivers/key_scanner.cpp")
-  list(APPEND _threads "scan_dump|_ZN12_GLOBAL__N_114ThreadScanDumpEPv|${SRC_DIR}/drivers/key_scanner.cpp|waScanDump|0")
-endif()
+include("${CMAKE_CURRENT_LIST_DIR}/app_threads.cmake")
+striso_read_threads("${SRC_DIR}/app/app_threads.h" _threads)
+foreach(t IN LISTS _threads)
+  foreach(f name stack priority source wa entry)
+    striso_thread_field("${t}" ${f} ${f})
+  endforeach()
+  if(source STREQUAL "-")
+    continue()
+  endif()
+  if(source STREQUAL "synth")
+    set(file "${SYNTH_SRC}")
+  else()
+    set(file "${SRC_DIR}/${source}")
+  endif()
+  file(READ "${file}" src)
+  string(REGEX MATCH "THD_WORKING_AREA\\(${wa}, *([0-9]+)\\)" _ "${src}")
+  if(NOT CMAKE_MATCH_1 STREQUAL stack)
+    reject("app_threads.h: thread ${name}: ${file} declares ${wa} of '${CMAKE_MATCH_1}' bytes, the table ${stack}")
+  endif()
+  string(REGEX MATCH "chThdCreateStatic\\(${wa}, *sizeof\\(${wa}\\), *([^,]+)," _ "${src}")
+  string(REPLACE " " "" p "${CMAKE_MATCH_1}")
+  if(NOT p STREQUAL priority)
+    reject("app_threads.h: thread ${name}: ${file} creates it at priority '${p}', the table ${priority}")
+  endif()
+  string(FIND "${src}" "chRegSetThreadName(\"${name}\")" at)
+  if(at LESS 0)
+    reject("app_threads.h: thread ${name}: ${file} doesn't name it \"${name}\"")
+  endif()
+endforeach()
 # indirect calls (stream vmt methods, buffer queue callbacks) and the functions they can reach
 set(_indirect
   # chprintf(stream): the stream's put/write, a driver's or the console's reply stream (OutStream)
@@ -88,8 +108,7 @@ set(_indirect
   "--indirect=iqReadTimeout=notify[0-9]*")
 set(_roots "")
 foreach(t IN LISTS _threads)
-  string(REPLACE "|" ";" t "${t}")
-  list(GET t 1 root)
+  striso_thread_field("${t}" entry root)
   list(APPEND _roots "${root}")
 endforeach()
 execute_process(COMMAND "${OBJDUMP}" -d --no-show-raw-insn "${ELF}"
@@ -101,20 +120,18 @@ if(NOT rc EQUAL 0)
 endif()
 string(REPLACE "\n" ";" depths "${depths}")
 foreach(t IN LISTS _threads)
-  string(REPLACE "|" ";" t "${t}")
-  list(GET t 0 name)
-  list(GET t 1 root)
-  list(GET t 2 file)
-  list(GET t 3 var)
-  list(GET t 4 margin)
-  if(file STREQUAL "-")
-    set(wa "${var}")
+  foreach(f name stack source wa entry margin)
+    striso_thread_field("${t}" ${f} ${f})
+  endforeach()
+  set(root "${entry}")
+  set(var "${wa}")
+  set(wa "${stack}")
+  if(source STREQUAL "-")
     set(where "fixed")
+  elseif(source STREQUAL "synth")
+    cmake_path(GET SYNTH_SRC FILENAME where)
   else()
-    file(READ "${file}" src)
-    string(REGEX MATCH "THD_WORKING_AREA\\(${var}, *([0-9]+)\\)" _ "${src}")
-    set(wa "${CMAKE_MATCH_1}")
-    cmake_path(GET file FILENAME where)
+    cmake_path(GET source FILENAME where)
   endif()
   set(deepest "")
   foreach(d IN LISTS depths)

@@ -1078,7 +1078,6 @@ void ButtonReadStart(void) {
 
   ks_calibration_changed();  // the scanner thread takes it over at its first scan
   scan_cur = scan_link_begin(&link, 0);
-  ks_capture_start_dump_thread();
 
   /*
    * Start first ADC conversion. Next conversions are triggered from the adc callback.

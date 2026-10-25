@@ -159,6 +159,9 @@ void ks_capture(void* stream, int seconds) {
 	chprintf((BaseSequentialStream*)stream, "R err no key scanner (virtual board)\r\n");
 }
 
+/* the recordings' dump thread (app_threads.h scan_dump): nothing to dump here */
+void ks_capture_start_dump_thread(void) {}
+
 /* ButtonReadStart without the ADC: the boot calibration as button_read.c's (key_calibration.c) */
 void ButtonReadStart(void) {
 	const uint32_t* UID = (const uint32_t*)UID_BASE;
