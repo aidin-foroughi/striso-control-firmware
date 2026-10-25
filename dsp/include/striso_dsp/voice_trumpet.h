@@ -93,7 +93,7 @@ static constexpr real RHO = 1.2f;
 static constexpr real C0 = 343.0f;
 static constexpr real PI = 3.14159265f;
 static constexpr real Z0 = RHO * C0 / (0.25f * PI * 0.0117f * 0.0117f); // bore (11.7 mm) characteristic impedance
-static constexpr real NOTE_HI = 100.0f;                                  // above: an octave down (the lips can't)
+static constexpr real NOTE_HI = 100.0f;                                 // above: an octave down (the lips can't)
 #ifdef TRUMPET_DC_HZ
 static constexpr real DC_HZ = TRUMPET_DC_HZ;
 #else
@@ -144,10 +144,10 @@ struct Params {
 	real pop_hz; // mouthpiece (Helmholtz) resonance
 	real pop_q;  // its Q into the bore
 	// bore
-	real bore_t;  // resonance decay time (s) at Bb4
+	real bore_t;   // resonance decay time (s) at Bb4
 	real bore_reg; // octaves shorter per octave up
-	real bell_hz; // bell reflection cutoff
-	real brass;   // steepening: shift (samples) per 10 kPa of wave
+	real bell_hz;  // bell reflection cutoff
+	real brass;    // steepening: shift (samples) per 10 kPa of wave
 	// radiation
 	real rad_hz;   // radiation high-pass
 	real tone_hz;  // bell / directivity low-pass
@@ -157,13 +157,13 @@ struct Params {
 	real breath;  // jet turbulence (riding on the flow pulses)
 	real t_noise; // tongue "t"
 	// attack
-	real tongue;   // strike sensitivity
-	real acc_amp;  // the pressure built up behind the tongue: overshoot
-	real acc_t;    // its decay (s)
-	real tongue_t; // tongue release time of a soft "d" (s); a hard strike is ~16x faster
+	real tongue;     // strike sensitivity
+	real acc_amp;    // the pressure built up behind the tongue: overshoot
+	real acc_t;      // its decay (s)
+	real tongue_t;   // tongue release time of a soft "d" (s); a hard strike is ~16x faster
 	real tongue_lip; // a tongued start: the tongue held the lips closed by this much (mm at a full strike)
-	real slur;     // articulation on a legato note change
-	real pitch_t;  // the player's ear: pitch correction time constant (s)
+	real slur;       // articulation on a legato note change
+	real pitch_t;    // the player's ear: pitch correction time constant (s)
 	// modulation
 	real flutter, flut_hz; // shake -> flutter tongue
 };
@@ -235,7 +235,7 @@ static constexpr int DEFAULT_PRESET = 0;
 struct VoiceState {
 	// lips (opening x, velocity v), cup pressure, backbore flow, the previous jet flow and incoming wave
 	real x, v, pc, ub, uM, uprev, pinprev;
-	real um; // the jet's mean flow (turbulence rides on the flow pulses)
+	real um;   // the jet's mean flow (turbulence rides on the flow pulses)
 	real tlev; // the strike the tongue has held the lips for
 	int age;   // blocks since the note started from silence
 	// bore
@@ -250,20 +250,20 @@ struct VoiceState {
 	// body
 	real rs, t1, t2;
 	// player
-	real lv1, lv2;    // breath smoother
-	real amp;         // breath level after the release logic
-	real gate;        // tongue / breath gate
-	real gate_rate;   // its opening rate (per control step)
-	real acc, tn;     // accent and tongue noise envelopes
-	real accf;        // the accent's pressure, rising with the tongue's release (after the breath smoother)
-	real ty1, ty2;    // tilt smoother
-	real pm_prev;     // mouth pressure at the end of the last block
-	real pthr;        // threshold estimate (Pa)
-	real lre, lim;    // small-signal loop gain at the note (analysis)
-	real jn, dr;      // lip jitter, slow wander
-	real flut_ph;     //
-	real note_prev;   //
-	real vneg;        // release speed latch
+	real lv1, lv2;  // breath smoother
+	real amp;       // breath level after the release logic
+	real gate;      // tongue / breath gate
+	real gate_rate; // its opening rate (per control step)
+	real acc, tn;   // accent and tongue noise envelopes
+	real accf;      // the accent's pressure, rising with the tongue's release (after the breath smoother)
+	real ty1, ty2;  // tilt smoother
+	real pm_prev;   // mouth pressure at the end of the last block
+	real pthr;      // threshold estimate (Pa)
+	real lre, lim;  // small-signal loop gain at the note (analysis)
+	real jn, dr;    // lip jitter, slow wander
+	real flut_ph;   //
+	real note_prev; //
+	real vneg;      // release speed latch
 	uint32_t rng, nrng;
 	real level; // smoothed peak (activity)
 	// the player's ear: the lips' period from their zero crossings, the bore trimmed onto the note
@@ -276,8 +276,8 @@ struct Engine {
 	strisy::VoiceControls vc[MAX_VOICES];
 	int nvoices;
 	int preset;
-	Params p;  // as set (preset, live edits)
-	Params ps; // smoothed copy used by the DSP
+	Params p;           // as set (preset, live edits)
+	Params ps;          // smoothed copy used by the DSP
 	FastMemory* fast;   // the host's (init): bore delay lines of voices 0 .. NFAST - 1
 	LargeMemory* large; // the host's (init): the others'
 	real sr, inv_sr, pi_sr, dt, ctrl_dt, block_dt;
@@ -601,7 +601,7 @@ static inline void process_voice(Engine& e, int vi) {
 	const real Dpole = clampr(P0 * (1.0f + phase0 * (0.5f / PI)), 2.0f, 2.0f * DMAX);
 	const real wdig = 2.0f * PI / P0;
 	const Cx hl = cinv({w2 - w0 * w0, w0 * wl / q}); // lip displacement per force
-	const real dpe = rmax(s.pthr, 100.0f); // at the threshold (the ear trims the pull above it)
+	const real dpe = rmax(s.pthr, 100.0f);           // at the threshold (the ear trims the pull above it)
 	const real sv = fsqrt(2.0f * dpe / RHO);
 	const real hbar = rmax(x0 + dpe * imu / w2, 2e-6f);
 	const Cx ylip = {-lw * sv * imu * hl.re - lw * hbar / (RHO * sv), -lw * sv * imu * hl.im};
