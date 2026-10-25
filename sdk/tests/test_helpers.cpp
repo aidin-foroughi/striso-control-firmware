@@ -1,12 +1,15 @@
 // The small shared units of dsp/: dspmath.h, svf.h, params.h, engine.h's track_key, engine_set.h.
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
 #include "doctest/doctest.h"
 #include "striso_dsp/dspmath.h"
 #include "striso_dsp/engine_set.h"
+#include "striso_dsp/engines/bowed.h"
 #include "striso_dsp/engines/sine.h"
 #include "striso_dsp/engines/strisy.h"
+#include "striso_dsp/engines/trumpet.h"
 #include "striso_dsp/params.h"
 #include "striso_dsp/svf.h"
 
@@ -127,4 +130,40 @@ TEST_CASE("engine_set: visit reaches each engine with its own type and memory") 
 	seen = -1;
 	Set::visit(5, s, [&seen](auto&, auto) { seen = 0; });
 	CHECK(seen == -1);
+}
+
+TEST_CASE("engine_set: one arena per region class, the largest engine's; start zeroes the new engine's share") {
+	using B = dsp::engines::bowed;
+	using T = dsp::engines::trumpet;
+	using Set = dsp::EngineSet<B, T, dsp::engines::sine>;
+	static_assert(Set::Fast::size == std::max(sizeof(B::FastMemory), sizeof(T::FastMemory)));
+	static_assert(Set::Large::size == std::max(sizeof(B::LargeMemory), sizeof(T::LargeMemory)));
+	static_assert(Set::Fast::size < sizeof(B::FastMemory) + sizeof(T::FastMemory), "shared, not added up");
+	// the fit check: an arena smaller than a region doesn't hold it
+	static_assert(!dsp::Arena<8, 4>::holds<B::FastMemory>());
+	static_assert(dsp::Arena<sizeof(B::FastMemory), alignof(B::FastMemory)>::holds<B::FastMemory>());
+
+	static Set::States s;
+	static Set::Fast fast;
+	static Set::Large large;
+	// what ran before left its data in the arenas
+	std::memset(fast.bytes, 0x5a, sizeof fast.bytes);
+	std::memset(large.bytes, 0x5a, sizeof large.bytes);
+	const auto zeroed = [](const void* p, size_t n) {
+		const auto* b = static_cast<const unsigned char*>(p);
+		for (size_t i = 0; i < n; i++)
+			if (b[i] != 0) return false;
+		return true;
+	};
+	for (int k : {1, 0}) { // trumpet (the smaller regions), then bowed over it
+		CAPTURE(k);
+		bool before_init = false;
+		Set::start(k, s, fast, large, [&](auto& e, auto& f, auto& l, auto) {
+			CHECK(static_cast<void*>(&f) == static_cast<void*>(fast.bytes)); // the arena's start
+			CHECK(static_cast<void*>(&l) == static_cast<void*>(large.bytes));
+			before_init = zeroed(&f, sizeof f) && zeroed(&l, sizeof l);
+			e.init(f, l, 48000, 10);
+		});
+		CHECK(before_init);
+	}
 }

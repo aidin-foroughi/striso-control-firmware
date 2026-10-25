@@ -87,9 +87,11 @@ template <class... V> static constexpr bool fit_the_board() {
 static_assert(fit_the_board<SYNTH_ENGINES>(), "too many voices for an engine");
 static_assert(CHANNEL_BUFFER_SIZE == striso::dsp::BLOCK, "engine block size must match the codec buffer");
 
-// Where the engines live: their state in DTCM (zero wait state, not shared with DMA), their
-// FastMemory in AHB SRAM1/2 (ram1), their LargeMemory in AXI SRAM (.bss). All zero-filled at
-// boot; init() starts an engine from there (no constructors run).
+// Where the engines live: their state in DTCM (zero wait state, not shared with DMA), and one
+// arena per memory region class that the running engine has (engine_set.h): FastMemory in AHB
+// SRAM1/2 (ram1), LargeMemory in AXI SRAM (.bss), each as large as the largest engine's. All
+// zero-filled at boot; a switch zeroes the new engine's share and runs its init() (no
+// constructors run).
 static Engines::States engines __attribute__((section(".ram5_clear")));
 static Engines::Fast engines_fast __attribute__((section(".ram1_clear")));
 static Engines::Large engines_large;
@@ -145,8 +147,10 @@ static striso::dsp::GlobalControls controls_g;
 static volatile int voice_request = 0; // entry to switch to, set by synth_select_voice()
 static int voice_current = -1;         // entry running in the synth thread
 
+// engine k takes over the arenas (in the synth thread, between blocks: the engine before it has
+// stopped)
 static void engine_init(int k) {
-	Engines::visit(k, engines, engines_fast, engines_large,
+	Engines::start(k, engines, engines_fast, engines_large,
 	    [](auto& e, auto& fast, auto& large, auto) { e.init(fast, large, SAMPLINGFREQ, VOICECOUNT); });
 }
 
