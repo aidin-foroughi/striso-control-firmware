@@ -36,6 +36,7 @@ extern "C" {
 #include "config_table.hpp"
 #include "preset_loader.hpp"
 #include "settings_keys.hpp"
+#include "led_view.hpp"
 #include "striso.h"
 #include "midi_usb.h"
 #include "midi_serial.h"
@@ -650,12 +651,7 @@ class Instrument {
             notegen1 = clamp(g, 6.85714285714286f, 7.2f);
 
             // base color depending on tuning system
-            if (notegen1 < 6.94)       {tuning_color = 0x550055;}
-            else if (notegen1 < 6.957) {tuning_color = 0x0000aa;}
-            else if (notegen1 < 6.984) {tuning_color = 0x005555;}
-            else if (notegen1 < 7.010) {tuning_color = 0x00aa00;}
-            else if (notegen1 < 7.03)  {tuning_color = 0x555500;}
-            else                       {tuning_color = 0xaa0000;}
+            tuning_color = led_view::generator_color(notegen1);
 
             update_leds();
         }
@@ -1822,7 +1818,7 @@ static float config_voice(const char* engine, int r, int g, int b, int type, flo
         }
     }
     if (count == 0 || first >= 128) {
-        led_rgb3(64, 0, 0);  // engine not in this firmware
+        led_rgb(led_view::kNoEngine);
         return 0;
     }
     int cur = synth_current_voice();
@@ -1840,7 +1836,7 @@ static float config_voice(const char* engine, int r, int g, int b, int type, flo
         remembered[first] = idx;
     }
     led_rgb3(r, g, b);
-    led_updown_dial(count > 1 ? idx + 1 : 0);
+    led_updown_dial(led_view::voice_dial(idx, count));
     return type > 0 ? adjust - a : 0;
 }
 #endif
@@ -1922,9 +1918,9 @@ struct SettingsKeyActions {
             config.zero_offset = clamp(config.zero_offset + a, min(0, config.zero_offset),
                                        max(16 * (1 << 24) / 256 - 1, config.zero_offset));
         }
-        int dial = clamp(config.zero_offset / ((1 << 24) / 256), 0, 15);
+        const int dial = led_view::threshold_dial(config.zero_offset);
         led_updown_dial(dial);
-        led_rgb3(dial * 10, dial * 5, 0);
+        led_rgb3(led_view::threshold_red(dial), led_view::threshold_green(dial), 0);
         return 0; // TODO: sticky ends
     }
     float pressure(const Key&, int type, float adjust) { // knob: pres sensitivity
@@ -1932,9 +1928,8 @@ struct SettingsKeyActions {
         if (type > 0) {
             dis.pres_sensitivity = clamp_knob(dis.pres_sensitivity, dis.pres_sensitivity + adjust * (1.0f/8.0f), 0, 3.0f, &rem);
         }
-        // (the dial has 16 leds and wraps: clamp, as the velocity and bend dials do, SC-27)
-        led_updown_dial(to_int_clamped(dis.pres_sensitivity * 8 + 0.9f, 0, 15));
-        led_rgb3(to_int_clamped(dis.pres_sensitivity * 64.0f, 0, 255), to_int_clamped(dis.pres_sensitivity * 64.0f, 0, 255), 0);
+        led_updown_dial(led_view::pressure_dial(dis.pres_sensitivity));
+        led_rgb3(led_view::pressure_level(dis.pres_sensitivity), led_view::pressure_level(dis.pres_sensitivity), 0);
         return rem * 8;
     }
     float velocity(const Key&, int type, float adjust) { // knob: velo sensitivity
@@ -1942,8 +1937,8 @@ struct SettingsKeyActions {
         if (type > 0) {
             dis.velo_sensitivity = clamp_knob(dis.velo_sensitivity, dis.velo_sensitivity + adjust * (1.0f/8.0f), 0, 2.0f, &rem);
         }
-        led_updown_dial(min((int)(dis.velo_sensitivity * 8 + 0.9f), 15));
-        led_rgb3(dis.velo_sensitivity * 64.0f, 0, dis.velo_sensitivity * 64.0f);
+        led_updown_dial(led_view::velocity_dial(dis.velo_sensitivity));
+        led_rgb3(led_view::velocity_level(dis.velo_sensitivity), 0, led_view::velocity_level(dis.velo_sensitivity));
         return rem * 8;
     }
     float bend(const Key&, int type, float adjust) { // knob: pitchbend range
@@ -1951,8 +1946,8 @@ struct SettingsKeyActions {
         if (type > 0) {
             dis.bend_sensitivity = clamp_knob(dis.bend_sensitivity, dis.bend_sensitivity + adjust * 0.25f, 0, 4.0f, &rem);
         }
-        led_updown_dial(min((int)(dis.bend_sensitivity * 4 + 0.9f), 15));
-        led_rgb3(dis.bend_sensitivity * 64.0f, 0, 0);
+        led_updown_dial(led_view::bend_dial(dis.bend_sensitivity));
+        led_rgb3(led_view::bend_level(dis.bend_sensitivity), 0, 0);
         return rem * 4;
     }
     float tilt(const Key&, int type, float adjust) { // knob: y sensitivity (TODO: flip?)
@@ -1960,9 +1955,8 @@ struct SettingsKeyActions {
         if (type > 0) {
             dis.y_sensitivity = clamp_knob(dis.y_sensitivity, dis.y_sensitivity + adjust * (1.0f/8.0f), 0, 3.0f, &rem);
         }
-        // (a negative tilt from a preset or Striso Live gave negative led values: full on, SC-27)
-        led_updown_dial(to_int_clamped(dis.y_sensitivity * 8 + 0.5f, 0, 15));
-        led_rgb3(to_int_clamped(dis.y_sensitivity * 32.0f, 0, 255), 0, to_int_clamped(dis.y_sensitivity * 64.0f, 0, 255));
+        led_updown_dial(led_view::tilt_dial(dis.y_sensitivity));
+        led_rgb3(led_view::tilt_red(dis.y_sensitivity), 0, led_view::tilt_blue(dis.y_sensitivity));
         return rem * 8;
     }
     // row 4: 18 20 22 24 26 28 13 15 ("future use" on the v2.2 card): the row's synth voice
@@ -1985,7 +1979,7 @@ struct SettingsKeyActions {
         } else {
             dis.note_offset += adjust * (1.0f/16.0f/2.0f);
         }
-        led_updown_dial(dis.note_offset * 16 + 0.5f);
+        led_updown_dial(led_view::tuning_dial(dis.note_offset));
         return 0;
     }
     // row 6: 35 37 39 41 43 45 30 32
@@ -2004,8 +1998,8 @@ struct SettingsKeyActions {
             }
             set_volume(vol);
         }
-        led_rgb3(volume_linear*2, volume_linear*2, volume_linear*2);
-        led_updown_dial((int)volume_linear/8);
+        led_rgb3(led_view::volume_level(volume_linear), led_view::volume_level(volume_linear), led_view::volume_level(volume_linear));
+        led_updown_dial(led_view::volume_dial(volume_linear));
         return rem * (1.0f/8.0f);
     }
     float sustain(const Key&, int type, float adjust) { // knob: sustain/decay rate
@@ -2014,8 +2008,8 @@ struct SettingsKeyActions {
             *dis.synth_pedal() = clamp_knob(*dis.synth_pedal(), *dis.synth_pedal() + adjust * (1.0f/16.0f), 0, 1.0f, &rem);
             pedal.send(*dis.synth_pedal() * 128 * 4, dis.control_channel());
         }
-        led_updown_dial(*dis.synth_pedal() * 15 + 0.5f);
-        led_rgb3(*dis.synth_pedal() * 64.0f, 0, *dis.synth_pedal() * 64.0f);
+        led_updown_dial(led_view::sustain_dial(*dis.synth_pedal()));
+        led_rgb3(led_view::sustain_level(*dis.synth_pedal()), 0, led_view::sustain_level(*dis.synth_pedal()));
         return rem * 16;
     }
     // row 8:       56 58 60 62 47 49
@@ -2041,8 +2035,8 @@ struct SettingsKeyActions {
             }
             if (type == 2) a = a * 4;
         }
-        led_rgb3(10 + 50*cur, 0, 0);
-        led_updown_dial(2 + 2 * cur);
+        led_rgb3(led_view::bend_range_red(cur), 0, 0);
+        led_updown_dial(led_view::bend_range_dial(cur));
         return adjust - a;
     }
     float rate(const Key&, int type, float adjust) { // knob: MIDI message interval
@@ -2050,26 +2044,26 @@ struct SettingsKeyActions {
         if (type > 0) {
             config.message_interval = clamp(config.message_interval - a, 1, 15);
         }
-        led_rgb3(164-8*config.message_interval, 164-8*config.message_interval, 0);
-        led_updown_dial(16 - config.message_interval);
+        led_rgb3(led_view::rate_level(config.message_interval), led_view::rate_level(config.message_interval), 0);
+        led_updown_dial(led_view::rate_dial(config.message_interval));
         return adjust - a;
     }
     // row 9:                   63 65 67
     float panic(const Key&, int type, float) { // panic/all notes off
         if (type == 0) {
             dis.panic();
-            led_rgb(0x342000);
+            led_rgb(led_view::kPanic);
         } return 0;
     }
     float send_config(const Key&, int type, float) { // send MPE/pitch bend range config
         if (type == 0) {
             midi_config();
-            led_rgb(0x300064);
+            led_rgb(led_view::kSendConfig);
         } return 0;
     }
     float reset(const Key&, int type, float) { // system reset
         if (type == 0) {
-            led_rgb(0xff0000);
+            led_rgb(led_view::kReset);
             reset_on_release = true;
         } return 0;
     }
@@ -2580,26 +2574,12 @@ void synth_tick(void) {
     }
 }
 
+// the indicator and the up/down leds as the instrument's state shows them (led_view.hpp), unless
+// Settings is held and a key shows its value
 void update_leds(void) {
-    // if buttons in alt mode don't update leds
-    if (dis.altmode & 2) return;
-
-    uint8_t r, g, b;
-    r = dis.tuning_color >> 16 & 0xff;
-    g = dis.tuning_color >>  8 & 0xff;
-    b = dis.tuning_color >>  0 & 0xff;
-
-    int m = 64 + 16 * (dis.altmode + (dis.portamento & 1));
-    led_rgb3(r * m / 64, g * m / 64, b * m / 64);
-
-    int note_offset = dis.flipdir * ((int)(dis.start_note_offset + 0.5f) - 62);
-    if      (note_offset <= -24) led_updown(0xff00);
-    else if (note_offset <  -12) led_updown(0xaf00);
-    else if (note_offset <= -12) led_updown(0x0f00);
-    else if (note_offset <    0) led_updown(0x0a00);
-    else if (note_offset >=  24) led_updown(0x00ff);
-    else if (note_offset >   12) led_updown(0x00fa);
-    else if (note_offset >=  12) led_updown(0x00f0);
-    else if (note_offset >    0) led_updown(0x00a0);
-    else                         led_updown(0x0000);
+    if (led_view::settings_shown(dis.altmode)) return;
+    const int m = led_view::brightness(dis.altmode, dis.portamento);
+    led_rgb3(led_view::indicator(dis.tuning_color, 16, m), led_view::indicator(dis.tuning_color, 8, m),
+             led_view::indicator(dis.tuning_color, 0, m));
+    led_updown(led_view::octave_leds(dis.flipdir, dis.start_note_offset));
 }
