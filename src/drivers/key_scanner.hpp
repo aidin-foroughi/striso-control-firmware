@@ -125,7 +125,7 @@ struct Config {
 };
 
 // The key processing state. process(frame, sink) per scan; Sink is any type with
-//   int send(const int (&msg)[6])  0: queued (msgSend), else refused
+//   int send(const int (&msg)[6])  0: queued (messaging::send), else refused
 // A refused note-off is retried at the key's next scans, first (S4: the scanner used to sleep a
 // tick and retry until the queue took it); until it is sent the key sends nothing else.
 class KeyScanner {

@@ -28,7 +28,6 @@ extern "C" {
     #include "ws2812.h"
     #include "led.h"
     #include "aux_jack.h"
-    #include "messaging.h"
     #include "button_read.h"
 }
 
@@ -40,6 +39,7 @@ extern "C" {
 #include "midi.h"
 #include "tuning.h"
 #include "chprintf.h"
+#include "messaging.hpp"
 
 #include <bit>
 #include <cstdint>
@@ -1599,7 +1599,7 @@ unsigned int aux_button_map = 0;
  * pressing key <id> with Settings held does at the initial press: config_but(id, 0, 0), then the
  * leds as releasing Settings leaves them (update_leds). The console only queues the request
  * (synth_settings_key, message ID_INTERNAL): it runs in the thread that handles the keys
- * (synth_message, ThreadSend), so it never races a real key press.
+ * (synth_message, the control thread), so it never races a real key press.
  * Allowed: the keys flagged SKF_CONSOLE in the settings-key table (settings_keys[], next to
  * config_but; StcX lists them with the flag 'k'): the MIDI modes, the tunings, the settings presets,
  * the voices of the engines in this firmware and panic. Refused: system reset, send cfg, flip, the
@@ -1616,8 +1616,7 @@ static void settings_key_press(int id) {
 
 int synth_settings_key(int id) {
     if (!settings_key_allowed(id)) return 0;
-    int msg[3] = {ID_INTERNAL, IDI_SETTINGS_KEY, id};
-    return msgSend(3, msg) == 0;  // 0: queued
+    return messaging::send(Source::internal, IDI_SETTINGS_KEY, id);
 }
 
 int synth_message(int size, int* msg) {
@@ -2578,8 +2577,7 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t status,
                       uint8_t data1, uint8_t data2) {
     (void) dev;
     (void) port;
-    int msg[5] = {ID_INTERNAL, IDI_MIDI_IN, status, data1, data2};
-    for (int n = 0; msgSend(5, msg) != 0 && n < 50; n++) {
+    for (int n = 0; !messaging::send(Source::internal, IDI_MIDI_IN, status, data1, data2) && n < 50; n++) {
         chThdSleepMilliseconds(1);
     }
 }
@@ -2631,13 +2629,7 @@ static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2) {
 
     if (config.send_midi_monitor) {
         // Monitor MIDI input
-        int msg[5];
-        msg[0] = ID_MIDI;
-        msg[1] = channel;
-        msg[2] = status >> 4;
-        msg[3] = data1;
-        msg[4] = data2;
-        msgSend(5, msg);
+        (void)messaging::send(Source::midi, channel, status >> 4, data1, data2);
     }
 
     if (status != 0xf0 && midi_in_note_message(channel, status, data1, data2)) {
@@ -3061,8 +3053,7 @@ void synth_control_init(void) {
 void synth_tick(void) {
     dis.tick();
     if (dis.midi_in_strikes) {
-        int msg[2] = {ID_INTERNAL, IDI_MIDI_IN_TICK};
-        msgSend(2, msg);  // (a full queue: the next tick)
+        (void)messaging::send(Source::internal, IDI_MIDI_IN_TICK);  // (a full queue: the next tick)
     }
     // system reset (settings + key 67) waits for the settings button to be released: reset while it's
     // held and the UF2 bootloader sees its button and stays in update mode

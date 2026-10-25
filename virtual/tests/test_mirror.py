@@ -3,7 +3,8 @@
 
 main.c (fwinfo casts pointers to 32 bits, vsqrtf is Cortex-M7 assembly) and motionsensor.c
 (I2C) are not compiled into striso_virtual; virtual/board/main_host.c and motion_host.c carry
-their thread loops, copied verbatim between marker comments. This test fails when the firmware's
+their thread loops (the blinker and the main loop; the LSM6DSL reader), copied verbatim between
+marker comments. The control thread is compiled as it is (src/app/control_thread.cpp). This test fails when the firmware's
 code and the copy differ (whitespace and line endings aside), so a change in main.c or
 motionsensor.c is made in the virtual board too.
 """
@@ -45,12 +46,10 @@ def main():
     fails = 0
     main_c = (ROOT / "src/app/main.c").read_text()
     host = (ROOT / "virtual/board/main_host.c").read_text()
-    copy = between(host, "/* main.c: --- copied from here (Thread1, pack, ThreadSend) --- */", "/* main.c: --- copied up to here --- */")
-    # the working areas as main.c declares them (their sizes included)
-    wa = [re.search(r"static THD_WORKING_AREA\(%s, \w+\);" % n, main_c).group(0) for n in ("waThread1", "waThreadSend")]
-    for sig in [wa[0], "static void Thread1(void *arg) {",
-                "static void pack(int *in, uint8_t *out, int n) {", wa[1],
-                "static void ThreadSend(void *arg) {"]:
+    copy = between(host, "/* main.c: --- copied from here (Thread1) --- */", "/* main.c: --- copied up to here --- */")
+    # the working area as main.c declares it (its size included)
+    wa = re.search(r"static THD_WORKING_AREA\(waThread1, \w+\);", main_c).group(0)
+    for sig in [wa, "static void Thread1(void *arg) {"]:
         want = function(main_c, sig) if sig.endswith("{") else sig
         got = function(copy, sig) if sig.endswith("{") else (sig if sig in copy else "")
         if norm(want) != norm(got):

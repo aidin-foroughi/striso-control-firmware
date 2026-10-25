@@ -221,7 +221,7 @@ int32_t fw_get_state(sv_state* out) {
 	out->midi_mode = static_cast<int32_t>(config.midi_mode);
 	out->blocks = blocks;
 	out->to_block = next_block == NEVER ? -1 : static_cast<int32_t>(next_block - svh_now());
-	out->underruns = static_cast<uint32_t>(underruns);
+	out->underruns = messaging_drops();
 	out->volume = volume;
 	std::memcpy(out->controls, svh_last_block.controls, sizeof out->controls);
 	std::memcpy(out->globals, svh_last_block.globals, sizeof out->globals);
