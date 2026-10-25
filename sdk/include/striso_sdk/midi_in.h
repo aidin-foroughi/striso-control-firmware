@@ -15,7 +15,7 @@
 // released one, else the quietest held one); on the board MIDI notes share the voices with the
 // keys (get_synth_voice). The board's echo filtering of its own MIDI out isn't needed here.
 // (The board's code isn't separable from its key handling yet: this is the second copy of the
-// mapping; a change to one must go to the other, docs/engines.md.)
+// mapping; a change to one must go to the other, doc/engines.md.)
 #ifndef STRISO_SDK_MIDI_IN_H_
 #define STRISO_SDK_MIDI_IN_H_
 
@@ -28,7 +28,7 @@ namespace striso::sdk {
 
 class MidiIn {
 public:
-	static constexpr int SLOTS = 16;               // notes held at once (the board's MIDI_IN_NOTES)
+	static constexpr int SLOTS = 16;              // notes held at once (the board's MIDI_IN_NOTES)
 	static constexpr double TICK_SECONDS = 0.002; // the strike fade's step (the board's synth_tick)
 
 	explicit MidiIn(int voices);

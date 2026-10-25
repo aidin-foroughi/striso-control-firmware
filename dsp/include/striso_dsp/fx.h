@@ -400,8 +400,8 @@ enum {
 // ---------------------------------------------------------------------------------------------
 
 struct Engine {
-	FastMemory* fast;   // the host's (init)
-	LargeMemory* large; // the host's (init)
+	FastMemory* fast;      // the host's (init)
+	LargeMemory* large;    // the host's (init)
 	float p[NPARAM];       // live parameters (written between blocks)
 	float s[NPARAM];       // smoothed parameters (this block)
 	float sp[NPARAM];      // smoothed parameters of the previous block

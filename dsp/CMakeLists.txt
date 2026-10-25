@@ -1,6 +1,6 @@
 # striso_dsp: the synth's DSP, platform independent (no HAL, no libm calls, no heap, no globals):
 # the voice engines and the master effects, the small helpers they share, and the engine contract
-# (docs/engines.md). Header only on purpose: the engines are static inline and compile into the one
+# (doc/engines.md). Header only on purpose: the engines are static inline and compile into the one
 # translation unit that runs them (src/synth/synth_strisy.cpp on the board at -O3, sdk/ on the
 # host), so the compiler sees the whole DSP at once.
 #   striso_dsp/engine.h           the contract: VoiceEngine, Effect, VoiceControls, EngineInfo

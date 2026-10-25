@@ -13,11 +13,15 @@
 namespace dsp = striso::dsp;
 
 TEST_CASE("dspmath: fastpow2 (p >= 0, as the engines use it) and tan0 approximate exp2 and tan") {
-	for (float p = 0.0f; p <= 12.0f; p += 0.137f) {
+	for (int k = 0; k <= 87; k++) {
+		const float p = 0.137f * static_cast<float>(k);
 		CAPTURE(p);
 		CHECK(std::fabs(strisy::fastpow2(p) / std::exp2(p) - 1.0f) < 1e-4f);
 	}
-	for (float a = 0.01f; a < 0.3f; a += 0.01f) CHECK(std::fabs(strisy::tan0(a) / std::tan(a) - 1.0f) < 1e-3f); // (K_f0: up to ~4 kHz at 48 kHz)
+	for (int k = 1; k < 30; k++) {
+		const float a = 0.01f * static_cast<float>(k);
+		CHECK(std::fabs(strisy::tan0(a) / std::tan(a) - 1.0f) < 1e-3f); // (K_f0: up to ~4 kHz at 48 kHz)
+	}
 	CHECK(strisy::rmax(1.0f, 2.0f) == 2.0f);
 	CHECK(strisy::rmin(1.0f, 2.0f) == 1.0f);
 }
@@ -39,7 +43,8 @@ TEST_CASE("svf: unity gain at DC, -3 dB at the cutoff for Q = 0.707, Pade tan") 
 	}
 	CHECK(peak == doctest::Approx(0.70710678f).epsilon(2e-3));
 	// the Pade coefficients are the tan coefficients (lowpass and bandpass terms)
-	for (float f = 50.0f; f < 16000.0f; f *= 1.7f) {
+	for (int k = 0; k < 11; k++) {
+		const float f = 50.0f * std::pow(1.7f, static_cast<float>(k));
 		const float x = 3.14159265f * f / sr;
 		const strisy::SvfCoef a = strisy::svf_pade(x, 2.0f), b = strisy::svf_from_g(std::tan(x), 2.0f);
 		CAPTURE(f);

@@ -38,7 +38,8 @@ namespace {
 
 class Scripted final : public Player {
 public:
-	Scripted(const ScriptedPerformance& p, int voices) : p_(p), nv_(voices) {}
+	Scripted(const ScriptedPerformance& p, int voices) :
+	    p_(p), nv_(voices) {}
 	void block(int b, dsp::VoiceControls* vc, dsp::GlobalControls& g) override { p_.block(b, nv_, vc, g); }
 	[[nodiscard]] double seconds() const override { return 17.5; }
 	[[nodiscard]] std::string describe() const override {
@@ -52,7 +53,8 @@ private:
 
 class Keys final : public Player {
 public:
-	Keys(std::string path, std::vector<harness::RecEvent> ev, int sample_rate) : path_(std::move(path)), ev_(std::move(ev)), sr_(sample_rate) {}
+	Keys(std::string path, std::vector<harness::RecEvent> ev, int sample_rate) :
+	    path_(std::move(path)), ev_(std::move(ev)), sr_(sample_rate) {}
 	void block(int b, dsp::VoiceControls* vc, dsp::GlobalControls&) override {
 		// the last event of each voice up to this block (the board's controls between messages)
 		const double t = static_cast<double>(b) * dsp::BLOCK / sr_;
@@ -82,7 +84,8 @@ private:
 
 class Midi final : public Player {
 public:
-	Midi(std::string path, MidiFile f, int voices, int sample_rate) : path_(std::move(path)), f_(std::move(f)), in_(voices), sr_(sample_rate) {}
+	Midi(std::string path, MidiFile f, int voices, int sample_rate) :
+	    path_(std::move(path)), f_(std::move(f)), in_(voices), sr_(sample_rate) {}
 	void block(int b, dsp::VoiceControls* vc, dsp::GlobalControls& g) override {
 		// the messages and the 2 ms strike ticks up to this block, in time order
 		const double t = static_cast<double>(b) * dsp::BLOCK / sr_;

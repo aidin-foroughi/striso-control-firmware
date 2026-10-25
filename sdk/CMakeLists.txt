@@ -1,4 +1,4 @@
-# The sound engine SDK for the PC (docs/engines.md): every engine as its own library, a generic
+# The sound engine SDK for the PC (doc/engines.md): every engine as its own library, a generic
 # contract test suite that runs on each of them, the renderer and the host shell. It needs only
 # dsp/ (the engines), tools/harness/ (the scripted performances and the key-stream replay) and
 # third_party/doctest: no firmware, no ChibiOS. Built as part of the firmware repository's host

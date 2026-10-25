@@ -73,10 +73,8 @@ private:
 	}
 	template <class F, size_t... I>
 	static void visit_mem_(int k, States& s, Fast& fast, Large& large, F& f, std::index_sequence<I...>) {
-		(void)((k == static_cast<int>(I) && (f(s.template get<I>(), fast.template get<I>(), large.template get<I>(),
-		                                          std::integral_constant<size_t, I>()),
-		                                        true)) ||
-		       ...);
+		(void)((k == static_cast<int>(I) && (f(s.template get<I>(), fast.template get<I>(), large.template get<I>(), std::integral_constant<size_t, I>()), true)) ||
+		    ...);
 	}
 };
 

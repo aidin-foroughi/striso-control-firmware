@@ -13,7 +13,8 @@ namespace {
 
 } // namespace
 
-MidiIn::MidiIn(int voices) : vc_(static_cast<size_t>(voices), dsp::voice_at_rest), voice_(static_cast<size_t>(voices)), g_(dsp::globals_at_rest) {
+MidiIn::MidiIn(int voices) :
+    vc_(static_cast<size_t>(voices), dsp::voice_at_rest), voice_(static_cast<size_t>(voices)), g_(dsp::globals_at_rest) {
 	std::fill(std::begin(rpn_lsb_), std::end(rpn_lsb_), uint8_t{0x7f});
 	std::fill(std::begin(rpn_msb_), std::end(rpn_msb_), uint8_t{0x7f});
 }

@@ -22,7 +22,7 @@
 // The voice engine is chosen with `make VOICE=<name>`: strisy (default), <name> for
 // dsp/include/striso_dsp/engines/<name>.h, or `all` for every engine in one firmware, switched at
 // runtime with synth_select_voice() (USB console commands '0'..'9', 'v' lists them).
-// Every engine is a striso::dsp::VoiceEngine (dsp/include/striso_dsp/engine.h, docs/engines.md)
+// Every engine is a striso::dsp::VoiceEngine (dsp/include/striso_dsp/engine.h, doc/engines.md)
 // and this file is its host on the board: it places the engines' state and memory, maps the keys'
 // signals (synth_interface) to their controls in one place (controls_vc, controls_g), and
 // dispatches through an EngineSet built from the engine list (SYNTH_ENGINES).

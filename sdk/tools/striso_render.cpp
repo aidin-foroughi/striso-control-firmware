@@ -166,8 +166,8 @@ int main(int argc, char** argv) {
 	}
 	std::string error;
 	std::unique_ptr<sdk::Player> player = rec ? sdk::key_player(rec, nv, sr, &error) :
-	                                      midi ? sdk::midi_player(midi, nv, sr, &error) :
-	                                             sdk::scripted_player(perf, nv, sr, &error);
+	    midi                                  ? sdk::midi_player(midi, nv, sr, &error) :
+	                                            sdk::scripted_player(perf, nv, sr, &error);
 	if (!player) fail(error);
 	if (seconds < 0) seconds = player->seconds();
 

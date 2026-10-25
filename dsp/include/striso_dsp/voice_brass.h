@@ -436,8 +436,8 @@ struct Engine {
 	int nvoices;
 	int preset;
 	LargeMemory* large; // the host's (init)
-	Params p;  // parameters as set (presets, live edits)
-	Params ps; // smoothed copy used by the DSP (de-zippers live edits)
+	Params p;           // parameters as set (presets, live edits)
+	Params ps;          // smoothed copy used by the DSP (de-zippers live edits)
 	real sr, pi_sr, ph_scale, ctrl_dt, block_dt;
 	strisy::SvfCoef lv_c, ty_c;
 	real shake_pk, shake; // global shake envelope

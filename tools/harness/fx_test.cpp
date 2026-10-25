@@ -146,7 +146,7 @@ int main(int argc, char** argv) {
 	static striso::dsp::Memory<Engine> mem;
 	const int nv = 6;
 	e.init(mem.fast, mem.large, SAMPLERATE, nv);
-	if (preset >= 0 && preset < Engine::num_presets()) e.set_preset(preset);
+	if (preset >= 0) e.set_preset(preset);
 	striso::dsp::VoiceControls vc[NVOICES_MAX];
 	for (int i = 0; i < nv; i++) vc[i] = striso::dsp::voice_at_rest;
 	striso::dsp::GlobalControls gc = striso::dsp::globals_at_rest;
