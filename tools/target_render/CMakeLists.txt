@@ -67,6 +67,18 @@ set_target_properties(target_key_path PROPERTIES LINKER_LANGUAGE CXX SUFFIX ".el
   LINK_DEPENDS "${_dir}/target.ld" EXCLUDE_FROM_ALL ON)
 list(APPEND _targets target_key_path)
 
+# the voice-switch block's instructions per engine (switch_block.cpp): EngineSet::start and the
+# first block, with the synth DSP's flags; ctest target.switch_block prints them
+add_executable(target_switch_block "${_dir}/switch_block.cpp" "${_dir}/startup.c")
+target_include_directories(target_switch_block PRIVATE "${STRISO_DSP_INCLUDE_DIR}")
+target_compile_options(target_switch_block PRIVATE ${_tr_flags})
+target_link_options(target_switch_block PRIVATE ${_mcflags} ${_opt_synth} --specs=rdimon.specs -nostartfiles
+  "-T${_dir}/target.ld" -Wl,--gc-sections
+  $<$<VERSION_GREATER_EQUAL:${CMAKE_C_COMPILER_VERSION},12>:-Wl,--no-warn-rwx-segments>)
+set_target_properties(target_switch_block PROPERTIES LINKER_LANGUAGE CXX SUFFIX ".elf"
+  LINK_DEPENDS "${_dir}/target.ld" EXCLUDE_FROM_ALL ON)
+list(APPEND _targets target_switch_block)
+
 # not part of the firmware build: cmake --build --preset firmware --target target_renders
 add_custom_target(target_renders DEPENDS ${_targets})
 
@@ -106,6 +118,11 @@ add_test(NAME target.key_path COMMAND "${QEMU_SYSTEM_ARM}" -M mps2-an500 -nograp
   -icount shift=0 -semihosting-config "enable=on,target=native,arg=key_path" -kernel "$<TARGET_FILE:target_key_path>")
 set_tests_properties(target.key_path PROPERTIES LABELS target_render TIMEOUT 900
   PASS_REGULAR_EXPRESSION "before [0-9]+ after [0-9]+ differences 0")
+
+add_test(NAME target.switch_block COMMAND "${QEMU_SYSTEM_ARM}" -M mps2-an500 -nographic -monitor none -serial none
+  -icount shift=0 -semihosting-config "enable=on,target=native,arg=switch_block" -kernel "$<TARGET_FILE:target_switch_block>")
+set_tests_properties(target.switch_block PROPERTIES LABELS target_render TIMEOUT 900
+  PASS_REGULAR_EXPRESSION "switch trumpet start [0-9]+ process [0-9]+ block [0-9]+")
 
 set(_golden_file "${PROJECT_SOURCE_DIR}/tests/golden/target_renders.txt")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_golden_file}")
