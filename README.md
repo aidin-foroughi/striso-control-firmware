@@ -145,7 +145,7 @@ The host tests render every engine and preset on the PC: the default, stale-inpu
 
 ### Testing without the hardware: the virtual board
 
-`virtual/` builds the firmware's logic as a library for the PC, **striso_virtual** (`.dll`, `.dylib`, `.so`), from the board's own source files: `synth_control.cpp`, `synth_strisy.cpp` with every engine (as `VOICE=all`), the USB console and its protocol (`pconnection.c`), `messaging.c`, `config_store.c`, `led.c`. They run on a small ChibiOS/HAL stand-in (`virtual/hal`): the firmware's threads run one at a time by priority, in virtual time (the 2 kHz tick, the codec's 32-frame block interrupt, the 1 ms USB frame), so a run is deterministic. What only the hardware has is replaced (`virtual/board`): key and control messages are injected where the key scanner sends them, so the firmware's own `synth_message` path runs; motion where the sensor thread reads it; the USB bulk console is a pair of byte queues with exactly the board's protocol (`Stc` commands, Q writes, the S/s binary stream). StcB opens the bootloader's drive as a directory, and a UF2 written there is flashed into the virtual board's config. No firmware file is changed for it; the board build is the same.
+`virtual/` builds the firmware's logic as a library for the PC, **striso_virtual** (`.dll`, `.dylib`, `.so`), from the board's own source files: `synth_control.cpp`, `synth_strisy.cpp` with every engine (as `VOICE=all`), the USB console and its protocol (`pconnection.c`), the message path (`messaging.cpp`, `control_thread.cpp`), `config_store.c`, `led.c`. They run on a small ChibiOS/HAL stand-in (`virtual/hal`): the firmware's threads run one at a time by priority, in virtual time (the 2 kHz tick, the codec's 32-frame block interrupt, the 1 ms USB frame), so a run is deterministic. What only the hardware has is replaced (`virtual/board`): key and control messages are injected where the key scanner sends them, so the firmware's own `synth_message` path runs; motion where the sensor thread reads it; the USB bulk console is a pair of byte queues with exactly the board's protocol (`Stc` commands, Q writes, the S/s binary stream). StcB opens the bootloader's drive as a directory, and a UF2 written there is flashed into the virtual board's config. No firmware file is changed for it; the board build is the same.
 
 ```sh
 tools/virtual.sh            # build and test natively (Windows: clang with Visual Studio's libraries; macOS: Xcode's clang)
@@ -166,7 +166,7 @@ Striso Live uses it as its **Virtual** Striso, and to audition a build with a re
 
 | Path | What |
 |---|---|
-| `src/app` | main, the USB console and protocol (pconnection), messaging, configuration, the config editor page |
+| `src/app` | main, the USB console and protocol (pconnection), the message path (the typed event queue, the control thread, the wire frame), configuration, the config editor page |
 | `src/drivers` | codec, key scanning (ADC), motion sensor, LEDs, aux jack, serial MIDI |
 | `src/usb` | USB descriptors, bulk console, USB MIDI, USB audio |
 | `src/synth` | the synth thread and controls (`synth_strisy.cpp`, `synth_control.cpp`), the tuning math; `faust/` the Faust synth |
