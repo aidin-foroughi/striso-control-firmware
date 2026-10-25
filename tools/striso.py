@@ -25,6 +25,8 @@ import os, re, shutil, string, struct, sys, time
 from datetime import datetime
 from pathlib import Path
 
+from config_schema import Schema
+
 import libusb_package
 import usb.core
 import usb.util
@@ -266,10 +268,14 @@ def flash(uf2_path, do_backup=True):
 # ---------------------------------------------------------------------------------------------
 # User settings (config) in flash at 0x08020000: 16-byte records, 8-char key + 8-char value, both
 # space padded, between "MConfig "/"v1.0    " and "MCfgEnd ". Same format as Striso's config
-# editor (config_editor/config.htm), written as CONFIG.UF2 through the bootloader drive.
+# editor (config_editor/config.htm), written as CONFIG.UF2 through the bootloader drive. The
+# keys, the address and the markers come from the firmware's schema (src/app/config_schema.hpp,
+# tools/config_schema.py): a setting striso.py writes must be one the firmware reads.
 
 TARGETS = {"voice": 0, "fx": 1, "touch": 2, "keys": 3}
-CONFIG_START, CONFIG_END = 0x08020000, 0x08040000
+SCHEMA = Schema()
+CONFIG_START = SCHEMA.flash_address
+CONFIG_END = SCHEMA.flash_address + SCHEMA.flash_size
 
 
 def config_parse(uf2_data):
@@ -284,9 +290,9 @@ def config_parse(uf2_data):
     recs = []
     for o in range(0, len(data) - 15, 16):
         k, v = data[o:o + 8], data[o + 8:o + 16]
-        if not (32 <= k[0] < 127) or k == b"MCfgEnd ":
+        if not (32 <= k[0] < 127) or k == SCHEMA.end[0].encode():
             break
-        if k != b"MConfig ":
+        if k != SCHEMA.header[0].encode():
             recs.append((k.decode("ascii", "replace"), v.decode("ascii", "replace")))
     return recs
 
@@ -298,10 +304,10 @@ def config_uf2(recs):
         if len(b) > 8:
             raise SystemExit(f"config field too long: {s!r}")
         return b.ljust(8, b" ")
-    body = field("MConfig ") + field("v1.0")
+    body = field(SCHEMA.header[0]) + field(SCHEMA.header[1])
     for k, v in recs:
         body += field(k) + field(v)
-    body += field("MCfgEnd ") + field("")
+    body += field(SCHEMA.end[0]) + field(SCHEMA.end[1])
     nblocks = (len(body) + 255) // 256
     body = body.ljust(nblocks * 256, b"\xff")
     out = b""
@@ -314,9 +320,18 @@ def config_uf2(recs):
     return out
 
 
+def config_check(updates):
+    """Refuses (SystemExit) a setting the firmware doesn't read or a value not of its type."""
+    for k, v in updates.items():
+        why = SCHEMA.check_record(k, v)
+        if why:
+            raise SystemExit(f"REFUSED: {why}")
+
+
 def config_update(updates, remove=()):
     """Merge updates {key: value} into the board's config (keys in remove are dropped), keep the rest.
     Backs up the current config first; the board reboots afterwards."""
+    config_check(updates)
     drive = enter_bootloader()
     current = (drive / "CONFIG.UF2").read_bytes()
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
@@ -349,12 +364,12 @@ def save_touch():
     if len(touch) != 5 or len(keys) != 61:
         raise SystemExit("this firmware has no live touch/key settings")
     names = {"pressure": "presS", "velocity": "veloS", "tilt": "tiltS", "bend": "bendS", "threshold": "thres"}
-    updates = {"iGpreset": "1"}
+    updates = {SCHEMA.general_key("preset"): "1"}
     for _, name, _, _, _, val, _ in touch:
-        updates["fP1" + names[name]] = fmt8(val)
+        updates[SCHEMA.preset_key(1, names[name])] = fmt8(val)
     remove = []
     for _, name, _, _, _, val, _ in keys:
-        key = "fCfac" + name
+        key = SCHEMA.calibration_key("fac", name)
         if abs(val - 1.0) > 1e-4:
             updates[key] = fmt8(val)
         else:

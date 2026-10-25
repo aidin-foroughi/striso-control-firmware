@@ -7,6 +7,7 @@
 #               on their own
 #   usb_audio_core   tools/usbaudio/test_core.c: the USB audio ring and clock servo simulation
 #   striso_py   tools/striso.py's UF2 and config record handling (no board needed)
+#   config_schema   tools/config_schema.py against the schema and tests/golden/firmware_bytes.txt
 #   render.<voice>[.p<preset>].<performance>   every engine and preset renders the default
 #               performance, the stale-vpres performance and the recorded key streams
 #               (tools/harness/rec): finite, peak <= 8, a silent idle tail after the stale
@@ -207,7 +208,10 @@ set_tests_properties(codec_linein PROPERTIES LABELS unit)
 
 # --- tools/striso.py: UF2 and config records ----------------------------------------------------------
 add_test(NAME striso_py COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_striso_py.py")
-set_tests_properties(striso_py PROPERTIES LABELS unit)
+# tools/config_schema.py (striso.py's checks, the config editor's key list) against the schema:
+# the default records byte for byte as the golden, the editor's tables, the record checks
+add_test(NAME config_schema COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_config_schema.py")
+set_tests_properties(striso_py config_schema PROPERTIES LABELS unit)
 
 # tools/stackcheck.py (the build's thread stack check) on small hand-written disassemblies
 add_test(NAME stackcheck COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_stackcheck.py")
