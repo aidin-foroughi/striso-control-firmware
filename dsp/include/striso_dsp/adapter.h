@@ -21,6 +21,7 @@
 #ifndef STRISO_DSP_ADAPTER_H_
 #define STRISO_DSP_ADAPTER_H_
 
+#include <cstddef>
 #include <type_traits>
 
 #include "engine.h"
@@ -78,6 +79,17 @@ template <class T> constexpr int num_preset_heroes() {
 	else return 0;
 }
 
+template <class T> constexpr int num_presets() {
+	if constexpr (requires { T::num_presets; }) return T::num_presets;
+	else return 0;
+}
+
+// the size of an adapter: the native engine and the sample rate (EngineInfo::state_bytes)
+template <class Native> constexpr size_t state_bytes() {
+	constexpr size_t a = alignof(Native) > alignof(int) ? alignof(Native) : alignof(int);
+	return (sizeof(Native) + sizeof(int) + a - 1) / a * a;
+}
+
 } // namespace detail
 
 template <class T> struct Adapter {
@@ -89,7 +101,6 @@ template <class T> struct Adapter {
 	static constexpr bool has_presets = requires { T::num_presets; };
 	static_assert(PlainData<Native>, "an engine is plain data (it lives in zero-filled DTCM, no constructors run)");
 
-	static const EngineInfo info;
 
 	Native e;
 	int sample_rate;
@@ -121,10 +132,7 @@ template <class T> struct Adapter {
 	[[nodiscard]] int active_voices() const { return T::active_voices(e); }
 	[[nodiscard]] int voices() const { return e.nvoices; }
 
-	[[nodiscard]] static constexpr int num_presets() {
-		if constexpr (has_presets) return T::num_presets;
-		else return 0;
-	}
+	[[nodiscard]] static constexpr int num_presets() { return detail::num_presets<T>(); }
 	[[nodiscard]] static const char* preset_name(int i) {
 		if constexpr (has_presets) return i >= 0 && i < T::num_presets ? T::preset_name(i) : nullptr;
 		else return (void)i, nullptr;
@@ -146,13 +154,12 @@ template <class T> struct Adapter {
 		Params::changed(e, i);
 		return true;
 	}
+	static constexpr EngineInfo info = {T::name, T::summary, 1, T::inputs, T::budget, detail::state_bytes<Native>(),
+	    std::is_empty_v<typename T::FastMemory> ? 0 : sizeof(typename T::FastMemory),
+	    std::is_empty_v<typename T::LargeMemory> ? 0 : sizeof(typename T::LargeMemory), detail::num_presets<T>(),
+	    strisy::EngineParams<typename T::Engine>::count, detail::heroes<T>(), detail::preset_heroes<T>(), detail::num_preset_heroes<T>()};
 };
 
-template <class T>
-constexpr EngineInfo Adapter<T>::info = {T::name, T::summary, 1, T::inputs, T::budget, sizeof(Adapter<T>),
-    std::is_empty_v<typename T::FastMemory> ? 0 : sizeof(typename T::FastMemory),
-    std::is_empty_v<typename T::LargeMemory> ? 0 : sizeof(typename T::LargeMemory), Adapter<T>::num_presets(),
-    strisy::EngineParams<typename T::Engine>::count, detail::heroes<T>(), detail::preset_heroes<T>(), detail::num_preset_heroes<T>()};
 
 // An effect in the fx.h shape: struct traits::<name> {
 //     using Engine; using FastMemory; using LargeMemory;
@@ -168,7 +175,6 @@ template <class T> struct EffectAdapter {
 	using Params = strisy::EngineParams<Native>;
 	static_assert(PlainData<Native>, "an effect is plain data");
 
-	static const EffectInfo info;
 
 	Native e;
 	int sample_rate;
@@ -194,13 +200,12 @@ template <class T> struct EffectAdapter {
 		Params::changed(e, i);
 		return true;
 	}
+	static constexpr EffectInfo info = {T::name, T::summary, T::inputs, T::outputs, T::instr_per_block,
+	    detail::state_bytes<Native>(), std::is_empty_v<typename T::FastMemory> ? 0 : sizeof(typename T::FastMemory),
+	    std::is_empty_v<typename T::LargeMemory> ? 0 : sizeof(typename T::LargeMemory),
+	    strisy::EngineParams<typename T::Engine>::count, detail::heroes<T>()};
 };
 
-template <class T>
-constexpr EffectInfo EffectAdapter<T>::info = {T::name, T::summary, T::inputs, T::outputs, T::instr_per_block,
-    sizeof(EffectAdapter<T>), std::is_empty_v<typename T::FastMemory> ? 0 : sizeof(typename T::FastMemory),
-    std::is_empty_v<typename T::LargeMemory> ? 0 : sizeof(typename T::LargeMemory),
-    strisy::EngineParams<typename T::Engine>::count, detail::heroes<T>()};
 
 } // namespace striso::dsp
 

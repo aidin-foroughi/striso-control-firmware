@@ -8,6 +8,7 @@
 namespace striso::sdk {
 
 template <dsp::VoiceEngine E> [[nodiscard]] const EngineEntry& entry_of(const char* header) {
+	static_assert(sizeof(E) == E::info.state_bytes, "EngineInfo::state_bytes is the engine object's size");
 	// the engine and its regions in one heap object; new Box() zero-fills it (plain data)
 	struct Box {
 		E e;
@@ -37,6 +38,7 @@ template <dsp::VoiceEngine E> [[nodiscard]] const EngineEntry& entry_of(const ch
 }
 
 template <dsp::Effect F> [[nodiscard]] const EffectEntry& effect_entry_of() {
+	static_assert(sizeof(F) == F::info.state_bytes, "EffectInfo::state_bytes is the effect object's size");
 	struct Box {
 		F f;
 		dsp::Memory<F> m;

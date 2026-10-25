@@ -20,7 +20,7 @@ namespace striso::dsp {
 namespace detail {
 
 template <size_t I, class T> struct Slot {
-	[[no_unique_address]] T value;
+	STRISO_NO_UNIQUE_ADDRESS T value;
 };
 template <class Seq, class... T> struct Slots;
 template <size_t... I, class... T> struct Slots<std::index_sequence<I...>, T...> : Slot<I, T>... {};

@@ -21,6 +21,17 @@
 #include "controls.h"
 #include "params.h"
 
+// an empty member takes no room ([[no_unique_address]]; on Windows the MSVC ABI's spelling)
+#if defined(_MSC_VER)
+#if __has_cpp_attribute(msvc::no_unique_address)
+#define STRISO_NO_UNIQUE_ADDRESS [[msvc::no_unique_address]]
+#else
+#define STRISO_NO_UNIQUE_ADDRESS
+#endif
+#else
+#define STRISO_NO_UNIQUE_ADDRESS [[no_unique_address]]
+#endif
+
 namespace striso::dsp {
 
 inline constexpr int BLOCK = strisy::BLOCK; // samples per process() call
@@ -161,8 +172,8 @@ struct EffectInfo {
 // The memory of an engine as one object, for hosts that don't place the regions separately (the
 // PC); the board puts FastMemory and LargeMemory in different RAMs (engine_set.h).
 template <class E> struct Memory {
-	[[no_unique_address]] typename E::FastMemory fast;
-	[[no_unique_address]] typename E::LargeMemory large;
+	STRISO_NO_UNIQUE_ADDRESS typename E::FastMemory fast;
+	STRISO_NO_UNIQUE_ADDRESS typename E::LargeMemory large;
 };
 
 // plain data: zero-filled storage is a valid engine before init(); nothing runs at startup

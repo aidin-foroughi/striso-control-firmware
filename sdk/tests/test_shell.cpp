@@ -1,9 +1,14 @@
-// The host shell (shell.h): MIDI in, any frame count per call, an engine change.
+// The host shell (shell.h): MIDI in, any frame count per call; the MIDI file player.
 #include <cmath>
+#include <cstdio>
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "doctest/doctest.h"
+#include "striso_sdk/performance.h"
 #include "striso_sdk/shell.h"
+#include "striso_sdk/smf.h"
 
 namespace sdk = striso::sdk;
 
@@ -63,4 +68,44 @@ TEST_CASE("shell: every engine plays a MIDI note through the shell") {
 		CHECK(finite);
 		CHECK(peak > 1e-3f);
 	}
+}
+
+TEST_CASE("players: a MIDI file plays an engine and says what it is") {
+	const sdk::MidiEvent ev[] = {
+	    {0.0, {0x90, 60, 100}, 3},
+	    {0.0, {0x91, 64, 90}, 3},
+	    {0.3, {0xe1, 0x00, 0x48}, 3},
+	    {0.6, {0x80, 60, 0}, 3},
+	    {0.6, {0x81, 64, 0}, 3},
+	};
+	const std::vector<uint8_t> bytes = sdk::make_midi(ev);
+	const char* path = "striso_sdk_tests_players.mid";
+	FILE* f = std::fopen(path, "wb");
+	REQUIRE(f != nullptr);
+	std::fwrite(bytes.data(), 1, bytes.size(), f);
+	std::fclose(f);
+	std::string error;
+	const std::unique_ptr<sdk::Player> p = sdk::midi_player(path, 10, 48000, &error);
+	REQUIRE(p != nullptr);
+	CHECK(p->note_events());
+	CHECK(p->describe().find("striso_sdk_tests_players.mid") != std::string::npos);
+	CHECK(p->describe().find("fnv") != std::string::npos);
+	CHECK(p->seconds() == doctest::Approx(2.6));
+	sdk::Engine e(*sdk::find_engine("ep"));
+	e.init(48000, 10);
+	std::vector<striso::dsp::VoiceControls> vc(10, striso::dsp::voice_at_rest);
+	striso::dsp::GlobalControls g = striso::dsp::globals_at_rest;
+	float peak = 0;
+	for (int b = 0; b < static_cast<int>(p->seconds() * 48000 / 32); b++) {
+		p->block(b, vc.data(), g);
+		float out[32];
+		float* const o[1] = {out};
+		e.process(vc.data(), g, o);
+		for (float x : out) peak = std::fmax(peak, std::fabs(x));
+	}
+	CHECK(peak > 0.01f);
+	CHECK(e.active_voices() == 0);
+	std::remove(path);
+	CHECK(sdk::midi_player("no/such/file.mid", 10, 48000, &error) == nullptr);
+	CHECK(!error.empty());
 }
