@@ -9,10 +9,13 @@
 #   striso_effect_fx           the master effects: striso::sdk::fx_effect()
 #   striso_engines             every engine, by name: striso::sdk::engines(), find_engine()
 #   striso_performances        the scripted performances of tools/harness, by name
-#   striso_sdk                 the MIDI/MPE mapping, the MIDI file reader, the players
+#   striso_sdk                 the MIDI/MPE mapping, the MIDI file reader, the players, the shell
 #   striso_render              the renderer (sdk/tools/striso_render.cpp)
 #   render_custom              the renderer with one engine and performance compiled with extra
 #                              flags (STRISO_RENDER_*: tools/harness/render_strisy.sh)
+#   tests: contract.<name>.*   the contract suite on each engine (tests/contract.cpp)
+#          sdk.*               the shared helpers, the MIDI mapping and files, the shell
+#          striso_render.*     the renderer's log names its engine, preset and input; bad inputs fail
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   cmake_minimum_required(VERSION 3.25)
   project(striso_sdk DESCRIPTION "Striso sound engine SDK" LANGUAGES CXX)
@@ -155,7 +158,7 @@ target_compile_definitions(striso_performances PRIVATE _USE_MATH_DEFINES)
 target_compile_options(striso_performances PRIVATE -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter)
 
 # --- the SDK: MIDI in, MIDI files, the players, the shell ---------------------------------------------
-add_library(striso_sdk STATIC src/midi_in.cpp src/smf.cpp src/performance.cpp)
+add_library(striso_sdk STATIC src/midi_in.cpp src/smf.cpp src/shell.cpp src/performance.cpp)
 target_include_directories(striso_sdk PRIVATE "${STRISO_HARNESS_DIR}")
 target_link_libraries(striso_sdk PUBLIC striso_sdk_options striso_effect_fx)
 
@@ -225,3 +228,51 @@ std::span<const striso::sdk::ScriptedPerformance* const> striso::sdk::performanc
 else()
   message(WARNING "STRISO_RENDER_VOICE=${STRISO_RENDER_VOICE} is not an engine (${STRISO_VOICES})")
 endif()
+
+# --- tests ------------------------------------------------------------------------------------------
+if(NOT EXISTS "${STRISO_DOCTEST_DIR}/doctest/doctest.h")
+  message(WARNING "no doctest at ${STRISO_DOCTEST_DIR}: the SDK's tests are not built")
+  return()
+endif()
+include("${STRISO_DOCTEST_DIR}/cmake/doctest.cmake")
+
+# the contract suite on every engine: one test program per engine, linked to that engine's library
+foreach(v IN LISTS STRISO_VOICES)
+  add_executable(striso_engine_${v}_contract tests/main.cpp tests/contract.cpp)
+  target_compile_definitions(striso_engine_${v}_contract PRIVATE STRISO_ENGINE_ENTRY=striso_engine_${v})
+  target_include_directories(striso_engine_${v}_contract PRIVATE "${STRISO_DOCTEST_DIR}")
+  target_link_libraries(striso_engine_${v}_contract PRIVATE striso_engine_${v} striso_sdk_options)
+  doctest_discover_tests(striso_engine_${v}_contract TEST_PREFIX "contract.${v}." PROPERTIES LABELS "contract;unit")
+endforeach()
+
+add_executable(striso_effect_fx_contract tests/main.cpp tests/contract_effect.cpp)
+target_include_directories(striso_effect_fx_contract PRIVATE "${STRISO_DOCTEST_DIR}")
+target_link_libraries(striso_effect_fx_contract PRIVATE striso_effect_fx)
+doctest_discover_tests(striso_effect_fx_contract TEST_PREFIX "contract.fx." PROPERTIES LABELS "contract;unit")
+
+add_executable(striso_sdk_tests tests/main.cpp tests/test_helpers.cpp tests/test_midi.cpp tests/test_shell.cpp)
+target_include_directories(striso_sdk_tests PRIVATE "${STRISO_DOCTEST_DIR}")
+target_link_libraries(striso_sdk_tests PRIVATE striso_sdk striso_engines)
+doctest_discover_tests(striso_sdk_tests TEST_PREFIX "sdk." PROPERTIES LABELS unit)
+
+# the renderer says what it played, and refuses what it can't find
+set(_rec "${STRISO_HARNESS_DIR}/rec/play_2026-10-22_staccato.csv")
+add_test(NAME striso_render.log_names_engine_preset_performance
+  COMMAND striso_render --engine va --preset pad --seconds 0.5)
+set_tests_properties(striso_render.log_names_engine_preset_performance PROPERTIES LABELS unit
+  PASS_REGULAR_EXPRESSION "engine va \\(voice_va.h\\), preset [0-9]+ \"pad\".*input scripted performance \"default\" \\([^\n]*performance.h \\([0-9]+ bytes, fnv [0-9a-f]+\\)\\) \\[the default input")
+if(EXISTS "${_rec}")
+  add_test(NAME striso_render.log_names_recording COMMAND striso_render --engine ep --rec "${_rec}" --seconds 0.5)
+  set_tests_properties(striso_render.log_names_recording PROPERTIES LABELS unit
+    PASS_REGULAR_EXPRESSION "engine ep \\(voice_ep.h\\), preset \\(its default\\) 0 .*input key recording [^\n]*play_2026-10-22_staccato.csv \\([0-9]+ bytes, fnv [0-9a-f]+\\): [0-9]+ key events")
+endif()
+foreach(t IN ITEMS "unknown_engine;--engine nosuch" "unknown_preset;--engine va --preset nosuch"
+                   "unknown_performance;--engine va --perf nosuch" "missing_recording;--engine va --rec /nonexistent.csv"
+                   "missing_midi;--engine va --midi /nonexistent.mid" "two_inputs;--engine va --perf default --rec x.csv"
+                   "too_many_voices;--engine trumpet --nv 64")
+  list(GET t 0 name)
+  list(GET t 1 args)
+  separate_arguments(args)
+  add_test(NAME striso_render.refuses_${name} COMMAND striso_render ${args})
+  set_tests_properties(striso_render.refuses_${name} PROPERTIES LABELS unit WILL_FAIL TRUE)
+endforeach()
