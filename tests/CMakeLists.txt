@@ -24,6 +24,7 @@ add_executable(striso_tests
   test_bowed_bounds.cpp
   test_config_store.cpp
   test_preset_loader.cpp
+  test_settings_keys.cpp
   test_tuning.cpp
   test_key_calibration.cpp
   test_event_queue.cpp
@@ -255,10 +256,6 @@ set_tests_properties(button_read_src PROPERTIES LABELS unit)
 # GET_STATUS self powered (D18)
 add_test(NAME usb_src COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_usb_src.py")
 set_tests_properties(usb_src PROPERTIES LABELS unit)
-
-# the StcK console command's settings key whitelist against config_but() (source check)
-add_test(NAME settings_keys COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test_settings_keys.py")
-set_tests_properties(settings_keys PROPERTIES LABELS unit)
 
 # --- renders ---------------------------------------------------------------------------------------
 set(_golden_file "${CMAKE_CURRENT_SOURCE_DIR}/golden/renders.txt")

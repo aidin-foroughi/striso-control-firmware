@@ -30,6 +30,7 @@
 #include <cstring>
 #include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -84,7 +85,7 @@ float volume = 0;
 synth_interface_t synth_interface;
 int synth_num_voices(void) { return 2; }
 const char* synth_voice_name(int n, const char** preset) {
-	*preset = nullptr;
+	if (preset) *preset = nullptr; // (settings_key_present asks for the name only)
 	return n == 0 ? "strisy" : n == 1 ? "va" :
 	                                    nullptr;
 }
@@ -1364,6 +1365,28 @@ static int replay(int argc, char** argv) {
 	return rc;
 }
 
+// StcK's whitelist: the settings_key_table rows flagged kConsole (settings_key_allowed) are the
+// documented keys, the keys that reboot, send configuration or need an amount (dials) are not
+// among them, and pressing an allowed key doesn't reboot (it was tests/test_settings_keys.py, a
+// source check of config_but's cases)
+static void t_settings_whitelist() {
+	const std::set<int> expected = {0, 2, 4, 34, 36, 38, 23, 25, 27, 29, 31, 33, 35, 37, 39, 41, 43, 45, 30, 32,
+	    18, 20, 22, 24, 26, 28, 13, 15, 63};
+	const std::set<int> refused = {67, 65, 11, 17, 19, 21, 6, 8, 51, 53, 56, 58};
+	std::set<int> flagged;
+	for (const settings_keys::Key& k : settings_key_table)
+		if (k.flags & settings_keys::kConsole) flagged.insert(k.id);
+	EXPECT(flagged == expected, "%zu keys flagged for StcK, %zu documented", flagged.size(), expected.size());
+	for (int id : refused) EXPECT(!flagged.count(id), "key %d (refused) is flagged for StcK", id);
+	for (int id = 0; id < 70; id++) {
+		const bool allowed = settings_key_allowed(id);
+		EXPECT(!allowed || flagged.count(id), "key %d allowed without the flag", id);
+		if (!allowed) continue;
+		config_but(id, 0, 0);
+		EXPECT(!reset_on_release && !reset_called, "key %d (allowed) asks for a reset", id);
+	}
+}
+
 // ------------------------------------------------------------------- settings presets and keys
 // test_synth_control settings <presets|keys> [--trace FILE] [--expect HASH] [--golden-name N]:
 // every settings preset in every tuning from a user config (presets), every settings key pressed,
@@ -1564,6 +1587,7 @@ static const Scenario scenarios[] = {
     {"sc35_tuning_overflow", t_sc35_tuning_overflow},
     {"sc37_blink", t_sc37_blink},
     {"sc38_no_synth", t_sc38_no_synth},
+    {"settings_whitelist", t_settings_whitelist},
     {"mi_mpe_note", t_mi_mpe_note},
     {"mi_mpe_initial", t_mi_mpe_initial},
     {"mi_one_channel", t_mi_one_channel},
