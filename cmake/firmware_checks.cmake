@@ -64,7 +64,7 @@ set(_threads
   "read_buttons|ThreadReadButtons|${SRC_DIR}/drivers/button_read.c|waThreadReadButtons|0"
   "send messages|_ZN12_GLOBAL__N_113ControlThreadEPv|${SRC_DIR}/app/control_thread.cpp|waControlThread|0"
   "blinker|Thread1|${SRC_DIR}/app/main.c|waThread1|0"
-  "auxjack|AuxJack|${SRC_DIR}/drivers/aux_jack.c|waAuxJack|0"
+  "auxjack|_ZN12_GLOBAL__N_17AuxJackEPv|${SRC_DIR}/drivers/aux_jack.cpp|waAuxJack|0"
   "motion|ThreadAccel|${SRC_DIR}/drivers/motionsensor.c|waThreadAccel|0"
   "main|main|-|1024|256"
   "idle|_idle_thread|-|16|0")

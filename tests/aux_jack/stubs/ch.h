@@ -2,6 +2,9 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#ifdef __cplusplus
+extern "C" { /* as the real headers */
+#endif
 typedef uint32_t sysinterval_t;
 typedef uint32_t systime_t;
 #define TRUE 1
@@ -14,3 +17,6 @@ void chRegSetThreadName(const char *n);
 void chThdSleepMilliseconds(int ms);
 void chThdSleepMicroseconds(int us);
 void *chThdCreateStatic(void *wa, size_t s, int prio, void (*f)(void *), void *arg);
+#ifdef __cplusplus
+}
+#endif
