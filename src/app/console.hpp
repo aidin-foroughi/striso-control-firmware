@@ -69,6 +69,7 @@ inline constexpr Command<typename H::Out> kCommands[] = {
 	{'P',    0, &H::profile,                kNone},        // the synth's profile since the last P
 	{'p',    0, &H::voice_params,           kNone},        // the current voice's parameters
 	{'f',    0, &H::fx_params,              kNone},        // the effects' parameters
+	{'H',    0, &H::heroes,                 kNone},        // "H <voice> <name>... | <fx name>..."
 	{'g',    0, &H::touch_params,           kNone},        // the touch parameters (target 2)
 	{'k',    0, &H::key_params,             kNone},        // the key factors (target 3)
 	{'Q',    6, &H::set_param,              kNone},        // target, index, float32 LE: "Q err" or none

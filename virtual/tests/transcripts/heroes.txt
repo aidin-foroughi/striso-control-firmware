@@ -1,0 +1,40 @@
+> Stc\x80
+voice 0 strisy
+> StcH
+H 0 | rvmix dlmix
+> Stc\x81
+voice 1 va:classic
+> StcH
+H 1 cut_base res cut_env drive saw2_detune sub release vibrato | rvmix dlmix
+> Stc\x82
+voice 2 va:pad
+> StcH
+H 2 cut_base cut_env release saw2_detune drift res sub vibrato | rvmix dlmix
+> Stc\x8F
+voice 15 bowed:violin
+> StcH
+H 15 force_hi pos rosin bright body_amt damp vibrato ensemble | rvmix dlmix
+> Stc\x93
+voice 19 bowed:section
+> StcH
+H 19 ensemble ens_detune ens_spread force_hi pos bright body_amt vibrato | rvmix dlmix
+> Stc\x89
+voice 9 modal:vibraphone
+> StcH
+H 9 hard decay upper keytrack hfdamp damper tremdepth rub | rvmix dlmix
+> Stc\xA0
+voice 32 wind:flute
+> StcH
+H 32 jet jet_off breath turb bright attack vib body | rvmix dlmix
+> Stc\xAA
+voice 42 ep:wurli
+> StcH
+H 42 wurli hard decay drive grit tone wobble dyn | rvmix dlmix
+> Stc\xB5
+voice 53 brass:harmon
+> StcH
+H 53 mute mute_bp mute_hz wah brassiness tone_hz vibrato release | rvmix dlmix
+> Stc\xB9
+voice 57 trumpet:bb jazz
+> StcH
+H 57 brassy bell growl fall doit shake vibrato breath | rvmix dlmix

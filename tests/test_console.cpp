@@ -52,6 +52,7 @@ struct TestCommands {
 	static void settings_layout(Out& o, const Req& r) { o.add("settings_layout", r); }
 	static void state(Out& o, const Req& r) { o.add("state", r); }
 	static void state_counter(Out& o, const Req& r) { o.add("state_counter", r); }
+	static void heroes(Out& o, const Req& r) { o.add("heroes", r); }
 	static void profile(Out& o, const Req& r) { o.add("profile", r); }
 	static void voice_params(Out& o, const Req& r) { o.add("voice_params", r); }
 	static void fx_params(Out& o, const Req& r) { o.add("fx_params", r); }
@@ -107,7 +108,7 @@ const console::Command<Recorder>* entry(uint8_t c) {
 
 TEST_CASE("console table: every command of the protocol, its payload length") {
 	// the protocol as Striso Live and tools/striso.py use it (README, protocol.dart)
-	const std::string no_payload = "DBSsMmVINXYyPpfgkvLUuCEZ";
+	const std::string no_payload = "DBSsMmVINXYyPpfHgkvLUuCEZ";
 	for (const char c : no_payload) {
 		CAPTURE(c);
 		REQUIRE(entry(static_cast<uint8_t>(c)) != nullptr);

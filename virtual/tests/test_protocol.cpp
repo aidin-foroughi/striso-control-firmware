@@ -3,7 +3,7 @@
 // virtual/tests/transcripts/<session>.txt: the virtual board's console sessions, sent and
 // received bytes, as the board's code answers them (the lists, Q writes and their errors, voice
 // selection, StcN in several tunings, StcK's whitelist and refusals, the settings presets, the
-// binary stream, the settings-key layout StcX). The board is deterministic, so a transcript is
+// binary stream, the settings-key layout StcX, the hero parameters StcH). The board is deterministic, so a transcript is
 // exact; only the version string (it follows git) and the thread list's addresses are masked.
 // With SV_UPDATE_TRANSCRIPTS=1 the test writes them instead (then read the diff before committing).
 //
@@ -155,6 +155,17 @@ TEST_CASE("protocol: voice selection, its errors, the list and parameters of the
 	s.cmd("v", 40);
 	s.cmd("p");
 	check_transcript("voices", s.text);
+}
+
+TEST_CASE("protocol: StcH, the hero parameters of the selected voice (its preset's or its engine's) and the effects'") {
+	Session s;
+	// strisy (none), va:classic and va:pad (its own), bowed:violin and bowed:section (its own),
+	// modal, wind:flute, ep:wurli, brass:harmon, trumpet:bb jazz (voices.txt has the list)
+	for (int n : {0, 1, 2, 15, 19, 9, 32, 42, 53, 57}) {
+		s.send(voice(n));
+		s.cmd("H");
+	}
+	check_transcript("heroes", s.text);
 }
 
 TEST_CASE("protocol: StcN in the tunings of the settings card (StcK)") {

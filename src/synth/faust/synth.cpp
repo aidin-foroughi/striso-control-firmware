@@ -1109,6 +1109,10 @@ int synth_param_set(int target, int index, float value) {
 	return 0;
 }
 
+void synth_heroes_print(void *chp) {
+	chprintf((BaseSequentialStream *)chp, "H 0 |\r\n");
+}
+
 uint32_t synth_params_signature(void) {
 	return 0;
 }

@@ -428,6 +428,21 @@ void synth_params_print(void* chp, int target) {
 	}
 }
 
+void synth_heroes_print(void* chp) {
+	BaseSequentialStream* out = (BaseSequentialStream*)chp;
+	const int n = voice_request;
+	const VoiceEntry& en = entries[n];
+	chprintf(out, "H %d", n);
+	Engines::visit(en.engine, engines, [&en, out](auto& e, auto) {
+		for (const char* h : striso::dsp::heroes_of(e.info, en.preset_name).name)
+			if (h) chprintf(out, " %s", h);
+	});
+	chprintf(out, " |");
+	for (const char* h : fx_engine.info.heroes.name)
+		if (h) chprintf(out, " %s", h);
+	chprintf(out, "\r\n");
+}
+
 uint32_t synth_params_signature(void) {
 	uint32_t h = 2166136261u; // FNV-1a over 32-bit words
 	const auto mix = [&h](uint32_t w) {

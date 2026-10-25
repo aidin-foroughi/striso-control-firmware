@@ -181,6 +181,9 @@ struct BoardCommands {
 	static void voice_params(Reply& o, const Request& /*r*/) { synth_params_print(o.stream(), 0); }
 	static void fx_params(Reply& o, const Request& /*r*/) { synth_params_print(o.stream(), 1); }
 
+	// the hero parameters of the current voice and of the effects
+	static void heroes(Reply& o, const Request& /*r*/) { synth_heroes_print(o.stream()); }
+
 	// the global touch parameters (target 2), in synth_params_print's line format: "index name
 	// group min max value kind", floats as hex bits
 	static void touch_params(Reply& o, const Request& /*r*/) {
