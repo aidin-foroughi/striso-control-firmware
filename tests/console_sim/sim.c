@@ -303,3 +303,8 @@ void MidiInMsgHandler(midi_device_t dev, uint8_t port, uint8_t b0, uint8_t b1, u
   midi_in_calls++;
   sim_logf("midi(port=%u %02x %02x %02x)\n", port, b0, b1, b2);
 }
+int UmpInMsgHandler(midi_device_t dev, const uint32_t *words, int n) {
+  (void)dev;
+  for (int i = 0; i < n; i++) sim_logf("ump(%08x)\n", (unsigned)words[i]);
+  return n;
+}

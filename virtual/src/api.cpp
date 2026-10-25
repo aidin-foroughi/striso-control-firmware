@@ -605,6 +605,11 @@ SV_API int32_t sv_midi_read(sv_board* b, uint8_t* out, int32_t max) {
 	SV_WITH_FW(b, b->attached ? b->mod.api->midi_read(out, max) : SV_ENODEV);
 }
 
+SV_API int32_t sv_usb_control(sv_board* b, uint8_t type, uint8_t req, uint16_t value, uint16_t index, uint8_t* data, uint16_t len) {
+	if (len > 0 && !data) return SV_EINVAL;
+	SV_WITH_FW(b, b->attached ? b->mod.api->usb_control(type, req, value, index, data, len) : SV_ENODEV);
+}
+
 SV_API int32_t sv_ump_write(sv_board* b, const uint32_t* words, int32_t n) {
 	if (!words || n < 0) return SV_EINVAL;
 	SV_WITH_FW(b, b->attached ? b->mod.api->ump_write(words, n) : SV_ENODEV);

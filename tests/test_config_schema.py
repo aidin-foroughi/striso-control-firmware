@@ -80,7 +80,7 @@ for want in ["iGpreset", "sGaltkey", "iPxMint", "sPxMmode", "fPxdecaP", "hTxcolo
     check(want in doc_keys, f"doc has {want}")
 check('iPxMint:  {text:"MIDI message interval", help:"in ms [1-127]", check:function(x) {return clamp(x, 1, 127);}},' in js,
       "a doc entry as the editor reads it")
-check('options:["", "mpe", "normal", "mono"]' in js, "a preset's choices offer blank")
+check('options:["", "mpe", "normal", "mono", "midi2"]' in js, "a preset's choices offer blank")
 htm = (ROOT / "src/app/config_editor/config.htm").read_text()
 check(htm.count("{CONFIGSCHEMA}") == 1 and "const doc = {" not in htm, "config.htm takes the key list from the schema")
 

@@ -386,9 +386,19 @@ void PExReceive(void) {
 		std::memcpy(ev, MDU1.ibqueue.ptr, n);
 		ibqReleaseEmptyBufferS(&MDU1.ibqueue);
 		chSysUnlock();
-		midi_in::MidiInParser::transfer(std::span<const uint8_t>(ev, n), [](const midi_in::Event& e) {
-			MidiInMsgHandler(MIDI_DEVICE_USB_DEVICE, e.port, e.status, e.data1, e.data2);
-		});
+		if (midi_usb_ump()) {
+			// USB MIDI 2.0 (alt 1): Universal MIDI Packets, little-endian words, whole in a transfer
+			static uint32_t words[MIDI_USB_BUFFERS_SIZE / 4];
+			const int nw = static_cast<int>(n / 4);
+			for (int i = 0; i < nw; i++)
+				words[i] = static_cast<uint32_t>(ev[4 * i]) | static_cast<uint32_t>(ev[4 * i + 1]) << 8 |
+				    static_cast<uint32_t>(ev[4 * i + 2]) << 16 | static_cast<uint32_t>(ev[4 * i + 3]) << 24;
+			(void)UmpInMsgHandler(MIDI_DEVICE_USB_DEVICE, words, nw);
+		} else {
+			midi_in::MidiInParser::transfer(std::span<const uint8_t>(ev, n), [](const midi_in::Event& e) {
+				MidiInMsgHandler(MIDI_DEVICE_USB_DEVICE, e.port, e.status, e.data1, e.data2);
+			});
+		}
 	}
 }
 

@@ -45,6 +45,7 @@ extern "C" {
 #include "chprintf.h"
 #include "messaging.hpp"
 #include "striso_dsp/midi_in.h"
+#include "striso_dsp/ump_out.h"
 #include "striso_dsp/voice_allocator.h"
 
 #include <array>
@@ -73,6 +74,20 @@ void set_volume(float vol) {
     volume = volume_linear * volume_linear * (1.0f / 16129.0f);
 }
 
+static bool note_channel(int channel);
+static bool note_cc(int cc);
+
+// MIDI mode midi2 on USB's MIDI 2.0 alt setting: the keys' notes go out as MIDI 2.0 (MidiSendUmp),
+// so MIDI 1.0's note data (MPE's notes, pressure, bends and note CCs on the note channels) stays
+// off USB; DIN, and USB's MIDI 1.0 alt setting, get all of it (doc/engines.md, "MIDI 2.0 out")
+static bool usb_note_data_dropped(uint8_t b0, uint8_t b1) {
+    if (!config.midi2 || !midi_usb_ump()) return false;
+    const uint8_t s = b0 & 0xf0;
+    const int channel = b0 & 0x0f;
+    if (s == 0x80 || s == 0x90 || s == 0xa0 || s == 0xd0 || s == 0xe0) return note_channel(channel);
+    return s == 0xb0 && b1 < 120 && note_channel(channel) && note_cc(b1);
+}
+
 void MidiSend1(uint8_t b0) {
     midi_usb_MidiSend1(1, b0);
 #ifdef USE_MIDI_SERIAL
@@ -99,7 +114,7 @@ static bool note_out_recently(int channel) {
 void MidiSend2(uint8_t b0, uint8_t b1) {
     mark_note_out(b0);
     b1 &= 0x7f;
-    midi_usb_MidiSend2(1, b0, b1);
+    if (!usb_note_data_dropped(b0, b1)) midi_usb_MidiSend2(1, b0, b1);
 #ifdef USE_MIDI_SERIAL
     serial_MidiSend2(b0, b1);
 #endif
@@ -109,7 +124,7 @@ void MidiSend3(uint8_t b0, uint8_t b1, uint8_t b2) {
     mark_note_out(b0);
     b1 &= 0x7f;
     b2 &= 0x7f;
-    midi_usb_MidiSend3(1, b0, b1, b2);
+    if (!usb_note_data_dropped(b0, b1)) midi_usb_MidiSend3(1, b0, b1, b2);
 #ifdef USE_MIDI_SERIAL
     serial_MidiSend3(b0, b1, b2);
 #endif
@@ -170,6 +185,7 @@ void update_leds(void);
 static void midi_in_message(uint8_t status, uint8_t data1, uint8_t data2);
 static void midi_in_message2(uint32_t w0, uint32_t w1);
 void set_midi_mode(midi_mode_t mode);
+void set_midi2(void);
 float config_but(int but, int type, float adjust);
 static volatile bool reset_on_release = false;  // settings + key 67, see synth_tick()
 
@@ -471,6 +487,7 @@ class Instrument {
          */
         striso::midi::NoteInput midi_in;
         striso::ump::Decoder<BUTTONCOUNT + MIDI_IN_NOTES> synth_in;
+        striso::ump::StandardOut<BUTTONCOUNT> ump_out;  // MIDI mode midi2: the keys as MIDI 2.0 (ump_out.h)
         bool key_sounding[BUTTONCOUNT] = {};  // a key's Note On went out (its Note Off not yet)
 
         // the decoder's host: the touch factors are the keys' sensitivities, a MIDI note's 1
@@ -1157,30 +1174,42 @@ class Instrument {
         // the note of but goes on with key to (portamento and free transpose hand-overs)
         void hand_over_synth_voice(int but, int to) { synth_alloc.hand_over(but, to); }
 
-        // a key's controls for the internal synth, in the Striso UMP profile, through the decoder
-        // to its voice (if it still has one): pitch (with the tilt's bend), pres, vpres, x, y,
-        // and its Note On / Off as its state changes
+        // a key's controls in the Striso UMP profile: pitch (with the tilt's bend), pres, vpres,
+        // x, y, and its Note On / Off as its state changes; through the decoder to its internal
+        // voice (if it still has one), and in MIDI mode midi2 to the MIDI 2.0 out
         void update_synth_voice(int but) {
-#ifdef USE_INTERNAL_SYNTH
             const Button& b = buttons[but];
             float pb = 0.0f;
             if (config.mpe_x == CFG_PITCH_BEND) {
                 pb = bend_sensitivity * pow3(b.but_x);
             }
             const bool on = b.state == STATE_ON;
-            synth_in.packet(striso::ump::pitch_packet(but, b.note + pb));
-            synth_in.packet(striso::ump::pres_packet(but, b.pres));
-            synth_in.packet(striso::ump::signed_packet(but, striso::ump::ctl_vpres, b.vpres));
-            synth_in.packet(striso::ump::signed_packet(but, striso::ump::ctl_x, b.but_x));
-            synth_in.packet(striso::ump::signed_packet(but, striso::ump::ctl_y, b.but_y));
+            striso::ump::Packet p[6] = {
+                striso::ump::pitch_packet(but, b.note + pb),
+                striso::ump::pres_packet(but, b.pres),
+                striso::ump::signed_packet(but, striso::ump::ctl_vpres, b.vpres),
+                striso::ump::signed_packet(but, striso::ump::ctl_x, b.but_x),
+                striso::ump::signed_packet(but, striso::ump::ctl_y, b.but_y),
+                {0, 0}};
+            int n = 5;
             if (on != key_sounding[but]) {
-                synth_in.packet(on ? striso::ump::note_on_packet(but, b.vpres, false) : striso::ump::note_off_packet(but));
+                p[n++] = on ? striso::ump::note_on_packet(but, b.vpres, false) : striso::ump::note_off_packet(but);
                 key_sounding[but] = on;
             }
+#ifdef USE_INTERNAL_SYNTH
+            for (int k = 0; k < n; k++) synth_in.packet(p[k]);
             synth_in.flush(*this);
-#else
-            (void)but;
 #endif
+            if (config.midi2) {
+                for (int k = 0; k < n; k++) ump_out.packet(p[k]);
+                ump_out.flush(*this);
+            }
+        }
+
+        // ump_out's sink: USB's MIDI 2.0 alt setting (nothing on the MIDI 1.0 one, or on DIN)
+        void ump(uint32_t w0, uint32_t w1) {
+            const uint32_t w[2] = {w0, w1};
+            midi_usb_UmpSend(w, 2);
         }
 
         // the decoded controls of note id to its voice (if it still has one)
@@ -1592,6 +1621,7 @@ struct InstrumentBoard {
     void motion_interval(int i) { config.send_motion_interval = i; }
     midi_mode_t midi_mode() const { return config.midi_mode; }
     void set_midi_mode(midi_mode_t m) { ::set_midi_mode(m); }
+    void set_midi2() { ::set_midi2(); }
     void midinote_mode(midinote_mode_t m) { config.midinote_mode = m; }
     void jack2(jack2_mode_t m) { aux_jack_switch_mode_setting(m); }
     int flipdir() const { return in.flipdir; }
@@ -2378,7 +2408,15 @@ static void board_cc(uint8_t channel, uint8_t data1, uint8_t data2) {
     }
 }
 
+// MIDI mode midi2: MPE on MIDI 1.0 (DIN, USB's MIDI 1.0 alt setting), MIDI 2.0 on USB's MIDI 2.0
+// alt setting
+void set_midi2(void) {
+    set_midi_mode(MIDI_MODE_MPE);
+    config.midi2 = true;
+}
+
 void set_midi_mode(midi_mode_t mode) {
+    config.midi2 = false;  // (set_midi2 sets it again)
     // the notes of the old mode end in channels_changed (below)
     switch (mode) {
         case MIDI_MODE_MPE: {

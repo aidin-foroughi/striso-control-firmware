@@ -16,7 +16,7 @@
 extern "C" {
 #endif
 
-#define SV_FW_API_VERSION 2
+#define SV_FW_API_VERSION 3
 #define SV_DEVSPEC_SIZE 1024 /* 0x081e0000: devspec_id, calib_dis_force, _breakpoint, _force2 */
 #define SV_BOOTLOADER_SIGNATURE 0x71a21877u /* console.cpp kBootloaderRtcSignature */
 
@@ -45,6 +45,7 @@ typedef struct sv_fw_api {
 	int32_t (*midi_write)(const uint8_t* bytes, int32_t n);
 	int32_t (*midi_read)(uint8_t* out, int32_t max);
 	int32_t (*ump_write)(const uint32_t* words, int32_t n);
+	int32_t (*usb_control)(uint8_t type, uint8_t req, uint16_t value, uint16_t index, uint8_t* data, uint16_t len);
 	int32_t (*inject_key)(int32_t src, int32_t id, int32_t pres, int32_t velo, int32_t x, int32_t y);
 	int32_t (*inject_control)(int32_t id, int32_t value);
 	int32_t (*inject_motion)(const int16_t raw[6]);

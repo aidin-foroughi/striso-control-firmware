@@ -556,7 +556,34 @@ uint8_t calcCIN1(uint8_t port, uint8_t b0) {
   return cin;
 }
 
+static volatile uint8_t midi_alt; /* the host's alternate setting of interface 1 */
+
+void midi_usb_set_alt(uint8_t alt) { midi_alt = alt; }
+bool midi_usb_ump(void) { return midi_alt == 1; }
+
+void midi_usb_UmpSend(const uint32_t *words, int n) {
+  if (midi_alt != 1) return;
+  uint8_t tx[16];
+  for (int i = 0; i < n && i < 4; i++) {
+    tx[4 * i] = (uint8_t)words[i];
+    tx[4 * i + 1] = (uint8_t)(words[i] >> 8);
+    tx[4 * i + 2] = (uint8_t)(words[i] >> 16);
+    tx[4 * i + 3] = (uint8_t)(words[i] >> 24);
+  }
+  _writet(&MDU1, tx, 4 * (size_t)(n < 4 ? n : 4), MIDISEND_TIMEOUT);
+}
+
+/* a MIDI 1.0 message (no SysEx) as one UMP: type 1 (system) or 2 (channel voice), group port - 1 */
+static bool ump_midi1(uint8_t port, uint8_t b0, uint8_t b1, uint8_t b2) {
+  if (midi_alt != 1) return false;
+  const uint32_t w = (uint32_t)(b0 >= 0xf0 ? 1 : 2) << 28 | (uint32_t)((port - 1) & 0x0f) << 24 |
+                     (uint32_t)b0 << 16 | (uint32_t)b1 << 8 | b2;
+  midi_usb_UmpSend(&w, 1);
+  return true;
+}
+
 void midi_usb_MidiSend1(uint8_t port, uint8_t b0) {
+  if (ump_midi1(port, b0, 0, 0)) return;
   uint8_t tx[4];
   tx[0] = calcCIN1(port, b0);
   tx[1] = b0;
@@ -566,6 +593,7 @@ void midi_usb_MidiSend1(uint8_t port, uint8_t b0) {
 }
 
 void midi_usb_MidiSend2(uint8_t port, uint8_t b0, uint8_t b1) {
+  if (ump_midi1(port, b0, b1, 0)) return;
   uint8_t tx[4];
   tx[0] = calcCIN1(port, b0);
   tx[1] = b0;
@@ -575,6 +603,7 @@ void midi_usb_MidiSend2(uint8_t port, uint8_t b0, uint8_t b1) {
 }
 
 void midi_usb_MidiSend3(uint8_t port, uint8_t b0, uint8_t b1, uint8_t b2) {
+  if (ump_midi1(port, b0, b1, b2)) return;
   uint8_t tx[4];
   tx[0] = calcCIN1(port, b0);
   tx[1] = b0;

@@ -51,6 +51,7 @@ int32_t svh_console_write(const uint8_t* bytes, int32_t n);   /* host -> board *
 int32_t svh_console_read(uint8_t* out, int32_t max);          /* board -> host */
 int32_t svh_midi_write(const uint8_t* bytes, int32_t n);
 int32_t svh_midi_read(uint8_t* out, int32_t max);
+int32_t svh_usb_control(uint8_t type, uint8_t req, uint16_t value, uint16_t index, uint8_t* data, uint16_t len);
 /* a USB frame: the board's IN buffers go to the host */
 void svh_usb_sof(void);
 

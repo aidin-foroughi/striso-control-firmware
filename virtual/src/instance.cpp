@@ -164,6 +164,11 @@ int32_t fw_console_read(uint8_t* b, int32_t n) { return svh_console_read(b, n); 
 int32_t fw_midi_write(const uint8_t* b, int32_t n) { return svh_midi_write(b, n); }
 int32_t fw_midi_read(uint8_t* b, int32_t n) { return svh_midi_read(b, n); }
 
+int32_t fw_usb_control(uint8_t type, uint8_t req, uint16_t value, uint16_t index, uint8_t* data, uint16_t len) {
+	const int32_t r = svh_usb_control(type, req, value, index, data, len);
+	return r < 0 ? SV_ESTATE : r;
+}
+
 int32_t fw_ump_write(const uint32_t* words, int32_t n) {
 	const int32_t r = svh_ump_write(words, n);
 	svh_run();
@@ -258,6 +263,7 @@ const sv_fw_api api = {
     fw_midi_write,
     fw_midi_read,
     fw_ump_write,
+    fw_usb_control,
     fw_inject_key,
     fw_inject_control,
     fw_inject_motion,

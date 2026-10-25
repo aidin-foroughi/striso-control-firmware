@@ -103,6 +103,7 @@ typedef struct struct_config {
   int zero_offset;
   int debug;
   midi_mode_t midi_mode;
+  bool midi2;     // MIDI out mode midi2: MIDI 2.0 on USB's MIDI 2.0 alt setting (midi_mode is MPE)
   midinote_mode_t midinote_mode;
   jack2_mode_t jack2_mode_setting; // mode from settings
   jack2_mode_t jack2_mode; // active mode (when jack is inserted)
@@ -136,6 +137,7 @@ config_t config = {
   .zero_offset = 0,
   .debug = 0,
   .midi_mode = MIDI_MODE_MPE,
+  .midi2 = false,
   .midinote_mode = MIDINOTE_MODE_DEFAULT,
   .jack2_mode_setting = JACK2_MODE_AUTODETECT,
   .jack2_mode = JACK2_MODE_DISABLED,

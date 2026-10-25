@@ -30,6 +30,10 @@ struct RecordingBoard {
 		mode = m;
 		say("mode " + std::to_string(m));
 	}
+	void set_midi2() {
+		mode = MIDI_MODE_MPE;
+		say("mode midi2");
+	}
 	void midinote_mode(midinote_mode_t m) { say("midinote " + std::to_string(m)); }
 	void jack2(jack2_mode_t m) { say("jack " + std::to_string(m)); }
 	[[nodiscard]] int flipdir() const { return flip_dir; }
@@ -141,6 +145,18 @@ TEST_CASE("preset loader: MPE's program change goes to channel 1 and every voice
 	RecordingBoard b;
 	b.channel = 1;
 	const auto log = load({{"sP4Mmode", "mpe"}, {"iP4voice", "3"}, {"iP4Mpgm", "0"}}, 4, b);
+	std::vector<std::string> pc;
+	for (const auto& l : log)
+		if (l.rfind("program", 0) == 0) pc.push_back(l);
+	CHECK(pc == std::vector<std::string>{"program 0 0", "program 1 0", "program 2 0", "program 3 0"});
+}
+
+TEST_CASE("preset loader: MIDI mode midi2 is MPE on MIDI 1.0 (its voices, its program changes) and MIDI 2.0 out") {
+	RecordingBoard b;
+	b.channel = 1;
+	const auto log = load({{"sP4Mmode", "midi2"}, {"iP4voice", "3"}, {"iP4Mpgm", "0"}}, 4, b);
+	CHECK(has(log, "mode midi2"));
+	CHECK(b.midi_mode() == MIDI_MODE_MPE);
 	std::vector<std::string> pc;
 	for (const auto& l : log)
 		if (l.rfind("program", 0) == 0) pc.push_back(l);

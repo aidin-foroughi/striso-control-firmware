@@ -14,6 +14,7 @@
 //   led(rgb)                                       the indicator colour
 //   message_interval(ms), motion_interval(i)       config.message_interval, send_motion_interval
 //   midi_mode(), set_midi_mode(m)                  the MIDI mode (set_midi_mode sends its messages)
+//   set_midi2()                                    MIDI mode midi2: MIDI 2.0 out, MPE on MIDI 1.0
 //   midinote_mode(m), jack2(m)                     config.midinote_mode, the jack's setting
 //   flipdir(), flip()                              the layout (1, or -1 when turned 180 degrees)
 //   load_tuning(n)                                 PresetLoader::load_tuning on this board
@@ -67,6 +68,9 @@ public:
 			sendcfg = true;
 		} else if (cfg_.is(P("Mmode"), "mono")) {
 			b_.set_midi_mode(MIDI_MODE_MONO);
+			sendcfg = true;
+		} else if (cfg_.is(P("Mmode"), "midi2")) {
+			b_.set_midi2();
 			sendcfg = true;
 		}
 
