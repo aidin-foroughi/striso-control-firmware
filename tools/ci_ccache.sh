@@ -15,8 +15,9 @@ esac
 dir="$1"
 mkdir -p "$dir"
 file="$dir/ccache-$VERSION-$asset"
-curl -fsSL -o "$file" "https://github.com/ccache/ccache/releases/download/v$VERSION/ccache-$VERSION-$asset"
-got="$( (sha256sum "$file" 2>/dev/null || shasum -a 256 "$file") | cut -d' ' -f1)"
+# read from stdin: for a path with a backslash, sha256sum prefixes its sum with a backslash
+# from stdin: given a path with a backslash, sha256sum puts a "\\" before its sum
+got="$( (sha256sum < "$file" 2>/dev/null || shasum -a 256 < "$file") | cut -d' ' -f1)"
 [ "$got" = "$sha" ] || { echo "ci_ccache.sh: $file: sha256 $got, want $sha" >&2; exit 1; }
 case "$asset" in
 *.zip) unzip -q -j -o "$file" "*/$exe" -d "$dir" ;;
